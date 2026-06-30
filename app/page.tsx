@@ -353,11 +353,8 @@ function HRDashboard() {
 
   const filteredSummaries = tableFilter === 'all' ? employeeSummaries
     : tableFilter === 'present' ? employeeSummaries.filter(e => e.presentDays > 0)
-    : tableFilter === 'absent' ? employeeSummaries.filter(e => e.absentDays > 0)
     : tableFilter === 'late' ? employeeSummaries.filter(e => e.lateCount > 0)
     : tableFilter === 'earlyexit' ? employeeSummaries.filter(e => e.earlyExitCount > 0)
-    : tableFilter === 'shortday' ? employeeSummaries.filter(e => e.shortDayCount > 0)
-    : tableFilter === 'frequentpunch' ? employeeSummaries.filter(e => e.frequentPunchDays > 0)
     : employeeSummaries;
 
   return (
