@@ -76,6 +76,7 @@ export interface DayWiseLateEarly {
 export interface Holiday {
   date: string; // YYYY-MM-DD
   name: string;
+  source?: 'predefined' | 'custom'; // predefined = from official office holiday calendar, locked
 }
 
 export interface MonthlyTrendPoint {

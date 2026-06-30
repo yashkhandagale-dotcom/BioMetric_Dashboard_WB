@@ -27,7 +27,6 @@ import {
 import ExportPanel from '@/components/ExportPanel';
 import EmployeePanel from '@/components/EmployeePanel';
 import TeamComparisonPanel from '@/components/TeamComparisonPanel';
-import HolidayModal from '@/components/HolidayModal';
 import InsightsStrip from '@/components/InsightsStrip';
 import SettingsPanel from '@/components/SettingsPanel';
 
@@ -116,7 +115,6 @@ function HRDashboard() {
   const [selectedMonthKey, setSelectedMonthKey] = useState('');
   const [selectedOffice, setSelectedOffice] = useState('ALL');
   const [selectedDepts, setSelectedDepts] = useState<string[]>([]);
-  const [showHolidayModal, setShowHolidayModal] = useState(false);
   const [holidays, setHolidays] = useState<Holiday[]>([]);
   const [tableFilter, setTableFilter] = useState<string>('all');
   const [thresholds, setThresholds] = useState<Thresholds>(getThresholds());
@@ -385,22 +383,13 @@ function HRDashboard() {
         {appState === 'dashboard' && (
           <div className="flex items-center gap-2">
             {holidays.length > 0 && (
-              <button
-                onClick={() => setShowHolidayModal(true)}
-                className="flex items-center gap-1.5 bg-purple-600/20 border border-purple-500/30 text-purple-400 px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-purple-600/30 transition-colors"
+              <span
+                className="flex items-center gap-1.5 bg-purple-600/20 border border-purple-500/30 text-purple-400 px-3 py-1.5 rounded-lg text-xs font-medium"
+                title="Manage holidays from Settings"
               >
                 <Calendar className="w-3.5 h-3.5" />
                 🗓 {holidays.length} Holiday{holidays.length !== 1 ? 's' : ''}
-              </button>
-            )}
-            {holidays.length === 0 && currentOffice && (
-              <button
-                onClick={() => setShowHolidayModal(true)}
-                className="flex items-center gap-1.5 text-slate-500 hover:text-slate-300 px-2 py-1.5 rounded-lg text-xs transition-colors"
-                title="Manage holidays"
-              >
-                <Calendar className="w-3.5 h-3.5" /> Holidays
-              </button>
+              </span>
             )}
             <button
               onClick={() => setShowSettings(true)}
@@ -529,23 +518,17 @@ function HRDashboard() {
         onLeaveChange={refreshLeaveRecords}
       />
 
-      {/* Holiday modal */}
-      {showHolidayModal && (
-        <HolidayModal
-          officeCode={currentOffice}
-          year={currentYear}
-          onClose={() => setShowHolidayModal(false)}
-          onSaved={(h) => setHolidays(h)}
-        />
-      )}
-
-      {/* A8: Settings panel */}
+      {/* A8: Settings panel (now also hosts holiday management) */}
       {showSettings && (
         <SettingsPanel
           onClose={() => setShowSettings(false)}
           thresholds={thresholds}
           onSaveThresholds={handleSaveThresholds}
           records={allRecords}
+          officeCode={currentOffice}
+          year={currentYear}
+          holidays={holidays}
+          onHolidaysSaved={(h) => setHolidays(h)}
         />
       )}
 
