@@ -33,7 +33,7 @@ export default function HolidayModal({ officeCode, year, readOnly, onClose, onSa
 
   function addHoliday() {
     if (!newDate || !newName.trim()) return;
-    const updated = [...holidays, { date: newDate, name: newName.trim() }]
+    const updated = [...holidays, { date: newDate, name: newName.trim(), source: 'custom' as const }]
       .sort((a, b) => a.date.localeCompare(b.date));
     setHolidays(updated);
     setNewDate('');
@@ -75,7 +75,7 @@ export default function HolidayModal({ officeCode, year, readOnly, onClose, onSa
         <div className="max-h-[360px] overflow-y-auto">
           {holidays.length === 0 ? (
             <div className="px-5 py-8 text-center text-slate-500 text-sm">
-              No holidays configured for {year}.
+              No office holiday calendar found for {year}, and no custom holidays added yet.
             </div>
           ) : (
             <table className="w-full text-xs">
@@ -84,24 +84,35 @@ export default function HolidayModal({ officeCode, year, readOnly, onClose, onSa
                   <th className="px-5 py-2 text-left font-medium">Date</th>
                   <th className="px-2 py-2 text-left font-medium">Day</th>
                   <th className="px-2 py-2 text-left font-medium">Name</th>
+                  <th className="px-2 py-2 text-left font-medium">Source</th>
                   {!readOnly && <th className="px-3 py-2" />}
                 </tr>
               </thead>
               <tbody>
-                {holidays.map((h, i) => (
-                  <tr key={i} className="border-b border-slate-800/50 hover:bg-slate-800/30">
-                    <td className="px-5 py-2.5 text-slate-300 font-mono">{h.date}</td>
-                    <td className="px-2 py-2.5 text-slate-500">{getDayName(h.date)}</td>
-                    <td className="px-2 py-2.5 text-white">{h.name}</td>
-                    {!readOnly && (
-                      <td className="px-3 py-2.5">
-                        <button onClick={() => removeHoliday(i)} className="text-slate-600 hover:text-red-400 transition-colors">
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                {holidays.map((h, i) => {
+                  const isPredefined = h.source === 'predefined';
+                  return (
+                    <tr key={i} className="border-b border-slate-800/50 hover:bg-slate-800/30">
+                      <td className="px-5 py-2.5 text-slate-300 font-mono">{h.date}</td>
+                      <td className="px-2 py-2.5 text-slate-500">{getDayName(h.date)}</td>
+                      <td className="px-2 py-2.5 text-white">{h.name}</td>
+                      <td className="px-2 py-2.5">
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded ${isPredefined ? 'bg-blue-600/20 text-blue-400' : 'bg-slate-700 text-slate-300'}`}>
+                          {isPredefined ? 'Office calendar' : 'Custom'}
+                        </span>
                       </td>
-                    )}
-                  </tr>
-                ))}
+                      {!readOnly && (
+                        <td className="px-3 py-2.5">
+                          {!isPredefined && (
+                            <button onClick={() => removeHoliday(i)} className="text-slate-600 hover:text-red-400 transition-colors">
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </td>
+                      )}
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           )}
@@ -109,7 +120,7 @@ export default function HolidayModal({ officeCode, year, readOnly, onClose, onSa
 
         {!readOnly && (
           <div className="px-5 py-3 border-t border-slate-800 bg-slate-900/50">
-            <p className="text-slate-500 text-xs mb-2">Add Holiday</p>
+            <p className="text-slate-500 text-xs mb-2">Add extra holiday (regional/ad-hoc, on top of the office calendar)</p>
             <div className="flex gap-2">
               <input
                 type="date"
