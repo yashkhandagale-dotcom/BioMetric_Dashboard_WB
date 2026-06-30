@@ -27,6 +27,7 @@ import {
 import ExportPanel from '@/components/ExportPanel';
 import EmployeePanel from '@/components/EmployeePanel';
 import TeamComparisonPanel from '@/components/TeamComparisonPanel';
+import EmployeeComparisonPanel from '@/components/EmployeeComparisonPanel';
 import HolidayModal from '@/components/HolidayModal';
 import InsightsStrip from '@/components/InsightsStrip';
 import SettingsPanel from '@/components/SettingsPanel';
@@ -488,6 +489,15 @@ function HRDashboard() {
 
             {/* Dept comparison */}
             <TeamComparisonPanel allRecords={allRecords} departments={departments} />
+
+            {/* Employee comparison: vs colleague, or vs own previous month */}
+            <EmployeeComparisonPanel
+              allRecords={filteredRecords}
+              employeeSummaries={employeeSummaries}
+              leaveRecords={leaveRecords}
+              holidays={holidays}
+              graceMinutes={thresholds.graceMinutes}
+            />
 
             {/* Insights */}
             <InsightsStrip

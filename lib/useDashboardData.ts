@@ -108,6 +108,92 @@ export function buildLeaveMap(leaveRecords: LeaveRecord[]): Map<string, LeaveRec
   return m;
 }
 
+// ── B8: shared leave-aware KPI calculator, used for employee-vs-employee and
+// employee-vs-own-history comparisons (TeamComparisonPanel / EmployeeComparisonPanel) ──
+export interface ComparisonKPIs {
+  attendanceRate: number;
+  absenteeismRate: number;
+  avgHoursPerDay: number;
+  lateArrivalRate: number;
+  earlyExitRate: number;
+  productivityLost: number;
+  presentDays: number;
+  absentDays: number;
+  plannedLeaveCount: number;
+  casualLeaveCount: number;
+  sickLeaveCount: number;
+  lwpCount: number;
+  halfDayCount: number;
+  scheduledDays: number;
+  // sample sizes the rates above were computed over, so the UI can flag
+  // "rate computed from only N days" instead of looking like a bug
+  presentSampleSize: number;
+}
+
+export function computeEmployeeKPIs(
+  records: AttendanceRecord[],
+  leaveMap: Map<string, LeaveRecord>,
+  holidays: Holiday[] = [],
+  grace: number = 10
+): ComparisonKPIs {
+  const workRecords = records.filter((r) => {
+    if (isWeeklyOff(r.status)) return false;
+    if (isHoliday(r.date, holidays) && !isPresent(r.status)) return false;
+    return true;
+  });
+
+  const presentRecords = workRecords.filter((r) => isPresent(r.status) && !r.isShortDay);
+  const absentRecordsAll = workRecords.filter((r) => isAbsent(r.status));
+  const halfDayRecords = workRecords.filter(
+    (r) => r.isShortDay && leaveMap.get(leaveKey(r.employeeCode, r.date))?.leaveType === 'half_day'
+  );
+
+  let plannedLeaveCount = 0, unexplainedAbsentCount = 0, casualLeaveCount = 0, sickLeaveCount = 0, lwpCount = 0;
+  for (const r of absentRecordsAll) {
+    const leave = leaveMap.get(leaveKey(r.employeeCode, r.date));
+    if (!leave) { unexplainedAbsentCount++; continue; }
+    if (leave.leaveType === 'planned') plannedLeaveCount++;
+    else if (leave.leaveType === 'casual') casualLeaveCount++;
+    else if (leave.leaveType === 'sick') sickLeaveCount++;
+    else if (leave.leaveType === 'lwp') { lwpCount++; unexplainedAbsentCount++; }
+    else unexplainedAbsentCount++;
+  }
+  const halfDayCount = halfDayRecords.length;
+
+  const scheduledDays = workRecords.length;
+  const absentDays = unexplainedAbsentCount;
+  const presentDays = presentRecords.length + halfDayCount * 0.5;
+
+  // Planned/casual/sick leave is "explained" and doesn't count against attendance rate,
+  // matching how the main KPI cards treat the org-wide rate.
+  const explainedLeave = plannedLeaveCount + casualLeaveCount + sickLeaveCount;
+  const denom = scheduledDays - explainedLeave;
+  const attendanceRate = denom > 0 ? (presentDays / denom) * 100 : 0;
+  const absenteeismRate = scheduledDays > 0 ? (absentDays / scheduledDays) * 100 : 0;
+
+  const presentWithDuration = presentRecords.filter((r) => durationToMinutes(r.duration) > 0);
+  const totalMins = presentWithDuration.reduce((sum, r) => sum + durationToMinutes(r.duration), 0);
+  const avgHoursPerDay = presentWithDuration.length > 0 ? totalMins / presentWithDuration.length / 60 : 0;
+
+  const lateRecords = presentRecords.filter((r) => getLateMinutes(r, grace) > 0);
+  const earlyRecords = presentRecords.filter((r) => getEarlyMinutes(r, grace) > 0);
+  const lateArrivalRate = presentRecords.length > 0 ? (lateRecords.length / presentRecords.length) * 100 : 0;
+  const earlyExitRate = presentRecords.length > 0 ? (earlyRecords.length / presentRecords.length) * 100 : 0;
+
+  const totalLostMins = presentRecords.reduce(
+    (sum, r) => sum + getLateMinutes(r, grace) + getEarlyMinutes(r, grace), 0
+  );
+  const totalShiftMins = presentRecords.length * SHIFT_MINUTES;
+  const productivityLost = totalShiftMins > 0 ? (totalLostMins / totalShiftMins) * 100 : 0;
+
+  return {
+    attendanceRate, absenteeismRate, avgHoursPerDay, lateArrivalRate, earlyExitRate,
+    productivityLost, presentDays, absentDays, plannedLeaveCount, casualLeaveCount,
+    sickLeaveCount, lwpCount, halfDayCount, scheduledDays,
+    presentSampleSize: presentRecords.length,
+  };
+}
+
 export function useDashboardData(
   records: AttendanceRecord[],
   selectedOffice: string,

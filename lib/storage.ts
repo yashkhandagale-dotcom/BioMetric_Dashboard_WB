@@ -83,6 +83,27 @@ export function getAllRecords(): AttendanceRecord[] {
   return months.flatMap((m) => getRecords(m.key));
 }
 
+// ── B8: pull one employee's records from every uploaded month (same office),
+// sorted oldest → newest, for "compare with own previous month" view. ──────────
+export function getEmployeeMonthHistory(
+  employeeCode: string,
+  officeCode: string
+): { monthKey: string; label: string; year: string; month: string; officeCode: string; records: AttendanceRecord[] }[] {
+  if (typeof window === 'undefined') return [];
+  const months = getUploadedMonths().filter((m) => m.officeCode === officeCode);
+  return months
+    .map((m) => ({
+      monthKey: m.key,
+      label: m.label,
+      year: m.year,
+      month: m.month,
+      officeCode: m.officeCode,
+      records: getRecords(m.key).filter((r) => r.employeeCode === employeeCode),
+    }))
+    .filter((m) => m.records.length > 0)
+    .sort((a, b) => `${a.records[0]?.date}`.localeCompare(`${b.records[0]?.date}`));
+}
+
 // ── Uploaded Months ──────────────────────────────────────────────────────────
 
 export function getUploadedMonths(): UploadedMonth[] {
