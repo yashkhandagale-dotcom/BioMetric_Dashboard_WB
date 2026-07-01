@@ -223,8 +223,18 @@ export function useDashboardData(
   holidays: Holiday[] = [],
   thresholds: Thresholds = DEFAULT_THRESHOLDS,
   leaveRecords: LeaveRecord[] = [],
-  allOfficeRecords: AttendanceRecord[] = [] // unfiltered-by-office, for A7 cross-office chart
+  allOfficeRecords: AttendanceRecord[] = [],
+  dateFrom: string | null = null,  // YYYY-MM-DD inclusive start (null = no filter)
+  dateTo: string | null = null     // YYYY-MM-DD inclusive end   (null = no filter)
 ) {
+  // Derive view mode per SRS §12.1
+  const isSingleDay = !!(dateFrom && dateTo && dateFrom === dateTo);
+  const isDateRange = !!(dateFrom && dateTo && dateFrom !== dateTo);
+  const viewMode: import('./types').ViewMode =
+    selectedDepartments.length >= 2 ? 'comparison'
+    : isSingleDay ? 'single_day'
+    : 'monthly';
+
   const grace = thresholds.graceMinutes;
   const leaveMap = useMemo(() => buildLeaveMap(leaveRecords), [leaveRecords]);
 
@@ -233,9 +243,11 @@ export function useDashboardData(
       if (selectedOffice !== 'ALL' && r.officeCode !== selectedOffice) return false;
       if (selectedDepartments.length > 0 && !selectedDepartments.includes(r.department)) return false;
       if (selectedEmployees.length > 0 && !selectedEmployees.includes(r.employeeCode)) return false;
+      if (dateFrom && r.date < dateFrom) return false;
+      if (dateTo && r.date > dateTo) return false;
       return true;
     });
-  }, [records, selectedOffice, selectedDepartments, selectedEmployees]);
+  }, [records, selectedOffice, selectedDepartments, selectedEmployees, dateFrom, dateTo]);
 
   const kpi: KPIData = useMemo(() => {
     const workRecords = filtered.filter((r) => {
@@ -302,6 +314,7 @@ export function useDashboardData(
       presentCount, absentCount, lateCount: lateRecords.length,
       earlyExitCount: earlyRecords.length, scheduledCount,
       unexplainedAbsentCount, plannedLeaveCount, casualLeaveCount, sickLeaveCount, lwpCount, halfDayCount,
+      productivityLostHours: totalLostMins / 60,
     };
   }, [filtered, holidays, grace, thresholds.frequentPunchCount, leaveMap]);
 
@@ -424,6 +437,7 @@ export function useDashboardData(
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([date, { present, total, absentees, late, earlyExit, lostMins, shortDay }]) => ({
         date: date.slice(5),
+        rawDate: date,           // YYYY-MM-DD — used by date-click handlers in Charts
         attendanceRate: total > 0 ? Math.round((present / total) * 100) : 0,
         presentCount: present,
         totalCount: total,
@@ -515,8 +529,47 @@ export function useDashboardData(
     return Array.from(set).sort();
   }, [filtered]);
 
+  // Single-day dept snapshot (SRS §12.6.2) — dept bars for the selected day
+  const dayDeptSnapshots = useMemo((): import('./types').DayDeptSnapshot[] => {
+    if (!isSingleDay) return [];
+    const byDept = new Map<string, { present: number; absent: number; late: number; early: number; lostMins: number; total: number }>();
+    for (const r of filtered) {
+      if (isWeeklyOff(r.status) || !r.department || r.department === 'Unknown') continue;
+      if (!byDept.has(r.department)) byDept.set(r.department, { present: 0, absent: 0, late: 0, early: 0, lostMins: 0, total: 0 });
+      const d = byDept.get(r.department)!;
+      d.total++;
+      if (isPresent(r.status) && !r.isShortDay) {
+        d.present++;
+        const lm = getLateMinutes(r, grace);
+        const em = getEarlyMinutes(r, grace);
+        if (lm > 0) { d.late++; d.lostMins += lm; }
+        if (em > 0) { d.early++; d.lostMins += em; }
+      } else if (isAbsent(r.status)) {
+        d.absent++;
+      }
+    }
+    return Array.from(byDept.entries())
+      .map(([department, { present, absent, late, early, lostMins, total }]) => ({
+        department, presentCount: present, absentCount: absent,
+        lateCount: late, earlyCount: early,
+        hoursLost: lostMins / 60, scheduledCount: total,
+      }))
+      .sort((a, b) => b.presentCount - a.presentCount);
+  }, [filtered, isSingleDay, grace]);
+
+  const availableDates = useMemo(() => {
+    const base = records.filter((r) => {
+      if (selectedOffice !== 'ALL' && r.officeCode !== selectedOffice) return false;
+      if (selectedDepartments.length > 0 && !selectedDepartments.includes(r.department)) return false;
+      return true;
+    });
+    const set = new Set(base.map(r => r.date));
+    return Array.from(set).sort();
+  }, [records, selectedOffice, selectedDepartments]);
+
   return {
     kpi, employeeSummaries, dailyTrend, deptAttendance, hoursDistribution, officeAttendance,
-    departments, offices, filteredCount: filtered.length, filteredRecords: filtered
+    departments, offices, filteredCount: filtered.length, filteredRecords: filtered,
+    availableDates, viewMode, dayDeptSnapshots,
   };
 }

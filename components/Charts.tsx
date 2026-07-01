@@ -5,7 +5,7 @@ import {
   BarChart, Bar, Cell, Legend, LabelList, AreaChart, Area, ReferenceLine
 } from 'recharts';
 import { ArrowLeft } from 'lucide-react';
-import { DailyTrend, DeptAttendance, HoursDistribution, AttendanceRecord } from '@/lib/types';
+import { DailyTrend, DeptAttendance, HoursDistribution, AttendanceRecord, DayDeptSnapshot } from '@/lib/types';
 import { durationToMinutes, minutesToHHMM } from '@/lib/parseCSV';
 import { isPresent, isAbsent, isWeeklyOff, SHIFT_MINUTES, computeLateMinutes, computeEarlyMinutes, getLateMinutes, getEarlyMinutes } from '@/lib/useDashboardData';
 import InfoTooltip from './InfoTooltip';
@@ -22,11 +22,23 @@ function ChartSubtitle({ selectedDepts }: { selectedDepts?: string[] }) {
   return <p className="text-slate-500 text-xs mt-0.5 mb-3"><span className="text-slate-400">{label}</span></p>;
 }
 
+function getDepartmentFromClick(entry: any): string | null {
+  return entry?.department
+    ?? entry?.payload?.department
+    ?? entry?.data?.department
+    ?? entry?.activePayload?.[0]?.payload?.department
+    ?? entry?.activePayload?.[0]?.payload?.payload?.department
+    ?? entry?.activePayload?.[0]?.payload?.name
+    ?? entry?.activePayload?.[0]?.name
+    ?? null;
+}
+
 // ── Daily Attendance Trend ────────────────────────────────────────────────────
-export function DailyTrendChart({ data, selectedDepts, onDateClick }: {
+export function DailyTrendChart({ data, selectedDepts, onDateClick, selectedDate }: {
   data: DailyTrend[];
   selectedDepts?: string[];
   onDateClick?: (date: string) => void;
+  selectedDate?: string | null;
 }) {
   const CustomTooltip = ({ active, payload, label }: any) => {
     if (!active || !payload?.length) return null;
@@ -68,62 +80,79 @@ export function DailyTrendChart({ data, selectedDepts, onDateClick }: {
       {data.length === 0
         ? <div className="h-48 flex items-center justify-center text-slate-500 text-sm">No data</div>
         : (
+          <>
+            {selectedDate && (
+              <p className="text-blue-400 text-xs mb-2 flex items-center gap-1">
+                <span className="w-2 h-2 rounded-full bg-blue-400 inline-block" />
+                Showing: {selectedDate.slice(5)} · click another point to switch, click same to clear
+              </p>
+            )}
           <ResponsiveContainer width="100%" height={200}>
-            <LineChart data={data} margin={{ top: 5, right: 10, left: -20, bottom: 5 }}>
+            <LineChart data={data} margin={{ top: 5, right: 10, left: -20, bottom: 5 }}
+              onClick={onDateClick ? (p: any) => { if (p?.activePayload?.[0]) onDateClick(p.activePayload[0].payload.rawDate ?? p.activePayload[0].payload.date); } : undefined}
+              style={{ cursor: onDateClick ? 'pointer' : 'default' }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
               <XAxis dataKey="date" tick={{ fontSize: 10, fill: '#64748b' }} interval="preserveStartEnd" />
               <YAxis domain={[0, 100]} tick={{ fontSize: 10, fill: '#64748b' }} unit="%" />
               <ReferenceLine y={80} stroke="#34d399" strokeDasharray="4 2" strokeOpacity={0.6} />
               <ReferenceLine y={70} stroke="#fbbf24" strokeDasharray="4 2" strokeOpacity={0.6} />
+              {selectedDate && (
+                <ReferenceLine x={selectedDate.slice(5)} stroke="#60a5fa" strokeWidth={2} strokeDasharray="4 2" label={{ value: '▼', fill: '#60a5fa', fontSize: 10 }} />
+              )}
               <Tooltip content={<CustomTooltip />} />
               <Line
                 type="monotone" dataKey="attendanceRate" name="Attendance %" stroke="#60a5fa" strokeWidth={2}
                 dot={(props: any) => {
                   const rate = props.payload.attendanceRate;
-                  const color = rateColor(rate);
-                  return <circle key={props.index} cx={props.cx} cy={props.cy} r={3} fill={color} stroke="none" />;
+                  const isSelected = selectedDate && props.payload.rawDate === selectedDate;
+                  const color = props.payload.isHoliday ? '#a78bfa' : rateColor(rate);
+                  return <circle key={props.index} cx={props.cx} cy={props.cy}
+                    r={isSelected ? 5 : 3} fill={color} stroke={isSelected ? '#fff' : 'none'} strokeWidth={isSelected ? 2 : 0} />;
                 }}
                 activeDot={{ r: 5 }}
-                onClick={onDateClick ? (p: any) => onDateClick(p.payload.date) : undefined}
               />
             </LineChart>
           </ResponsiveContainer>
+          </>
         )}
     </div>
   );
 }
 
 // ── Daily Absence Spikes ──────────────────────────────────────────────────────
-export function AbsenceSpikeChart({ data, onDateClick }: {
+export function AbsenceSpikeChart({ data, onDateClick, selectedDate }: {
   data: DailyTrend[];
   onDateClick?: (date: string) => void;
+  selectedDate?: string | null;
 }) {
   const avgAbsent = data.length > 0
     ? data.reduce((s, d) => s + (d.totalCount - d.presentCount), 0) / data.length
     : 0;
   const chartData = data.map(d => ({ ...d, absentCount: d.totalCount - d.presentCount }));
-  // Top 3 days
-  const top3 = [...chartData].sort((a, b) => b.absentCount - a.absentCount).slice(0, 3).map(d => d.date);
 
   return (
     <div className="bg-slate-800 rounded-xl border border-slate-700 p-4 min-h-[280px]">
       <div className="flex items-start justify-between mb-1">
         <div>
           <h3 className="text-white font-semibold text-sm">Daily Absence Spikes</h3>
-          <p className="text-slate-500 text-xs mt-0.5 mb-3">Avg: {avgAbsent.toFixed(1)} absent/day</p>
+          <p className="text-slate-500 text-xs mt-0.5 mb-3">Avg: {avgAbsent.toFixed(1)} absent/day{onDateClick ? ' · click bar to filter' : ''}</p>
         </div>
-        <InfoTooltip title="Absence Spikes" description="Number of employees absent per working day. Bars above the monthly average are highlighted red." formula="Absent = Scheduled − Present" position="bottom" />
+        <InfoTooltip title="Absence Spikes" description="Number of employees absent per working day. Click a bar to filter the whole dashboard to that day." formula="Absent = Scheduled − Present" position="bottom" />
       </div>
       {data.length === 0
         ? <div className="h-48 flex items-center justify-center text-slate-500 text-sm">No data</div>
         : (
           <ResponsiveContainer width="100%" height={200}>
             <BarChart data={chartData} margin={{ top: 5, right: 10, left: -20, bottom: 5 }}
-              onClick={onDateClick ? (p: any) => p?.activePayload?.[0] && onDateClick(p.activePayload[0].payload.date) : undefined}>
+              style={{ cursor: onDateClick ? 'pointer' : 'default' }}
+              onClick={onDateClick ? (p: any) => { if (p?.activePayload?.[0]) onDateClick(p.activePayload[0].payload.rawDate ?? p.activePayload[0].payload.date); } : undefined}>
               <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
               <XAxis dataKey="date" tick={{ fontSize: 10, fill: '#64748b' }} interval="preserveStartEnd" />
               <YAxis tick={{ fontSize: 10, fill: '#64748b' }} allowDecimals={false} />
               <ReferenceLine y={avgAbsent} stroke="#64748b" strokeDasharray="4 2" />
+              {selectedDate && (
+                <ReferenceLine x={selectedDate.slice(5)} stroke="#60a5fa" strokeWidth={2} strokeDasharray="4 2" />
+              )}
               <Tooltip
                 content={({ active, payload, label }: any) => {
                   if (!active || !payload?.length) return null;
@@ -131,20 +160,22 @@ export function AbsenceSpikeChart({ data, onDateClick }: {
                     <div className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs shadow-xl">
                       <p className="text-slate-300 font-medium">{label}</p>
                       <p className="text-red-400">Absent: <strong>{payload[0]?.value}</strong></p>
+                      {onDateClick && <p className="text-slate-500 mt-1 text-[10px]">Click to filter to this day</p>}
                     </div>
                   );
                 }}
               />
               <Bar dataKey="absentCount" cursor="pointer" radius={[3, 3, 0, 0]}>
-                {chartData.map((entry, i) => (
-                  <Cell key={i} fill={entry.absentCount > avgAbsent ? '#f87171' : '#475569'} />
-                ))}
-                <LabelList
-                  dataKey="absentCount"
-                  position="top"
-                  style={{ fontSize: 9, fill: '#94a3b8' }}
-                  formatter={(v: any) => v > 0 ? v : ''}
-                />
+                {chartData.map((entry, i) => {
+                  const isSelected = selectedDate && entry.rawDate === selectedDate;
+                  return (
+                    <Cell key={i}
+                      fill={isSelected ? '#60a5fa' : entry.absentCount > avgAbsent ? '#f87171' : '#475569'}
+                      opacity={selectedDate && !isSelected ? 0.4 : 1}
+                    />
+                  );
+                })}
+                <LabelList dataKey="absentCount" position="top" style={{ fontSize: 9, fill: '#94a3b8' }} formatter={(v: any) => v > 0 ? v : ''} />
               </Bar>
             </BarChart>
           </ResponsiveContainer>
@@ -154,25 +185,34 @@ export function AbsenceSpikeChart({ data, onDateClick }: {
 }
 
 // ── Productivity Lost Daily Area ──────────────────────────────────────────────
-export function ProductivityLostChart({ data }: { data: DailyTrend[] }) {
-  const chartData = data.map(d => ({ date: d.date, hoursLost: +(d.hoursLost ?? 0).toFixed(2) }));
+export function ProductivityLostChart({ data, selectedDate, onDateClick }: {
+  data: DailyTrend[];
+  selectedDate?: string | null;
+  onDateClick?: (date: string) => void;
+}) {
+  const chartData = data.map(d => ({ date: d.date, rawDate: d.rawDate, hoursLost: +(d.hoursLost ?? 0).toFixed(2) }));
   return (
     <div className="bg-slate-800 rounded-xl border border-slate-700 p-4 min-h-[280px]">
       <div className="flex items-start justify-between mb-1">
         <div>
           <h3 className="text-white font-semibold text-sm">Productivity Lost Daily</h3>
-          <p className="text-slate-500 text-xs mt-0.5 mb-3">Person-hours lost to late/early</p>
+          <p className="text-slate-500 text-xs mt-0.5 mb-3">Person-hours lost to late/early{onDateClick ? ' · click to filter' : ''}</p>
         </div>
-        <InfoTooltip title="Productivity Lost" description="Daily person-hours lost to late arrivals and early exits. Uses 8-hour effective shift." formula="(Late + Early exit mins) ÷ 60" position="bottom" />
+        <InfoTooltip title="Productivity Lost" description="Daily person-hours lost to late arrivals and early exits. Click a point to filter the whole dashboard to that day." formula="(Late + Early exit mins) ÷ 60" position="bottom" />
       </div>
       {data.length === 0
         ? <div className="h-48 flex items-center justify-center text-slate-500 text-sm">No data</div>
         : (
           <ResponsiveContainer width="100%" height={200}>
-            <AreaChart data={chartData} margin={{ top: 5, right: 10, left: -20, bottom: 5 }}>
+            <AreaChart data={chartData} margin={{ top: 5, right: 10, left: -20, bottom: 5 }}
+              style={{ cursor: onDateClick ? 'pointer' : 'default' }}
+              onClick={onDateClick ? (p: any) => { if (p?.activePayload?.[0]) onDateClick(p.activePayload[0].payload.rawDate ?? p.activePayload[0].payload.date); } : undefined}>
               <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
               <XAxis dataKey="date" tick={{ fontSize: 10, fill: '#64748b' }} interval="preserveStartEnd" />
               <YAxis tick={{ fontSize: 10, fill: '#64748b' }} unit="h" />
+              {selectedDate && (
+                <ReferenceLine x={selectedDate.slice(5)} stroke="#60a5fa" strokeWidth={2} strokeDasharray="4 2" />
+              )}
               <Tooltip
                 content={({ active, payload, label }: any) => {
                   if (!active || !payload?.length) return null;
@@ -180,6 +220,7 @@ export function ProductivityLostChart({ data }: { data: DailyTrend[] }) {
                     <div className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs shadow-xl">
                       <p className="text-slate-300 font-medium">{label}</p>
                       <p className="text-amber-400">Hours Lost: <strong>{payload[0]?.value}h</strong></p>
+                      {onDateClick && <p className="text-slate-500 mt-1 text-[10px]">Click to filter to this day</p>}
                     </div>
                   );
                 }}
@@ -300,8 +341,11 @@ export function DeptAttendanceChart({ data, allRecords, selectedDepts, onDeptCli
               }} />
               <Bar dataKey="rate" cursor="pointer" radius={[0, 4, 4, 0]}
                 onClick={(entry: any) => {
-                  if (onDeptClick) onDeptClick(entry.department);
-                  else setManualDrill(entry.department);
+                  const dept = getDepartmentFromClick(entry);
+                  if (dept) {
+                    if (onDeptClick) onDeptClick(dept);
+                    else setManualDrill(dept);
+                  }
                 }}>
                 {data.map((entry, i) => <Cell key={i} fill={rateColor(entry.rate)} />)}
                 <LabelList dataKey="rate" position="right" style={{ fontSize: 10, fill: '#94a3b8' }} formatter={(v: any) => `${v}%`} />
@@ -657,6 +701,169 @@ export function AttendanceHeatmap({ records, onCellClick }: {
           <p className="text-slate-400">{tooltip.r.status}</p>
         </div>
       )}
+    </div>
+  );
+}
+// ─────────────────────────────────────────────────────────────────────────────
+// SINGLE DAY VIEW CHARTS  (SRS §12.6.2)
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Chart 1: Dept Attendance Today — horizontal bar, present count per dept
+export function DayDeptAttendanceChart({ data, onDeptClick }: { data: DayDeptSnapshot[]; onDeptClick?: (dept: string) => void }) {
+  const sorted = [...data].sort((a, b) => b.presentCount - a.presentCount);
+  return (
+    <div className="bg-slate-800 rounded-xl border border-slate-700 p-4 min-h-[260px]">
+      <div className="flex items-start justify-between mb-1">
+        <div>
+          <h3 className="text-white font-semibold text-sm">Dept Attendance Today</h3>
+          <p className="text-slate-500 text-xs mt-0.5 mb-3">Present headcount per department</p>
+        </div>
+        <InfoTooltip title="Dept Attendance Today" description="Raw count of present employees per department for this day. On a single day, percentages can be misleading for small departments — raw counts are more actionable." position="bottom" />
+      </div>
+      {sorted.length === 0
+        ? <div className="h-40 flex items-center justify-center text-slate-500 text-sm">No data for this date</div>
+        : (
+          <ResponsiveContainer width="100%" height={Math.max(180, sorted.length * 32)}>
+            <BarChart
+              data={sorted}
+              layout="vertical"
+              margin={{ top: 0, right: 30, left: 0, bottom: 0 }}
+              onClick={(entry: any) => {
+                const dept = getDepartmentFromClick(entry);
+                if (dept) onDeptClick?.(dept);
+              }}
+            >
+              <CartesianGrid strokeDasharray="3 3" stroke="#334155" horizontal={false} />
+              <XAxis type="number" tick={{ fontSize: 10, fill: '#64748b' }} allowDecimals={false} />
+              <YAxis type="category" dataKey="department" tick={{ fontSize: 10, fill: '#94a3b8' }} width={90} />
+              <Tooltip
+                content={({ active, payload, label }: any) => {
+                  if (!active || !payload?.length) return null;
+                  const d: DayDeptSnapshot = payload[0]?.payload;
+                  return (
+                    <div className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs shadow-xl">
+                      <p className="text-white font-medium mb-1">{label}</p>
+                      <p className="text-emerald-400">Present: <strong>{d.presentCount}</strong> / {d.scheduledCount}</p>
+                      <p className="text-red-400">Absent: {d.absentCount}</p>
+                      <p className="text-amber-400">Late: {d.lateCount}</p>
+                    </div>
+                  );
+                }}
+              />
+              <Bar dataKey="presentCount" name="Present" radius={[0, 4, 4, 0]} cursor="pointer">
+                {sorted.map((entry, i) => (
+                  <Cell key={i} fill={entry.presentCount >= entry.scheduledCount * 0.8 ? '#34d399' : entry.presentCount >= entry.scheduledCount * 0.7 ? '#fbbf24' : '#f87171'} />
+                ))}
+                <LabelList dataKey="presentCount" position="right" style={{ fontSize: 10, fill: '#94a3b8' }} />
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        )}
+    </div>
+  );
+}
+
+// Chart 2: Dept Late Arrivals Today — horizontal bar, late count per dept
+export function DayDeptLateChart({ data, onDeptClick }: { data: DayDeptSnapshot[]; onDeptClick?: (dept: string) => void }) {
+  const sorted = [...data].filter(d => d.lateCount > 0).sort((a, b) => b.lateCount - a.lateCount);
+  return (
+    <div className="bg-slate-800 rounded-xl border border-slate-700 p-4 min-h-[260px]">
+      <div className="flex items-start justify-between mb-1">
+        <div>
+          <h3 className="text-white font-semibold text-sm">Dept Late Arrivals Today</h3>
+          <p className="text-slate-500 text-xs mt-0.5 mb-3">Which department had the most late arrivals?</p>
+        </div>
+        <InfoTooltip title="Dept Late Arrivals Today" description="Count of employees per department who punched in after shift start + grace period today. Sorted descending so the worst is immediately visible." position="bottom" />
+      </div>
+      {sorted.length === 0
+        ? <div className="h-40 flex items-center justify-center text-slate-500 text-sm">No late arrivals today 🎉</div>
+        : (
+          <ResponsiveContainer width="100%" height={Math.max(180, sorted.length * 36)}>
+            <BarChart
+              data={sorted}
+              layout="vertical"
+              margin={{ top: 0, right: 30, left: 0, bottom: 0 }}
+              onClick={(entry: any) => {
+                const dept = getDepartmentFromClick(entry);
+                if (dept) onDeptClick?.(dept);
+              }}
+            >
+              <CartesianGrid strokeDasharray="3 3" stroke="#334155" horizontal={false} />
+              <XAxis type="number" tick={{ fontSize: 10, fill: '#64748b' }} allowDecimals={false} />
+              <YAxis type="category" dataKey="department" tick={{ fontSize: 10, fill: '#94a3b8' }} width={90} />
+              <Tooltip
+                content={({ active, payload, label }: any) => {
+                  if (!active || !payload?.length) return null;
+                  const d: DayDeptSnapshot = payload[0]?.payload;
+                  return (
+                    <div className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs shadow-xl">
+                      <p className="text-white font-medium mb-1">{label}</p>
+                      <p className="text-amber-400">Late: <strong>{d.lateCount}</strong></p>
+                      <p className="text-slate-400">of {d.presentCount} present</p>
+                    </div>
+                  );
+                }}
+              />
+              <Bar dataKey="lateCount" name="Late" radius={[0, 4, 4, 0]} fill="#fbbf24" cursor="pointer">
+                <LabelList dataKey="lateCount" position="right" style={{ fontSize: 10, fill: '#94a3b8' }} />
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        )}
+    </div>
+  );
+}
+
+// Chart 3: Dept Productivity Lost Today — horizontal bar, hours lost per dept
+export function DayDeptProductivityChart({ data, onDeptClick }: { data: DayDeptSnapshot[]; onDeptClick?: (dept: string) => void }) {
+  const sorted = [...data].filter(d => d.hoursLost > 0).sort((a, b) => b.hoursLost - a.hoursLost);
+  return (
+    <div className="bg-slate-800 rounded-xl border border-slate-700 p-4 min-h-[260px]">
+      <div className="flex items-start justify-between mb-1">
+        <div>
+          <h3 className="text-white font-semibold text-sm">Dept Productivity Lost Today</h3>
+          <p className="text-slate-500 text-xs mt-0.5 mb-3">Hours lost to late/early per department</p>
+        </div>
+        <InfoTooltip title="Dept Productivity Lost Today" description="Total person-hours lost to late arrivals and early exits per department today. Shows cost per department for shift supervisor accountability." formula="Σ(late_mins + early_mins) ÷ 60" position="bottom" />
+      </div>
+      {sorted.length === 0
+        ? <div className="h-40 flex items-center justify-center text-slate-500 text-sm">No productivity loss today 🎉</div>
+        : (
+          <ResponsiveContainer width="100%" height={Math.max(180, sorted.length * 36)}>
+            <BarChart
+              data={sorted}
+              layout="vertical"
+              margin={{ top: 0, right: 40, left: 0, bottom: 0 }}
+              onClick={(entry: any) => {
+                const dept = getDepartmentFromClick(entry);
+                if (dept) onDeptClick?.(dept);
+              }}
+            >
+              <CartesianGrid strokeDasharray="3 3" stroke="#334155" horizontal={false} />
+              <XAxis type="number" tick={{ fontSize: 10, fill: '#64748b' }} unit="h" />
+              <YAxis type="category" dataKey="department" tick={{ fontSize: 10, fill: '#94a3b8' }} width={90} />
+              <Tooltip
+                content={({ active, payload, label }: any) => {
+                  if (!active || !payload?.length) return null;
+                  const d: DayDeptSnapshot = payload[0]?.payload;
+                  return (
+                    <div className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs shadow-xl">
+                      <p className="text-white font-medium mb-1">{label}</p>
+                      <p className="text-amber-400">Hours Lost: <strong>{d.hoursLost.toFixed(1)}h</strong></p>
+                      <p className="text-slate-400">Late: {d.lateCount} · Early: {d.earlyCount}</p>
+                    </div>
+                  );
+                }}
+              />
+              <Bar dataKey="hoursLost" name="Hours Lost" radius={[0, 4, 4, 0]} cursor="pointer">
+                {sorted.map((entry, i) => (
+                  <Cell key={i} fill={entry.hoursLost > 5 ? '#f87171' : entry.hoursLost > 2 ? '#fbbf24' : '#94a3b8'} />
+                ))}
+                <LabelList dataKey="hoursLost" position="right" style={{ fontSize: 10, fill: '#94a3b8' }} formatter={(v: any) => `${Number(v).toFixed(1)}h`} />
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        )}
     </div>
   );
 }

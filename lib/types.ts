@@ -80,6 +80,7 @@ export interface DayWiseLateEarly {
 export interface Holiday {
   date: string; // YYYY-MM-DD
   name: string;
+  source?: 'predefined' | 'custom';
 }
 
 export interface MonthlyTrendPoint {
@@ -90,12 +91,6 @@ export interface MonthlyTrendPoint {
   earlyExitCount: number;
   avgHours: number;
   absentDays: number;
-}
-
-export interface ViewMode {
-  type: 'monthly' | 'daily' | 'range';
-  startDate?: string;
-  endDate?: string;
 }
 
 export interface EmployeeSummary {
@@ -136,6 +131,18 @@ export interface OfficeAttendance {
   scheduledCount: number;
 }
 
+export type ViewMode = 'monthly' | 'single_day' | 'comparison';
+
+export interface DayDeptSnapshot {
+  department: string;
+  presentCount: number;
+  absentCount: number;
+  lateCount: number;
+  earlyCount: number;
+  hoursLost: number; // hours for that day
+  scheduledCount: number;
+}
+
 export interface KPIData {
   attendanceRate: number;
   absenteeismRate: number;
@@ -157,10 +164,12 @@ export interface KPIData {
   sickLeaveCount: number;
   lwpCount: number;
   halfDayCount: number;
+  productivityLostHours: number; // for single-day view (SRS 12.6.1)
 }
 
 export interface DailyTrend {
-  date: string;
+  date: string;      // MM-DD display format
+  rawDate?: string;  // YYYY-MM-DD for click handlers / filtering
   attendanceRate: number;
   presentCount: number;
   totalCount: number;

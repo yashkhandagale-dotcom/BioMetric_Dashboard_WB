@@ -1,7 +1,7 @@
 'use client';
 import { useState, useEffect, useCallback, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Upload, CheckCircle, Eye, ShieldX, Calendar, Settings as SettingsIcon } from 'lucide-react';
+import { Upload, CheckCircle, Eye, ShieldX, Calendar, Settings as SettingsIcon, X as XIcon } from 'lucide-react';
 import { AttendanceRecord, ColumnMapping, EmployeeSummary, UploadedMonth, Holiday, Thresholds, LeaveRecord } from '@/lib/types';
 import {
   getMapping, saveMapping, getRecords, saveRecords, addUploadedMonth, getUploadedMonths,
@@ -22,7 +22,8 @@ import AbsenceBreakdown from '@/components/AbsenceBreakdown';
 import EmployeeTable from '@/components/EmployeeTable';
 import {
   DailyTrendChart, DeptAttendanceChart, HoursDistributionChart, AbsenceSpikeChart,
-  ProductivityLostChart, DeptProductivityChart, OfficeAttendanceChart
+  ProductivityLostChart, DeptProductivityChart,
+  DayDeptAttendanceChart, DayDeptLateChart, DayDeptProductivityChart
 } from '@/components/Charts';
 import ExportPanel from '@/components/ExportPanel';
 import EmployeePanel from '@/components/EmployeePanel';
@@ -123,6 +124,8 @@ function HRDashboard() {
   const [thresholds, setThresholds] = useState<Thresholds>(getThresholds());
   const [leaveRecords, setLeaveRecords] = useState<LeaveRecord[]>([]);
   const [allOfficeRecords, setAllOfficeRecords] = useState<AttendanceRecord[]>([]);
+  const [dateFrom, setDateFrom] = useState<string | null>(null);
+  const [dateTo, setDateTo] = useState<string | null>(null);
 
   // Load holidays + leave records when month key changes
   useEffect(() => {
@@ -311,12 +314,20 @@ function HRDashboard() {
     setSelectedOffice('ALL');
     setSelectedDepts([]);
     setTableFilter('all');
+    setDateFrom(null);
+    setDateTo(null);
     syncURL(key, 'ALL', []);
   }
 
   function handleOfficeChange(o: string) {
     setSelectedOffice(o);
     syncURL(selectedMonthKey, o, selectedDepts);
+  }
+
+  function focusDept(d: string) {
+    setSelectedDepts([d]);
+    setTableFilter('all');
+    syncURL(selectedMonthKey, selectedOffice, [d]);
   }
 
   function toggleDept(d: string) {
@@ -327,6 +338,7 @@ function HRDashboard() {
 
   function clearDepts() {
     setSelectedDepts([]);
+    setTableFilter('all');
     syncURL(selectedMonthKey, selectedOffice, []);
   }
 
@@ -340,8 +352,8 @@ function HRDashboard() {
     showToast('success', 'Thresholds updated.');
   }
 
-  const { kpi, employeeSummaries, dailyTrend, deptAttendance, hoursDistribution, officeAttendance, departments, offices, filteredRecords } =
-    useDashboardData(allRecords, selectedOffice, selectedDepts, [], holidays, thresholds, leaveRecords, allOfficeRecords);
+  const { kpi, employeeSummaries, dailyTrend, deptAttendance, hoursDistribution, officeAttendance, departments, offices, filteredRecords, availableDates, viewMode, dayDeptSnapshots } =
+    useDashboardData(allRecords, selectedOffice, selectedDepts, [], holidays, thresholds, leaveRecords, allOfficeRecords, dateFrom, dateTo);
 
   const leaveMap = buildLeaveMap(leaveRecords);
 
@@ -432,12 +444,50 @@ function HRDashboard() {
         )}
         {appState === 'dashboard' && (
           <div className="space-y-6">
-            {/* Filters */}
+            {/* ── Filter Bar ────────────────────────────────────────────── */}
             <div className="flex flex-wrap items-center gap-3">
+              {/* Month selector */}
               <select value={selectedMonthKey} onChange={e => handleMonthChange(e.target.value)}
                 className="bg-slate-800 border border-slate-700 text-white text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500">
                 {uploadedMonths.map(m => <option key={m.key} value={m.key}>{m.label}</option>)}
               </select>
+
+              {/* Date range: From → To */}
+              {availableDates.length > 0 && (
+                <div className="flex items-center gap-1.5 bg-slate-800/60 border border-slate-700 rounded-lg px-3 py-1.5">
+                  <span className="text-slate-500 text-xs font-medium">From</span>
+                  <input
+                    type="date"
+                    value={dateFrom ?? ''}
+                    min={availableDates[0]}
+                    max={dateTo ?? availableDates[availableDates.length - 1]}
+                    onChange={e => {
+                      const v = e.target.value || null;
+                      setDateFrom(v);
+                      // if From > To, reset To
+                      if (v && dateTo && v > dateTo) setDateTo(null);
+                    }}
+                    className="bg-transparent text-white text-xs focus:outline-none w-32"
+                  />
+                  <span className="text-slate-600 text-xs">→</span>
+                  <span className="text-slate-500 text-xs font-medium">To</span>
+                  <input
+                    type="date"
+                    value={dateTo ?? ''}
+                    min={dateFrom ?? availableDates[0]}
+                    max={availableDates[availableDates.length - 1]}
+                    onChange={e => setDateTo(e.target.value || null)}
+                    className="bg-transparent text-white text-xs focus:outline-none w-32"
+                  />
+                  {(dateFrom || dateTo) && (
+                    <button onClick={() => { setDateFrom(null); setDateTo(null); }} className="text-slate-500 hover:text-white transition-colors ml-1" title="Clear date range">
+                      <XIcon className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {/* Office pills */}
               <div className="flex gap-1">
                 {['ALL', ...offices].map(o => (
                   <button key={o} onClick={() => handleOfficeChange(o)}
@@ -446,6 +496,8 @@ function HRDashboard() {
                   </button>
                 ))}
               </div>
+
+              {/* Department pills */}
               <div className="flex flex-wrap gap-1">
                 {departments.map(d => (
                   <button key={d} onClick={() => toggleDept(d)}
@@ -459,73 +511,113 @@ function HRDashboard() {
               </div>
             </div>
 
-            {/* 8-card KPI grid — clickable */}
-            <KPICards kpi={kpi} thresholds={thresholds} onCardClick={(f) => setTableFilter(f === tableFilter ? 'all' : f)} />
-
-            {/* B7.3: absence breakdown */}
-            <AbsenceBreakdown kpi={kpi} />
-
-            {/* Charts grid */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
-              <DailyTrendChart data={dailyTrend} selectedDepts={selectedDepts} />
-              <AbsenceSpikeChart data={dailyTrend} />
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
-              <ProductivityLostChart data={dailyTrend} />
-              <HoursDistributionChart data={hoursDistribution} allRecords={allRecords} selectedDepts={selectedDepts} />
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
-              <DeptAttendanceChart
-                data={deptAttendance}
-                allRecords={allRecords}
-                selectedDepts={selectedDepts}
-                onDeptClick={(dept) => toggleDept(dept)}
-              />
-              <DeptProductivityChart data={deptAttendance} allRecords={filteredRecords} />
-            </div>
-
-            {/* A7: office-wise attendance comparison */}
-            {/* <OfficeAttendanceChart data={officeAttendance} /> */}
-
-            {/* Dept comparison */}
-            <TeamComparisonPanel allRecords={allRecords} departments={departments} />
-
-            {/* Employee comparison: vs colleague, or vs own previous month */}
-            <EmployeeComparisonPanel
-              allRecords={filteredRecords}
-              employeeSummaries={employeeSummaries}
-              leaveRecords={leaveRecords}
-              holidays={holidays}
-              graceMinutes={thresholds.graceMinutes}
-              shiftStartMinutes={thresholds.shiftStartMinutes}
-              shiftEndMinutes={thresholds.shiftEndMinutes}
-            />
-
-            {/* Insights */}
-            <InsightsStrip
-              summaries={employeeSummaries}
-              dailyTrend={dailyTrend}
-              deptAttendance={deptAttendance}
-              records={filteredRecords}
-              selectedDepts={selectedDepts}
-            />
-
-            {/* Employee table — filter chip header */}
-            <div className="bg-slate-800/30 rounded-xl border border-slate-700 p-4">
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-white font-semibold text-sm">
-                  Employee Summary
-                  {tableFilter !== 'all' && (
-                    <span className="ml-2 text-xs text-slate-400 font-normal">
-                      · filtered by <span className="text-blue-400 capitalize">{tableFilter}</span>
-                      <button onClick={() => setTableFilter('all')} className="ml-2 text-slate-600 hover:text-slate-300">✕</button>
+            {/* ── Active filter banner ────────────────────────────────────── */}
+            {(dateFrom || dateTo) && (
+              <div className={`flex items-center gap-3 rounded-xl px-4 py-2.5 border
+                ${viewMode === 'single_day'
+                  ? 'bg-blue-500/10 border-blue-500/25'
+                  : 'bg-indigo-500/10 border-indigo-500/25'}`}>
+                <Calendar className={`w-4 h-4 flex-shrink-0 ${viewMode === 'single_day' ? 'text-blue-400' : 'text-indigo-400'}`} />
+                <div className="flex-1 min-w-0">
+                  {viewMode === 'single_day' ? (
+                    <span className="text-blue-300 text-sm font-medium">
+                      Day view: {new Date((dateFrom ?? '') + 'T00:00:00').toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+                      <span className="text-blue-400/60 text-xs ml-2">— KPIs show raw counts, charts show dept snapshots</span>
+                    </span>
+                  ) : (
+                    <span className="text-indigo-300 text-sm font-medium">
+                      Range: {dateFrom} → {dateTo}
+                      <span className="text-indigo-400/60 text-xs ml-2">— {filteredRecords.length.toLocaleString()} records</span>
                     </span>
                   )}
-                </h2>
-                <span className="text-slate-500 text-xs">{filteredSummaries.length} employees</span>
+                </div>
+                <button onClick={() => { setDateFrom(null); setDateTo(null); }} className="text-slate-400/60 hover:text-white transition-colors flex-shrink-0">
+                  <XIcon className="w-4 h-4" />
+                </button>
               </div>
-              <EmployeeTable summaries={filteredSummaries} onEmployeeClick={setSelectedEmp} />
-            </div>
+            )}
+
+            {/* ── KPI Cards ───────────────────────────────────────────────── */}
+            <KPICards kpi={kpi} thresholds={thresholds} viewMode={viewMode} onCardClick={(f) => setTableFilter(f === tableFilter ? 'all' : f)} />
+
+            {/* Absence breakdown (monthly/range only) */}
+            {viewMode !== 'single_day' && <AbsenceBreakdown kpi={kpi} />}
+
+            {/* ── SINGLE DAY VIEW — snapshot charts + employee table ──────── */}
+            {viewMode === 'single_day' && (
+              <>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-start">
+                  <DayDeptAttendanceChart data={dayDeptSnapshots} onDeptClick={(dept) => focusDept(dept)} />
+                  <DayDeptLateChart data={dayDeptSnapshots} onDeptClick={(dept) => focusDept(dept)} />
+                  <DayDeptProductivityChart data={dayDeptSnapshots} onDeptClick={(dept) => focusDept(dept)} />
+                </div>
+                <div className="bg-slate-800/30 rounded-xl border border-slate-700 p-4">
+                  <div className="flex items-center justify-between mb-4">
+                    <h2 className="text-white font-semibold text-sm">
+                      {selectedDepts.length === 1 ? `Team Members — ${selectedDepts[0]}` : `All Employees — ${dateFrom}`}
+                      {tableFilter !== 'all' && (
+                        <span className="ml-2 text-xs text-slate-400 font-normal">
+                          · filtered by <span className="text-blue-400 capitalize">{tableFilter}</span>
+                          <button onClick={() => setTableFilter('all')} className="ml-2 text-slate-600 hover:text-slate-300">✕</button>
+                        </span>
+                      )}
+                      {selectedDepts.length === 1 && (
+                        <button onClick={clearDepts} className="ml-2 text-slate-600 hover:text-slate-300">✕</button>
+                      )}
+                    </h2>
+                    <span className="text-slate-500 text-xs">{filteredSummaries.length} employees</span>
+                  </div>
+                  <EmployeeTable summaries={filteredSummaries} onEmployeeClick={setSelectedEmp} />
+                </div>
+              </>
+            )}
+
+            {/* ── MONTHLY / RANGE VIEW — trend charts ─────────────────────── */}
+            {viewMode !== 'single_day' && (
+              <>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
+                  <DailyTrendChart data={dailyTrend} selectedDepts={selectedDepts} selectedDate={dateFrom === dateTo ? dateFrom : null}
+                    onDateClick={(d) => { setDateFrom(d); setDateTo(d); }} />
+                  <AbsenceSpikeChart data={dailyTrend} selectedDate={dateFrom === dateTo ? dateFrom : null}
+                    onDateClick={(d) => { setDateFrom(d); setDateTo(d); }} />
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
+                  <ProductivityLostChart data={dailyTrend} selectedDate={dateFrom === dateTo ? dateFrom : null}
+                    onDateClick={(d) => { setDateFrom(d); setDateTo(d); }} />
+                  <HoursDistributionChart data={hoursDistribution} allRecords={allRecords} selectedDepts={selectedDepts} />
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
+                  <DeptAttendanceChart data={deptAttendance} allRecords={allRecords} selectedDepts={selectedDepts} onDeptClick={(dept) => toggleDept(dept)} />
+                  <DeptProductivityChart data={deptAttendance} allRecords={filteredRecords} />
+                </div>
+                <TeamComparisonPanel allRecords={allRecords} departments={departments} />
+                <EmployeeComparisonPanel
+                  allRecords={filteredRecords}
+                  employeeSummaries={employeeSummaries}
+                  leaveRecords={leaveRecords}
+                  holidays={holidays}
+                  graceMinutes={thresholds.graceMinutes}
+                  shiftStartMinutes={thresholds.shiftStartMinutes}
+                  shiftEndMinutes={thresholds.shiftEndMinutes}
+                />
+                <InsightsStrip summaries={employeeSummaries} dailyTrend={dailyTrend} deptAttendance={deptAttendance} records={filteredRecords} selectedDepts={selectedDepts} />
+                <div className="bg-slate-800/30 rounded-xl border border-slate-700 p-4">
+                  <div className="flex items-center justify-between mb-4">
+                    <h2 className="text-white font-semibold text-sm">
+                      Employee Summary
+                      {tableFilter !== 'all' && (
+                        <span className="ml-2 text-xs text-slate-400 font-normal">
+                          · filtered by <span className="text-blue-400 capitalize">{tableFilter}</span>
+                          <button onClick={() => setTableFilter('all')} className="ml-2 text-slate-600 hover:text-slate-300">✕</button>
+                        </span>
+                      )}
+                    </h2>
+                    <span className="text-slate-500 text-xs">{filteredSummaries.length} employees</span>
+                  </div>
+                  <EmployeeTable summaries={filteredSummaries} onEmployeeClick={setSelectedEmp} />
+                </div>
+              </>
+            )}
           </div>
         )}
       </main>
