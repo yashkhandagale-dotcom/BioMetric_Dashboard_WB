@@ -7,7 +7,7 @@ import {
 import { ArrowLeft } from 'lucide-react';
 import { DailyTrend, DeptAttendance, HoursDistribution, AttendanceRecord } from '@/lib/types';
 import { durationToMinutes, minutesToHHMM } from '@/lib/parseCSV';
-import { isPresent, isAbsent, isWeeklyOff, SHIFT_MINUTES, computeLateMinutes, computeEarlyMinutes } from '@/lib/useDashboardData';
+import { isPresent, isAbsent, isWeeklyOff, SHIFT_MINUTES, computeLateMinutes, computeEarlyMinutes, getLateMinutes, getEarlyMinutes } from '@/lib/useDashboardData';
 import InfoTooltip from './InfoTooltip';
 
 function rateColor(rate: number): string {
@@ -227,12 +227,13 @@ export function DeptAttendanceChart({ data, allRecords, selectedDepts, onDeptCli
   if (drillDept) {
     return (
       <div className="bg-slate-800 rounded-xl border border-slate-700 p-4">
-        <div className="flex items-center gap-2 mb-1">
-          {!isAutoDrill && (
-            <button onClick={() => setManualDrill(null)} className="flex items-center gap-1.5 text-blue-400 hover:text-blue-300 text-xs font-medium transition-colors">
-              <ArrowLeft className="w-3.5 h-3.5" /> All Departments
-            </button>
-          )}
+        <div className="flex items-center gap-3 mb-1">
+          <button
+            onClick={() => { setManualDrill(null); if (onDeptClick && selectedDepts?.length === 1) onDeptClick(selectedDepts[0]); }}
+            className="flex items-center gap-1.5 text-blue-400 hover:text-blue-300 text-xs font-medium transition-colors shrink-0"
+          >
+            <ArrowLeft className="w-3.5 h-3.5" /> Back
+          </button>
           <h3 className="text-white font-semibold text-sm">{drillDept} — Employee Attendance</h3>
         </div>
         <p className="text-slate-500 text-xs mb-4">{drillData.length} employees · sorted worst → best</p>
@@ -275,7 +276,7 @@ export function DeptAttendanceChart({ data, allRecords, selectedDepts, onDeptCli
       <div className="flex items-start justify-between mb-1">
         <div>
           <h3 className="text-white font-semibold text-sm">Department Attendance Ranking</h3>
-          <p className="text-slate-500 text-xs mt-0.5 mb-3">Click a bar to drill into that department</p>
+          <p className="text-slate-500 text-xs mt-0.5 mb-3">Click a bar to drill into that department · <span className="text-blue-400">Back</span> button appears inside</p>
         </div>
         <InfoTooltip title="Dept Attendance Ranking" description="Attendance rate per department for the selected period. Click a bar to filter the dashboard to that department." formula="Present ÷ Scheduled × 100" position="bottom" />
       </div>
@@ -313,7 +314,10 @@ export function DeptAttendanceChart({ data, allRecords, selectedDepts, onDeptCli
 }
 
 // ── Productivity Lost by Dept ─────────────────────────────────────────────────
-export function DeptProductivityChart({ data }: { data: DeptAttendance[] }) {
+export function DeptProductivityChart({ data, allRecords }: { data: DeptAttendance[]; allRecords?: AttendanceRecord[] }) {
+  const [drillDept, setDrillDept] = useState<string | null>(null);
+  const safeRecords = allRecords ?? [];
+
   const chartData = [...data]
     .map(d => ({ department: d.department, daysLost: +(d.productivityLostDays ?? 0).toFixed(2) }))
     .sort((a, b) => b.daysLost - a.daysLost);
@@ -324,12 +328,69 @@ export function DeptProductivityChart({ data }: { data: DeptAttendance[] }) {
     return '#34d399';
   }
 
+  // Drill: compute per-employee productivity lost for the selected dept
+  const drillData = useMemo(() => {
+    if (!drillDept || safeRecords.length === 0) return [];
+    const map = new Map<string, { name: string; code: string; lostMins: number; presentDays: number }>();
+    for (const r of safeRecords) {
+      if (r.department !== drillDept || isWeeklyOff(r.status) || !isPresent(r.status) || r.isShortDay) continue;
+      if (!map.has(r.employeeCode)) map.set(r.employeeCode, { name: r.employeeName || r.employeeCode, code: r.employeeCode, lostMins: 0, presentDays: 0 });
+      const e = map.get(r.employeeCode)!;
+      e.presentDays++;
+      e.lostMins += getLateMinutes(r, 10) + getEarlyMinutes(r, 10);
+    }
+    return Array.from(map.values())
+      .map(e => ({ ...e, daysLost: +(e.lostMins / SHIFT_MINUTES).toFixed(2) }))
+      .sort((a, b) => b.daysLost - a.daysLost || a.name.localeCompare(b.name));
+  }, [drillDept, safeRecords]);
+
+  if (drillDept) {
+    return (
+      <div className="bg-slate-800 rounded-xl border border-slate-700 p-4 min-h-[280px]">
+        <div className="flex items-center gap-3 mb-1">
+          <button onClick={() => setDrillDept(null)} className="flex items-center gap-1.5 text-blue-400 hover:text-blue-300 text-xs font-medium transition-colors shrink-0">
+            <ArrowLeft className="w-3.5 h-3.5" /> Back
+          </button>
+          <h3 className="text-white font-semibold text-sm">{drillDept} — Productivity Lost per Employee</h3>
+        </div>
+        <p className="text-slate-500 text-xs mb-4">{drillData.length} employees · sorted by productivity lost</p>
+        {drillData.length === 0
+          ? <div className="h-48 flex items-center justify-center text-slate-500 text-sm">No present-day records found for this department</div>
+          : (
+            <ResponsiveContainer width="100%" height={Math.max(280, drillData.length * 36)}>
+              <BarChart data={drillData} layout="vertical" margin={{ top: 4, right: 65, left: 4, bottom: 4 }} barCategoryGap="20%">
+                <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" horizontal={false} />
+                <XAxis type="number" tick={{ fontSize: 10, fill: '#64748b' }} unit="d" />
+                <YAxis type="category" dataKey="name" width={135} tick={{ fontSize: 10, fill: '#94a3b8' }}
+                  tickFormatter={(v: string) => v.length > 19 ? v.slice(0, 18) + '…' : v} />
+                <Tooltip content={({ active, payload, label }: any) => {
+                  if (!active || !payload?.length) return null;
+                  const e = drillData.find(d => d.name === label);
+                  return (
+                    <div className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs shadow-xl">
+                      <p className="text-slate-300 font-semibold mb-1.5">{label}</p>
+                      <p className="text-amber-400">Days Lost: <strong>{payload[0]?.value}d</strong></p>
+                      <p className="text-slate-400">Present Days: <strong>{e?.presentDays}</strong></p>
+                    </div>
+                  );
+                }} cursor={{ fill: 'rgba(255,255,255,0.04)' }} />
+                <Bar dataKey="daysLost" radius={[0, 4, 4, 0]}>
+                  {drillData.map((e, i) => <Cell key={i} fill={lostColor(e.daysLost)} />)}
+                  <LabelList dataKey="daysLost" position="right" style={{ fontSize: 10, fill: '#94a3b8' }} formatter={(v: any) => `${v}d`} />
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          )}
+      </div>
+    );
+  }
+
   return (
     <div className="bg-slate-800 rounded-xl border border-slate-700 p-4 min-h-[280px]">
       <div className="flex items-start justify-between mb-1">
         <div>
           <h3 className="text-white font-semibold text-sm">Productivity Lost by Dept</h3>
-          <p className="text-slate-500 text-xs mt-0.5 mb-3">Person-days lost per department</p>
+          <p className="text-slate-500 text-xs mt-0.5 mb-3">Person-days lost per department · <span className="text-blue-400">click a bar</span> to see employees</p>
         </div>
         <InfoTooltip title="Dept Productivity Lost" description="Total person-days lost per department = Σ(late+early minutes) ÷ 480 minutes." formula="Σ(late+early mins) ÷ 480" position="bottom" />
       </div>
@@ -346,11 +407,13 @@ export function DeptProductivityChart({ data }: { data: DeptAttendance[] }) {
                 return (
                   <div className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs shadow-xl">
                     <p className="text-slate-300 font-medium mb-1">{label}</p>
-                    <p className="text-amber-400">Days Lost: <strong>{payload[0]?.value}</strong></p>
+                    <p className="text-amber-400">Days Lost: <strong>{payload[0]?.value}d</strong></p>
+                    <p className="text-blue-400 mt-1">Click to see employees →</p>
                   </div>
                 );
               }} />
-              <Bar dataKey="daysLost" radius={[0, 4, 4, 0]}>
+              <Bar dataKey="daysLost" radius={[0, 4, 4, 0]} cursor="pointer"
+                onClick={(entry: any) => setDrillDept(entry.department)}>
                 {chartData.map((entry, i) => <Cell key={i} fill={lostColor(entry.daysLost)} />)}
                 <LabelList dataKey="daysLost" position="right" style={{ fontSize: 10, fill: '#94a3b8' }} formatter={(v: any) => `${v}d`} />
               </Bar>

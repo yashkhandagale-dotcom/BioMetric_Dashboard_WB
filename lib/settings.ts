@@ -12,6 +12,8 @@ export const DEFAULT_THRESHOLDS: Thresholds = {
   shortDayMinutes: 5,
   frequentPunchCount: 3,
   graceMinutes: 10,
+  shiftStartMinutes: 9 * 60 + 30, // 09:30 — change in Settings if your org's shift differs
+  shiftEndMinutes: 18 * 60 + 30,  // 18:30
 };
 
 export function getThresholds(): Thresholds {

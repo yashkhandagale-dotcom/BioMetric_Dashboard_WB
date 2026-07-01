@@ -48,35 +48,54 @@ export function timeStringToMinutes(timeStr: string): number {
   return hours * 60 + mins;
 }
 
-// A4: grace period configurable, default 10 minutes
-export function computeLateMinutes(inTime: string, graceMinutes: number = 10): number {
+// A4: grace period configurable, default 10 minutes. Shift start/end are also
+// configurable now (Settings → Shift Window) — DO NOT assume 09:30–18:30, that
+// was the source of wildly wrong Late/Early rates for offices on other shifts.
+export function computeLateMinutes(
+  inTime: string,
+  graceMinutes: number = 10,
+  shiftStart: number = SHIFT_START_MINUTES
+): number {
   const inMins = timeStringToMinutes(inTime);
   if (inMins < 0) return 0;
-  return Math.max(0, inMins - SHIFT_START_MINUTES - graceMinutes);
+  return Math.max(0, inMins - shiftStart - graceMinutes);
 }
 
-export function computeEarlyMinutes(outTime: string, graceMinutes: number = 10): number {
+export function computeEarlyMinutes(
+  outTime: string,
+  graceMinutes: number = 10,
+  shiftEnd: number = SHIFT_END_MINUTES
+): number {
   const outMins = timeStringToMinutes(outTime);
   if (outMins <= 0) return 0;
-  return Math.max(0, SHIFT_END_MINUTES - graceMinutes - outMins);
+  return Math.max(0, shiftEnd - graceMinutes - outMins);
 }
 
 // A5: prefer the CSV's own lateBy/earlyBy when present & valid; otherwise
-// fall back to computing from raw punches using the configured grace period.
-export function getLateMinutes(r: AttendanceRecord, graceMinutes: number): number {
+// fall back to computing from raw punches using the configured grace period
+// and the configured shift window.
+export function getLateMinutes(
+  r: AttendanceRecord,
+  graceMinutes: number,
+  shiftStart: number = SHIFT_START_MINUTES
+): number {
   if (!r.lateIsEstimated && r.lateBy) {
     const m = durationToMinutes(r.lateBy);
     if (m >= 0) return m;
   }
-  return computeLateMinutes(r.inTime, graceMinutes);
+  return computeLateMinutes(r.inTime, graceMinutes, shiftStart);
 }
 
-export function getEarlyMinutes(r: AttendanceRecord, graceMinutes: number): number {
+export function getEarlyMinutes(
+  r: AttendanceRecord,
+  graceMinutes: number,
+  shiftEnd: number = SHIFT_END_MINUTES
+): number {
   if (!r.earlyIsEstimated && r.earlyBy) {
     const m = durationToMinutes(r.earlyBy);
     if (m >= 0) return m;
   }
-  return computeEarlyMinutes(r.outTime, graceMinutes);
+  return computeEarlyMinutes(r.outTime, graceMinutes, shiftEnd);
 }
 
 // B7.3: join an AttendanceRecord with any LeaveRecord for that employee+date
@@ -134,7 +153,9 @@ export function computeEmployeeKPIs(
   records: AttendanceRecord[],
   leaveMap: Map<string, LeaveRecord>,
   holidays: Holiday[] = [],
-  grace: number = 10
+  grace: number = 10,
+  shiftStart: number = SHIFT_START_MINUTES,
+  shiftEnd: number = SHIFT_END_MINUTES
 ): ComparisonKPIs {
   const workRecords = records.filter((r) => {
     if (isWeeklyOff(r.status)) return false;
@@ -175,13 +196,13 @@ export function computeEmployeeKPIs(
   const totalMins = presentWithDuration.reduce((sum, r) => sum + durationToMinutes(r.duration), 0);
   const avgHoursPerDay = presentWithDuration.length > 0 ? totalMins / presentWithDuration.length / 60 : 0;
 
-  const lateRecords = presentRecords.filter((r) => getLateMinutes(r, grace) > 0);
-  const earlyRecords = presentRecords.filter((r) => getEarlyMinutes(r, grace) > 0);
+  const lateRecords = presentRecords.filter((r) => getLateMinutes(r, grace, shiftStart) > 0);
+  const earlyRecords = presentRecords.filter((r) => getEarlyMinutes(r, grace, shiftEnd) > 0);
   const lateArrivalRate = presentRecords.length > 0 ? (lateRecords.length / presentRecords.length) * 100 : 0;
   const earlyExitRate = presentRecords.length > 0 ? (earlyRecords.length / presentRecords.length) * 100 : 0;
 
   const totalLostMins = presentRecords.reduce(
-    (sum, r) => sum + getLateMinutes(r, grace) + getEarlyMinutes(r, grace), 0
+    (sum, r) => sum + getLateMinutes(r, grace, shiftStart) + getEarlyMinutes(r, grace, shiftEnd), 0
   );
   const totalShiftMins = presentRecords.length * SHIFT_MINUTES;
   const productivityLost = totalShiftMins > 0 ? (totalLostMins / totalShiftMins) * 100 : 0;

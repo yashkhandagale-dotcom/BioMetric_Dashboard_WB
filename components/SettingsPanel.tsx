@@ -1,21 +1,16 @@
 'use client';
 import { useState } from 'react';
-import { X, Settings as SettingsIcon, RotateCcw, Calendar } from 'lucide-react';
-import { ColumnMapping, Thresholds, AttendanceRecord, Holiday } from '@/lib/types';
+import { X, Settings as SettingsIcon, RotateCcw } from 'lucide-react';
+import { ColumnMapping, Thresholds, AttendanceRecord } from '@/lib/types';
 import { getAllMappings } from '@/lib/storage';
 import { DEFAULT_THRESHOLDS } from '@/lib/settings';
 import SharedLinkPanel from './SharedLinkPanel';
-import HolidayModal from './HolidayModal';
 
 interface SettingsPanelProps {
   onClose: () => void;
   thresholds: Thresholds;
   onSaveThresholds: (t: Thresholds) => void;
   records: AttendanceRecord[];
-  officeCode?: string;
-  year?: string;
-  holidays?: Holiday[];
-  onHolidaysSaved?: (h: Holiday[]) => void;
 }
 
 const THRESHOLD_FIELDS: { key: keyof Thresholds; label: string; group: string }[] = [
@@ -36,11 +31,21 @@ const THRESHOLD_FIELDS: { key: keyof Thresholds; label: string; group: string }[
   { key: 'graceMinutes', label: 'Grace Period (minutes)', group: 'Other Thresholds' },
 ];
 
-export default function SettingsPanel({ onClose, thresholds, onSaveThresholds, records, officeCode, year, holidays = [], onHolidaysSaved }: SettingsPanelProps) {
-  const [tab, setTab] = useState<'mapping' | 'thresholds' | 'share' | 'holidays'>('thresholds');
+function minsToHHMM(mins: number): string {
+  const h = Math.floor(mins / 60).toString().padStart(2, '0');
+  const m = (mins % 60).toString().padStart(2, '0');
+  return `${h}:${m}`;
+}
+function hhmmToMins(hhmm: string): number {
+  const [h, m] = hhmm.split(':').map(Number);
+  if (isNaN(h) || isNaN(m)) return 0;
+  return h * 60 + m;
+}
+
+export default function SettingsPanel({ onClose, thresholds, onSaveThresholds, records }: SettingsPanelProps) {
+  const [tab, setTab] = useState<'mapping' | 'thresholds' | 'share'>('thresholds');
   const [draft, setDraft] = useState<Thresholds>(thresholds);
   const [dirty, setDirty] = useState(false);
-  const [showHolidayModal, setShowHolidayModal] = useState(false);
   const mappings = getAllMappings();
 
   function update(key: keyof Thresholds, value: string) {
@@ -76,13 +81,13 @@ export default function SettingsPanel({ onClose, thresholds, onSaveThresholds, r
         </div>
 
         <div className="flex border-b border-slate-800 flex-shrink-0">
-          {(['thresholds', 'holidays', 'mapping', 'share'] as const).map(t => (
+          {(['thresholds', 'mapping', 'share'] as const).map(t => (
             <button
               key={t}
               onClick={() => setTab(t)}
               className={`flex-1 px-3 py-2.5 text-xs font-medium transition-colors ${tab === t ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-500 hover:text-slate-300'}`}
             >
-              {t === 'thresholds' ? 'Thresholds' : t === 'mapping' ? 'Column Mapping' : t === 'holidays' ? 'Holidays' : 'Shared Link'}
+              {t === 'thresholds' ? 'Thresholds' : t === 'mapping' ? 'Column Mapping' : 'Shared Link'}
             </button>
           ))}
         </div>
@@ -108,6 +113,25 @@ export default function SettingsPanel({ onClose, thresholds, onSaveThresholds, r
                   </div>
                 </div>
               ))}
+
+              {/* Shift Window — time-picker instead of raw number */}
+              <div>
+                <h4 className="text-slate-400 text-xs font-semibold uppercase tracking-wide mb-2">Shift Window</h4>
+                <p className="text-slate-500 text-[11px] mb-2">Used to compute Late Arrival and Early Exit rates. If your CSV already has lateBy/earlyBy columns the system prefers those; this only applies when falling back to raw punch times.</p>
+                <div className="space-y-2">
+                  {(['shiftStartMinutes', 'shiftEndMinutes'] as const).map((key) => (
+                    <div key={key} className="flex items-center justify-between gap-3 bg-slate-800/60 rounded-lg px-3 py-2">
+                      <label className="text-slate-300 text-xs">{key === 'shiftStartMinutes' ? 'Shift Start' : 'Shift End'}</label>
+                      <input
+                        type="time"
+                        value={minsToHHMM(draft[key])}
+                        onChange={(e) => { setDraft(prev => ({ ...prev, [key]: hhmmToMins(e.target.value) })); setDirty(true); }}
+                        className="bg-slate-700 border border-slate-600 rounded-md px-2 py-1 text-white text-xs focus:outline-none focus:border-blue-500"
+                      />
+                    </div>
+                  ))}
+                </div>
+              </div>
 
               <div className="flex gap-2 pt-2">
                 <button
@@ -144,49 +168,11 @@ export default function SettingsPanel({ onClose, thresholds, onSaveThresholds, r
             </div>
           )}
 
-          {tab === 'holidays' && (
-            <div className="space-y-3">
-              {!officeCode ? (
-                <p className="text-slate-500 text-sm">Select a month/office on the dashboard first to view its holiday calendar.</p>
-              ) : (
-                <>
-                  <div className="bg-slate-800/60 rounded-lg px-3 py-3">
-                    <p className="text-white text-sm font-medium">{officeCode} · {year}</p>
-                    <p className="text-slate-500 text-xs mt-1">
-                      {holidays.length} holiday{holidays.length !== 1 ? 's' : ''} applied automatically across all charts and reports —
-                      {' '}{holidays.filter(h => h.source === 'predefined').length} from the office calendar,
-                      {' '}{holidays.filter(h => h.source === 'custom').length} custom.
-                    </p>
-                  </div>
-                  <p className="text-slate-500 text-xs">
-                    Office holidays (New Year, Diwali, etc.) are built into the app and applied automatically —
-                    no manual entry needed. Use this to add extra regional/ad-hoc holidays or review the full list.
-                  </p>
-                  <button
-                    onClick={() => setShowHolidayModal(true)}
-                    className="flex items-center gap-1.5 bg-purple-600/20 border border-purple-500/30 text-purple-400 px-3 py-2 rounded-lg text-xs font-medium hover:bg-purple-600/30 transition-colors"
-                  >
-                    <Calendar className="w-3.5 h-3.5" /> View / Manage Holidays
-                  </button>
-                </>
-              )}
-            </div>
-          )}
-
           {tab === 'share' && (
             <SharedLinkPanel records={records} />
           )}
         </div>
       </div>
-
-      {showHolidayModal && officeCode && year && (
-        <HolidayModal
-          officeCode={officeCode}
-          year={year}
-          onClose={() => setShowHolidayModal(false)}
-          onSaved={(h) => onHolidaysSaved?.(h)}
-        />
-      )}
     </>
   );
 }

@@ -50,6 +50,10 @@ export interface Thresholds {
   shortDayMinutes: number;
   frequentPunchCount: number;
   graceMinutes: number;
+  // v5.1: shift window is configurable — hardcoding 09:30–18:30 was producing
+  // wildly wrong Late/Early rates for offices on a different shift schedule
+  shiftStartMinutes: number; // minutes from midnight, e.g. 570 = 09:30
+  shiftEndMinutes: number;   // minutes from midnight, e.g. 1110 = 18:30
 }
 
 export interface ColumnMapping {
@@ -76,7 +80,6 @@ export interface DayWiseLateEarly {
 export interface Holiday {
   date: string; // YYYY-MM-DD
   name: string;
-  source?: 'predefined' | 'custom'; // predefined = from official office holiday calendar, locked
 }
 
 export interface MonthlyTrendPoint {

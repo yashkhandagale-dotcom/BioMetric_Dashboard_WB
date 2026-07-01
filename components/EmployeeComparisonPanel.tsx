@@ -7,11 +7,13 @@ import { getLeaveRecords } from '@/lib/leaveStorage';
 import { getHolidays } from '@/lib/holidays';
 
 interface EmployeeComparisonPanelProps {
-  allRecords: AttendanceRecord[];       // current filtered month's records (office + dept filtered)
-  employeeSummaries: EmployeeSummary[]; // current month's employee list (for picking who to compare)
-  leaveRecords: LeaveRecord[];          // current month's leave records
-  holidays: Holiday[];                  // current month's holidays
+  allRecords: AttendanceRecord[];
+  employeeSummaries: EmployeeSummary[];
+  leaveRecords: LeaveRecord[];
+  holidays: Holiday[];
   graceMinutes: number;
+  shiftStartMinutes: number;
+  shiftEndMinutes: number;
 }
 
 const METRICS: { key: keyof ComparisonKPIs; label: string; suffix: string; higherIsBetter: boolean }[] = [
@@ -251,7 +253,7 @@ function ComparisonGrid({
 }
 
 export default function EmployeeComparisonPanel({
-  allRecords, employeeSummaries, leaveRecords, holidays, graceMinutes,
+  allRecords, employeeSummaries, leaveRecords, holidays, graceMinutes, shiftStartMinutes, shiftEndMinutes,
 }: EmployeeComparisonPanelProps) {
   const [mode, setMode] = useState<'employee' | 'history'>('employee');
 
@@ -271,13 +273,13 @@ export default function EmployeeComparisonPanel({
 
   const leftEmpKPIs = useMemo(() => {
     if (!leftEmp) return null;
-    return computeEmployeeKPIs(leftRecords, currentLeaveMap, holidays, graceMinutes);
-  }, [leftRecords, leftEmp, currentLeaveMap, holidays, graceMinutes]);
+    return computeEmployeeKPIs(leftRecords, currentLeaveMap, holidays, graceMinutes, shiftStartMinutes, shiftEndMinutes);
+  }, [leftRecords, leftEmp, currentLeaveMap, holidays, graceMinutes, shiftStartMinutes, shiftEndMinutes]);
 
   const rightEmpKPIs = useMemo(() => {
     if (!rightEmp) return null;
-    return computeEmployeeKPIs(rightRecords, currentLeaveMap, holidays, graceMinutes);
-  }, [rightRecords, rightEmp, currentLeaveMap, holidays, graceMinutes]);
+    return computeEmployeeKPIs(rightRecords, currentLeaveMap, holidays, graceMinutes, shiftStartMinutes, shiftEndMinutes);
+  }, [rightRecords, rightEmp, currentLeaveMap, holidays, graceMinutes, shiftStartMinutes, shiftEndMinutes]);
 
   const leftEmpName = empOptions.find((e) => e.employeeCode === leftEmp)?.employeeName || leftEmp;
   const rightEmpName = empOptions.find((e) => e.employeeCode === rightEmp)?.employeeName || rightEmp;
@@ -301,11 +303,11 @@ export default function EmployeeComparisonPanel({
     if (!m) return null;
     const monthHolidays = getHolidays(m.officeCode, m.year);
     const monthLeaves = buildLeaveMap(getLeaveRecords(m.monthKey));
-    return computeEmployeeKPIs(m.records, monthLeaves, monthHolidays, graceMinutes);
+    return computeEmployeeKPIs(m.records, monthLeaves, monthHolidays, graceMinutes, shiftStartMinutes, shiftEndMinutes);
   }
 
-  const monthAKPIs = useMemo(() => kpisForHistMonth(monthA), [monthA, graceMinutes]);
-  const monthBKPIs = useMemo(() => kpisForHistMonth(monthB), [monthB, graceMinutes]);
+  const monthAKPIs = useMemo(() => kpisForHistMonth(monthA), [monthA, graceMinutes, shiftStartMinutes, shiftEndMinutes]);
+  const monthBKPIs = useMemo(() => kpisForHistMonth(monthB), [monthB, graceMinutes, shiftStartMinutes, shiftEndMinutes]);
 
   const histEmpName = empOptions.find((e) => e.employeeCode === histEmp)?.employeeName || histEmp;
 
