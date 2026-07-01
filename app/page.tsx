@@ -27,11 +27,8 @@ import {
 import ExportPanel from '@/components/ExportPanel';
 import EmployeePanel from '@/components/EmployeePanel';
 import TeamComparisonPanel from '@/components/TeamComparisonPanel';
-<<<<<<< HEAD
 import EmployeeComparisonPanel from '@/components/EmployeeComparisonPanel';
 import HolidayModal from '@/components/HolidayModal';
-=======
->>>>>>> cebf57734252972c02faeb3b937994acd23704bf
 import InsightsStrip from '@/components/InsightsStrip';
 import SettingsPanel from '@/components/SettingsPanel';
 
