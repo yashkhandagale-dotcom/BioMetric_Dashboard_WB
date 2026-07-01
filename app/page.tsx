@@ -485,7 +485,7 @@ function HRDashboard() {
             </div>
 
             {/* A7: office-wise attendance comparison */}
-            <OfficeAttendanceChart data={officeAttendance} />
+            {/* <OfficeAttendanceChart data={officeAttendance} /> */}
 
             {/* Dept comparison */}
             <TeamComparisonPanel allRecords={allRecords} departments={departments} />

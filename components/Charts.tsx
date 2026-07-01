@@ -489,57 +489,7 @@ export function HoursDistributionChart({ data, allRecords, selectedDepts }: {
 }
 
 // ── Office-wise Attendance Comparison (A7) ────────────────────────────────────
-import { OfficeAttendance } from '@/lib/types';
 
-export function OfficeAttendanceChart({ data }: { data: OfficeAttendance[] }) {
-  if (data.length < 2) {
-    return (
-      <div className="bg-slate-800 rounded-xl border border-slate-700 p-4 min-h-[200px]">
-        <div className="flex items-start justify-between mb-1">
-          <h3 className="text-white font-semibold text-sm">Office-wise Attendance Rate</h3>
-          <InfoTooltip title="Office Comparison" description="Compares attendance rate across all uploaded offices for the selected month, regardless of the active office filter." position="bottom" />
-        </div>
-        <div className="h-32 flex items-center justify-center text-slate-500 text-sm text-center px-4">
-          Single office — upload another office's CSV to enable comparison
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="bg-slate-800 rounded-xl border border-slate-700 p-4 min-h-[280px]">
-      <div className="flex items-start justify-between mb-1">
-        <div>
-          <h3 className="text-white font-semibold text-sm">Office-wise Attendance Rate</h3>
-          <p className="text-slate-500 text-xs mt-0.5 mb-3">Cross-office comparison — always shows all offices</p>
-        </div>
-        <InfoTooltip title="Office Comparison" description="Attendance rate per office for the selected month, computed independent of the office filter elsewhere on the dashboard." formula="Present ÷ Scheduled × 100" position="bottom" />
-      </div>
-      <ResponsiveContainer width="100%" height={200}>
-        <BarChart data={data} margin={{ top: 5, right: 10, left: -20, bottom: 5 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-          <XAxis dataKey="office" tick={{ fontSize: 11, fill: '#94a3b8' }} />
-          <YAxis domain={[0, 100]} tick={{ fontSize: 10, fill: '#64748b' }} unit="%" />
-          <Tooltip content={({ active, payload, label }: any) => {
-            if (!active || !payload?.length) return null;
-            const d = payload[0]?.payload;
-            return (
-              <div className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs shadow-xl">
-                <p className="text-slate-300 font-medium mb-1">{label}</p>
-                <p style={{ color: rateColor(d.rate) }}>Rate: <strong>{d.rate}%</strong></p>
-                <p className="text-slate-400">{d.presentCount} / {d.scheduledCount} scheduled</p>
-              </div>
-            );
-          }} />
-          <Bar dataKey="rate" radius={[4, 4, 0, 0]} name="Attendance %">
-            {data.map((entry, i) => <Cell key={i} fill={rateColor(entry.rate)} />)}
-            <LabelList dataKey="rate" position="top" style={{ fontSize: 10, fill: '#94a3b8' }} formatter={(v: any) => `${v}%`} />
-          </Bar>
-        </BarChart>
-      </ResponsiveContainer>
-    </div>
-  );
-}
 
 // ── Per-Employee Heatmap (B6) — relocated into EmployeePanel ─────────────────
 export function PersonalHeatmap({ records }: { records: AttendanceRecord[] }) {
