@@ -97,7 +97,7 @@ export default function EmployeeTable({ summaries, onEmployeeClick }: EmployeeTa
               <TH col="absentDays" label="Absent" />
               <TH col="lateCount" label="Late" />
               <TH col="earlyExitCount" label="Early Exit" />
-              <TH col="shortDayCount" label="Short Days" />
+              <th className="px-3 py-2.5 text-left text-xs font-medium text-slate-400 whitespace-nowrap">Flags</th>
               <TH col="avgHoursWorked" label="Avg Hours" />
               <TH col="worstStatus" label="Status" />
             </tr>
@@ -113,13 +113,8 @@ export default function EmployeeTable({ summaries, onEmployeeClick }: EmployeeTa
                   <div className="text-blue-400 hover:text-blue-300 font-medium transition-colors">
                     {emp.employeeName}
                   </div>
-                  <div className="text-slate-500 text-xs flex items-center gap-1.5">
+                  <div className="text-slate-500 text-xs">
                     {emp.employeeCode}
-                    {emp.frequentPunchDays > 0 && (
-                      <span className="flex items-center gap-0.5 text-amber-500" title={`Frequent punches on ${emp.frequentPunchDays} days`}>
-                        <Zap className="w-2.5 h-2.5" />
-                      </span>
-                    )}
                   </div>
                 </td>
                 <td className="px-3 py-2.5 text-slate-300">{emp.department}</td>
@@ -131,13 +126,23 @@ export default function EmployeeTable({ summaries, onEmployeeClick }: EmployeeTa
                 <td className="px-3 py-2.5 text-amber-400">{emp.lateCount}</td>
                 <td className="px-3 py-2.5 text-slate-300">{emp.earlyExitCount}</td>
                 <td className="px-3 py-2.5">
-                  {emp.shortDayCount > 0 ? (
-                    <span className="flex items-center gap-1 text-orange-400">
-                      <AlertTriangle className="w-3 h-3" /> {emp.shortDayCount}
-                    </span>
-                  ) : (
-                    <span className="text-slate-600">—</span>
-                  )}
+                  <div className="flex flex-wrap gap-1">
+                    {emp.shortDayCount > 0 ? (
+                      <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-orange-500/15 text-orange-400 border border-orange-500/20">
+                        <AlertTriangle className="w-3 h-3" />
+                        Short Day{emp.shortDayCount > 1 ? ` (${emp.shortDayCount})` : ''}
+                      </span>
+                    ) : null}
+                    {emp.frequentPunchDays > 0 ? (
+                      <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-amber-500/15 text-amber-400 border border-amber-500/20">
+                        <Zap className="w-3 h-3" />
+                        Frequent Punch{emp.frequentPunchDays > 1 ? ` (${emp.frequentPunchDays})` : ''}
+                      </span>
+                    ) : null}
+                    {emp.shortDayCount === 0 && emp.frequentPunchDays === 0 && (
+                      <span className="text-slate-600 text-xs">—</span>
+                    )}
+                  </div>
                 </td>
                 <td className="px-3 py-2.5 text-slate-300 font-mono">{emp.avgHoursWorked}</td>
                 <td className="px-3 py-2.5">

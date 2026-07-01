@@ -27,8 +27,13 @@ import {
 import ExportPanel from '@/components/ExportPanel';
 import EmployeePanel from '@/components/EmployeePanel';
 import TeamComparisonPanel from '@/components/TeamComparisonPanel';
+<<<<<<< HEAD
 import EmployeeComparisonPanel from '@/components/EmployeeComparisonPanel';
 import HolidayModal from '@/components/HolidayModal';
+=======
+import EmployeeComparisonPanel from '@/components/EmployeeComparisonPanel';
+import HolidayModal from '@/components/HolidayModal';
+>>>>>>> 6d3333a6306f8833b905098f348d9913a8cac25a
 import InsightsStrip from '@/components/InsightsStrip';
 import SettingsPanel from '@/components/SettingsPanel';
 
@@ -355,11 +360,8 @@ function HRDashboard() {
 
   const filteredSummaries = tableFilter === 'all' ? employeeSummaries
     : tableFilter === 'present' ? employeeSummaries.filter(e => e.presentDays > 0)
-    : tableFilter === 'absent' ? employeeSummaries.filter(e => e.absentDays > 0)
     : tableFilter === 'late' ? employeeSummaries.filter(e => e.lateCount > 0)
     : tableFilter === 'earlyexit' ? employeeSummaries.filter(e => e.earlyExitCount > 0)
-    : tableFilter === 'shortday' ? employeeSummaries.filter(e => e.shortDayCount > 0)
-    : tableFilter === 'frequentpunch' ? employeeSummaries.filter(e => e.frequentPunchDays > 0)
     : employeeSummaries;
 
   return (

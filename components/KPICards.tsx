@@ -55,19 +55,6 @@ export default function KPICards({ kpi, thresholds = DEFAULT_THRESHOLDS, onCardC
       },
     },
     {
-      label: 'Absenteeism Rate',
-      value: `${kpi.absenteeismRate.toFixed(1)}%`,
-      sub: `${kpi.unexplainedAbsentCount} unexplained + ${kpi.lwpCount} LWP of ${kpi.scheduledCount}`,
-      status: getStatus(kpi.absenteeismRate, t.absenteeismRateGreen, t.absenteeismRateAmber, true),
-      filter: 'absent',
-      info: {
-        title: 'Absenteeism Rate',
-        description: 'Unexplained absences + LWP, as a % of scheduled days. Planned/Casual/Sick leave are excluded from the numerator (still counted in the denominator).',
-        formula: '((Unexplained + LWP) ÷ Scheduled) × 100%',
-        example: 'If 20 person-days are absent out of 100 scheduled = 20% absenteeism.',
-      },
-    },
-    {
       label: 'Avg Effective Hours',
       value: `${kpi.avgWorkingHours.toFixed(1)}h`,
       sub: 'Mean hours per present day (excl. Short Days)',
@@ -78,19 +65,6 @@ export default function KPICards({ kpi, thresholds = DEFAULT_THRESHOLDS, onCardC
         description: 'Average hours worked per present employee per day. Based on 8 effective hours (9h shift minus 1h lunch). Short Day records excluded.',
         formula: 'Σ(duration) ÷ present days',
         example: '>6h 48m (85% of 8h) = green. <6h (75%) = red.',
-      },
-    },
-    {
-      label: 'Short Days',
-      value: `${kpi.shortDayCount}`,
-      sub: 'Punch-in but exit ≤5 min — needs review',
-      status: kpi.shortDayCount === 0 ? 'green' : kpi.shortDayCount <= 3 ? 'amber' : 'red',
-      filter: 'shortday',
-      info: {
-        title: 'Short Days',
-        description: `Days where an employee punched in but out within ${t.shortDayMinutes} minutes — likely a forgotten punch or system error. Requires HR review. Days marked as Half-Day leave are excluded here.`,
-        formula: `Count of records where out_time − in_time ≤ ${t.shortDayMinutes} minutes`,
-        example: '0 = no issues. 1–3 = amber. >3 = red.',
       },
     },
     {
@@ -130,19 +104,6 @@ export default function KPICards({ kpi, thresholds = DEFAULT_THRESHOLDS, onCardC
         description: 'Person-capacity lost to late arrivals and early exits. Denominator = present days × 480 effective minutes (8h net shift). Excludes Short Days.',
         formula: 'Σ(late+early mins) ÷ (present days × 480) × 100%',
         example: '30 min late + 15 min early = 45 min lost ÷ 480 = 9.4% for that day.',
-      },
-    },
-    {
-      label: 'Frequent Punchers',
-      value: `${kpi.frequentPuncherCount}`,
-      sub: `Employees with ≥${t.frequentPunchCount} punches on any day`,
-      status: kpi.frequentPuncherCount === 0 ? 'green' : kpi.frequentPuncherCount <= 2 ? 'amber' : 'red',
-      filter: 'frequentpunch',
-      info: {
-        title: 'Frequent Punchers',
-        description: 'Employees who punched in/out 3 or more times in a single day. May indicate access card issues, forgotten punches, or shift changes. Requires review.',
-        formula: `Count of employees where max(punchCount per day) ≥ ${t.frequentPunchCount}`,
-        example: '0 = no issues. 1–2 = amber (monitor). >2 = red (review).',
       },
     },
   ];
