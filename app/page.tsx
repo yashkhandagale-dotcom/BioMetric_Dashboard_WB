@@ -18,20 +18,20 @@ import UploadZone from '@/components/UploadZone';
 import ColumnMappingScreen from '@/components/ColumnMappingScreen';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import KPICards from '@/components/KPICards';
-import AbsenceBreakdown from '@/components/AbsenceBreakdown';
+// import AbsenceBreakdown from '@/components/AbsenceBreakdown';
 import EmployeeTable from '@/components/EmployeeTable';
 import {
-  DailyTrendChart, DeptAttendanceChart, HoursDistributionChart, AbsenceSpikeChart,
-  ProductivityLostChart, DeptProductivityChart,
+  DailyTrendChart, DeptAttendanceChart, HoursDistributionChart,
+  DeptProductivityChart,
   DayDeptAttendanceChart, DayDeptLateChart, DayDeptProductivityChart
 } from '@/components/Charts';
 import ExportPanel from '@/components/ExportPanel';
 import EmployeePanel from '@/components/EmployeePanel';
-import TeamComparisonPanel from '@/components/TeamComparisonPanel';
 import EmployeeComparisonPanel from '@/components/EmployeeComparisonPanel';
 import HolidayModal from '@/components/HolidayModal';
 import InsightsStrip from '@/components/InsightsStrip';
 import SettingsPanel from '@/components/SettingsPanel';
+import HRAbsenceChecker from '@/components/HRAbsenceChecker';
 
 type AppState = 'upload' | 'mapping' | 'dashboard';
 type ViewMode = 'loading' | 'hr' | 'manager' | 'denied';
@@ -106,7 +106,6 @@ function HRDashboard() {
   const [selectedEmp, setSelectedEmp] = useState<EmployeeSummary | null>(null);
   const [showSettings, setShowSettings] = useState(false);
 
-  // B2: multi-file upload pipeline state
   const [pendingBatch, setPendingBatch] = useState<PendingFile[]>([]);
   const [skippedFiles, setSkippedFiles] = useState<{ name: string; reason: string }[]>([]);
   const [mappingQueue, setMappingQueue] = useState<MappingQueueItem[]>([]);
@@ -127,7 +126,10 @@ function HRDashboard() {
   const [dateFrom, setDateFrom] = useState<string | null>(null);
   const [dateTo, setDateTo] = useState<string | null>(null);
 
-  // Load holidays + leave records when month key changes
+  // Shared drill state: when DeptAttendanceChart drills to a dept,
+  // DeptProductivityChart follows
+  const [deptDrillSync, setDeptDrillSync] = useState<string | null>(null);
+
   useEffect(() => {
     if (!selectedMonthKey) return;
     const officeCode = getOfficeFromKey(selectedMonthKey);
@@ -135,15 +137,12 @@ function HRDashboard() {
     setHolidays(getHolidays(officeCode, year));
     setLeaveRecords(getLeaveRecords(selectedMonthKey));
 
-    // A7: gather records from every uploaded office for the SAME month/year,
-    // independent of the office filter, so the office comparison chart works.
     const months = getUploadedMonths();
     const month = selectedMonthKey.split('_')[1];
     const sameMonth = months.filter(m => m.month === month && m.year === year);
     setAllOfficeRecords(sameMonth.flatMap(m => getRecords(m.key)));
   }, [selectedMonthKey]);
 
-  // A8: re-mapping headers surfaced from SettingsPanel
   useEffect(() => {
     function handler(e: Event) {
       const detail = (e as CustomEvent).detail as { officeCode: string; headers: string[]; mapping: ColumnMapping };
@@ -156,7 +155,6 @@ function HRDashboard() {
     return () => window.removeEventListener('remap-headers', handler);
   }, []);
 
-  // Sync URL → state on mount
   useEffect(() => {
     const months = getUploadedMonths();
     if (months.length === 0) return;
@@ -186,7 +184,6 @@ function HRDashboard() {
     setTimeout(() => setToast(null), 6000);
   }
 
-  // ── B2: multi-file upload pipeline ──────────────────────────────────────────
   async function handleFiles(files: File[]) {
     const valid: PendingFile[] = [];
     const skipped: { name: string; reason: string }[] = [];
@@ -210,7 +207,6 @@ function HRDashboard() {
 
     setPendingBatch(valid);
 
-    // Determine which distinct offices in this batch need a fresh mapping
     const queue: MappingQueueItem[] = [];
     const seen = new Set<string>();
     for (const pf of valid) {
@@ -240,14 +236,13 @@ function HRDashboard() {
     if (remaining.length > 0) {
       setMappingQueue(remaining);
       setRemapInitial(undefined);
-      return; // stay in 'mapping' state for next office in queue
+      return;
     }
 
     setMappingQueue([]);
     setRemapInitial(undefined);
 
     if (remapInitial !== undefined && pendingBatch.length === 0) {
-      // This save came from a Settings → Remap action, not a fresh upload batch.
       setAppState('dashboard');
       showToast('success', `Column mapping updated for ${current.officeCode}.`);
       return;
@@ -278,7 +273,7 @@ function HRDashboard() {
 
     for (const pf of batch) {
       const mapping = getMapping(pf.officeCode);
-      if (!mapping) continue; // shouldn't happen — mapping queue guarantees this
+      if (!mapping) continue;
       const { records } = await parseCSVWithMapping(pf.file, mapping, pf.officeCode, thresholds.graceMinutes);
       const monthKey = `${pf.year}_${pf.month}_${pf.officeCode}`;
       const monthLabel = `${pf.officeCode} \u2014 ${getMonthName(pf.month)} ${pf.year}`;
@@ -316,6 +311,7 @@ function HRDashboard() {
     setTableFilter('all');
     setDateFrom(null);
     setDateTo(null);
+    setDeptDrillSync(null);
     syncURL(key, 'ALL', []);
   }
 
@@ -339,6 +335,7 @@ function HRDashboard() {
   function clearDepts() {
     setSelectedDepts([]);
     setTableFilter('all');
+    setDeptDrillSync(null);
     syncURL(selectedMonthKey, selectedOffice, []);
   }
 
@@ -352,8 +349,15 @@ function HRDashboard() {
     showToast('success', 'Thresholds updated.');
   }
 
+  // FIX: single day — allow cross-month date range
+  // The date pickers use availableDates from ALL uploaded records, not just current month
+  // dateFrom/dateTo filter records directly so cross-month ranges work fine.
+
   const { kpi, employeeSummaries, dailyTrend, deptAttendance, hoursDistribution, officeAttendance, departments, offices, filteredRecords, availableDates, viewMode, dayDeptSnapshots } =
     useDashboardData(allRecords, selectedOffice, selectedDepts, [], holidays, thresholds, leaveRecords, allOfficeRecords, dateFrom, dateTo);
+
+  // All uploaded records across all months (for cross-month date range + HR checker)
+  const allUploadedRecords = uploadedMonths.flatMap(m => getRecords(m.key));
 
   const leaveMap = buildLeaveMap(leaveRecords);
 
@@ -374,6 +378,13 @@ function HRDashboard() {
     : tableFilter === 'shortday' ? employeeSummaries.filter(e => e.shortDayCount > 0)
     : tableFilter === 'frequentpunch' ? employeeSummaries.filter(e => e.frequentPunchDays > 0)
     : employeeSummaries;
+
+  // All dates across ALL uploaded months (for cross-month date range)
+  const allAvailableDates = (() => {
+    const set = new Set<string>();
+    allUploadedRecords.forEach(r => set.add(r.date));
+    return Array.from(set).sort();
+  })();
 
   return (
     <div className="min-h-screen bg-slate-900 text-white">
@@ -444,7 +455,11 @@ function HRDashboard() {
         )}
         {appState === 'dashboard' && (
           <div className="space-y-6">
-            {/* ── Filter Bar ────────────────────────────────────────────── */}
+
+            {/* ── HR Absence Checker ─────────────────────────────────────── */}
+            <HRAbsenceChecker allUploadedRecords={allUploadedRecords} />
+
+            {/* ── Filter Bar ─────────────────────────────────────────────── */}
             <div className="flex flex-wrap items-center gap-3">
               {/* Month selector */}
               <select value={selectedMonthKey} onChange={e => handleMonthChange(e.target.value)}
@@ -452,20 +467,20 @@ function HRDashboard() {
                 {uploadedMonths.map(m => <option key={m.key} value={m.key}>{m.label}</option>)}
               </select>
 
-              {/* Date range: From → To */}
-              {availableDates.length > 0 && (
+              {/* Date range — allow cross-month, no min/max restriction */}
+              {allAvailableDates.length > 0 && (
                 <div className="flex items-center gap-1.5 bg-slate-800/60 border border-slate-700 rounded-lg px-3 py-1.5">
                   <span className="text-slate-500 text-xs font-medium">From</span>
                   <input
                     type="date"
                     value={dateFrom ?? ''}
-                    min={availableDates[0]}
-                    max={dateTo ?? availableDates[availableDates.length - 1]}
                     onChange={e => {
                       const v = e.target.value || null;
                       setDateFrom(v);
-                      // if From > To, reset To
-                      if (v && dateTo && v > dateTo) setDateTo(null);
+                      // Auto-set To = From for single-day selection if To not set
+                      if (v && !dateTo) setDateTo(v);
+                      // If From > To, reset To
+                      if (v && dateTo && v > dateTo) setDateTo(v);
                     }}
                     className="bg-transparent text-white text-xs focus:outline-none w-32"
                   />
@@ -474,8 +489,7 @@ function HRDashboard() {
                   <input
                     type="date"
                     value={dateTo ?? ''}
-                    min={dateFrom ?? availableDates[0]}
-                    max={availableDates[availableDates.length - 1]}
+                    min={dateFrom ?? undefined}
                     onChange={e => setDateTo(e.target.value || null)}
                     className="bg-transparent text-white text-xs focus:outline-none w-32"
                   />
@@ -511,7 +525,7 @@ function HRDashboard() {
               </div>
             </div>
 
-            {/* ── Active filter banner ────────────────────────────────────── */}
+            {/* ── Active filter banner ───────────────────────────────────── */}
             {(dateFrom || dateTo) && (
               <div className={`flex items-center gap-3 rounded-xl px-4 py-2.5 border
                 ${viewMode === 'single_day'
@@ -537,19 +551,31 @@ function HRDashboard() {
               </div>
             )}
 
-            {/* ── KPI Cards ───────────────────────────────────────────────── */}
+            {/* ── KPI Cards ──────────────────────────────────────────────── */}
             <KPICards kpi={kpi} thresholds={thresholds} viewMode={viewMode} onCardClick={(f) => setTableFilter(f === tableFilter ? 'all' : f)} />
 
             {/* Absence breakdown (monthly/range only) */}
-            {viewMode !== 'single_day' && <AbsenceBreakdown kpi={kpi} />}
+            {/* {viewMode !== 'single_day' && <AbsenceBreakdown kpi={kpi} />} */}
 
-            {/* ── SINGLE DAY VIEW — snapshot charts + employee table ──────── */}
+            {/* ── SINGLE DAY VIEW ─────────────────────────────────────────── */}
             {viewMode === 'single_day' && (
               <>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-start">
-                  <DayDeptAttendanceChart data={dayDeptSnapshots} onDeptClick={(dept) => focusDept(dept)} />
-                  <DayDeptLateChart data={dayDeptSnapshots} onDeptClick={(dept) => focusDept(dept)} />
-                  <DayDeptProductivityChart data={dayDeptSnapshots} onDeptClick={(dept) => focusDept(dept)} />
+                  <DayDeptAttendanceChart
+                    data={dayDeptSnapshots}
+                    onDeptClick={(dept) => focusDept(dept)}
+                    allRecords={filteredRecords}
+                  />
+                  <DayDeptLateChart
+                    data={dayDeptSnapshots}
+                    onDeptClick={(dept) => focusDept(dept)}
+                    allRecords={filteredRecords}
+                  />
+                  <DayDeptProductivityChart
+                    data={dayDeptSnapshots}
+                    onDeptClick={(dept) => focusDept(dept)}
+                    allRecords={filteredRecords}
+                  />
                 </div>
                 <div className="bg-slate-800/30 rounded-xl border border-slate-700 p-4">
                   <div className="flex items-center justify-between mb-4">
@@ -572,25 +598,40 @@ function HRDashboard() {
               </>
             )}
 
-            {/* ── MONTHLY / RANGE VIEW — trend charts ─────────────────────── */}
+            {/* ── MONTHLY / RANGE VIEW ────────────────────────────────────── */}
             {viewMode !== 'single_day' && (
               <>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
-                  <DailyTrendChart data={dailyTrend} selectedDepts={selectedDepts} selectedDate={dateFrom === dateTo ? dateFrom : null}
-                    onDateClick={(d) => { setDateFrom(d); setDateTo(d); }} />
-                  <AbsenceSpikeChart data={dailyTrend} selectedDate={dateFrom === dateTo ? dateFrom : null}
-                    onDateClick={(d) => { setDateFrom(d); setDateTo(d); }} />
+                  <DailyTrendChart
+                    data={dailyTrend}
+                    selectedDepts={selectedDepts}
+                    selectedDate={dateFrom === dateTo ? dateFrom : null}
+                    onDateClick={(d) => { setDateFrom(d); setDateTo(d); }}
+                  />
+                  <HoursDistributionChart
+                    data={hoursDistribution}
+                    allRecords={allRecords}
+                    selectedDepts={selectedDepts}
+                  />
                 </div>
+
+                {/* Dept Attendance + Productivity Lost side by side, linked drill */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
-                  <ProductivityLostChart data={dailyTrend} selectedDate={dateFrom === dateTo ? dateFrom : null}
-                    onDateClick={(d) => { setDateFrom(d); setDateTo(d); }} />
-                  <HoursDistributionChart data={hoursDistribution} allRecords={allRecords} selectedDepts={selectedDepts} />
+                  <DeptAttendanceChart
+                    data={deptAttendance}
+                    allRecords={allRecords}
+                    selectedDepts={selectedDepts}
+                    onDeptClick={(dept) => toggleDept(dept)}
+                    onDeptDrillChange={(dept) => setDeptDrillSync(dept)}
+                  />
+                  <DeptProductivityChart
+                    data={deptAttendance}
+                    allRecords={filteredRecords}
+                    externalDrillDept={deptDrillSync}
+                    onDrillBack={() => setDeptDrillSync(null)}
+                  />
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
-                  <DeptAttendanceChart data={deptAttendance} allRecords={allRecords} selectedDepts={selectedDepts} onDeptClick={(dept) => toggleDept(dept)} />
-                  <DeptProductivityChart data={deptAttendance} allRecords={filteredRecords} />
-                </div>
-                <TeamComparisonPanel allRecords={allRecords} departments={departments} />
+
                 <EmployeeComparisonPanel
                   allRecords={filteredRecords}
                   employeeSummaries={employeeSummaries}
@@ -622,7 +663,6 @@ function HRDashboard() {
         )}
       </main>
 
-      {/* Employee slide-in panel */}
       <EmployeePanel
         employee={selectedEmp}
         onClose={() => setSelectedEmp(null)}
@@ -633,7 +673,6 @@ function HRDashboard() {
         onLeaveChange={refreshLeaveRecords}
       />
 
-      {/* Holiday modal */}
       {showHolidayModal && (
         <HolidayModal
           officeCode={currentOffice}
@@ -643,7 +682,6 @@ function HRDashboard() {
         />
       )}
 
-      {/* A8: Settings panel */}
       {showSettings && (
         <SettingsPanel
           onClose={() => setShowSettings(false)}
@@ -653,7 +691,6 @@ function HRDashboard() {
         />
       )}
 
-      {/* A2 / B2: overwrite confirmation (single or batched) */}
       {conflictMonths && (
         <ConfirmDialog
           title={conflictMonths.length === 1 ? 'Data already exists' : `${conflictMonths.length} months already exist`}
