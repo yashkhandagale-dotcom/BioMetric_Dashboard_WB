@@ -19,7 +19,7 @@ interface EmployeeComparisonPanelProps {
 const METRICS: { key: keyof ComparisonKPIs; label: string; suffix: string; higherIsBetter: boolean }[] = [
   { key: 'attendanceRate', label: 'Attendance %', suffix: '%', higherIsBetter: true },
   { key: 'absenteeismRate', label: 'Absenteeism %', suffix: '%', higherIsBetter: false },
-  { key: 'avgHoursPerDay', label: 'Avg Hours/Day', suffix: 'h', higherIsBetter: true },
+  { key: 'avgHoursPerDay', label: 'Avg Effective Hrs/Day', suffix: 'h', higherIsBetter: true },
   { key: 'lateArrivalRate', label: 'Late Arrival Rate', suffix: '%', higherIsBetter: false },
   { key: 'earlyExitRate', label: 'Early Exit Rate', suffix: '%', higherIsBetter: false },
   { key: 'productivityLost', label: 'Productivity Lost %', suffix: '%', higherIsBetter: false },
@@ -53,24 +53,21 @@ function valueColor(metric: typeof METRICS[number], value: number): string {
   return 'text-slate-300';
 }
 
-// ── Searchable employee picker (native datalist — lightweight, no extra deps) ──
 function EmployeeSearchInput({
-  options, value, onChange, exclude, placeholder,
+  options, value, onChange, placeholder,
 }: {
   options: EmployeeSummary[];
   value: string;
   onChange: (code: string) => void;
-  exclude?: string;
   placeholder?: string;
 }) {
   const listId = useMemo(() => `emp-list-${Math.random().toString(36).slice(2)}`, []);
-  const visible = options.filter((e) => e.employeeCode !== exclude);
   const current = options.find((e) => e.employeeCode === value);
   const [text, setText] = useState(current ? `${current.employeeName} (${current.employeeCode})` : '');
 
   function handleInput(v: string) {
     setText(v);
-    const match = visible.find((e) => `${e.employeeName} (${e.employeeCode})` === v);
+    const match = options.find((e) => `${e.employeeName} (${e.employeeCode})` === v);
     if (match) onChange(match.employeeCode);
   }
 
@@ -85,7 +82,7 @@ function EmployeeSearchInput({
         className="w-full bg-slate-700 border border-slate-600 text-white text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-violet-500"
       />
       <datalist id={listId}>
-        {visible.map((e) => (
+        {options.map((e) => (
           <option key={e.employeeCode} value={`${e.employeeName} (${e.employeeCode})`} />
         ))}
       </datalist>
@@ -202,22 +199,22 @@ function ComparisonGrid({
 
   return (
     <>
-      <div className="grid grid-cols-3 gap-2 mb-2 px-1">
-        <p className="text-violet-400 text-xs font-semibold truncate">{leftLabel}</p>
-        <p className="text-slate-500 text-xs text-center">Metric</p>
-        <p className="text-violet-400 text-xs font-semibold text-right truncate">{rightLabel}</p>
+      <div className="grid grid-cols-3 gap-0 text-xs mb-2">
+        <div className="text-slate-400 font-medium text-right pr-3 py-1 truncate">{leftLabel}</div>
+        <div className="text-slate-500 text-center py-1">Metric</div>
+        <div className="text-slate-400 font-medium text-left pl-3 py-1 truncate">{rightLabel}</div>
       </div>
-      <div className="space-y-1.5">
+      <div className="space-y-1">
         {rows.map(({ m, l, r, lWins, rWins }) => (
-          <div key={m.key} className="grid grid-cols-3 gap-2 items-center bg-slate-700/30 rounded-lg px-3 py-2.5">
-            <div className="flex items-center gap-1.5">
+          <div key={m.key} className="grid grid-cols-3 gap-0 items-center py-1.5 px-2 rounded-lg hover:bg-slate-700/30">
+            <div className={`text-right pr-3 flex items-center justify-end gap-1 ${lWins ? 'font-semibold' : ''}`}>
+              {lWins && <span className="text-emerald-400 text-[9px]">▲</span>}
               <span className={`text-sm font-bold ${valueColor(m, l)}`}>{fmt(m, l)}</span>
-              {lWins && <span className="text-emerald-400 text-xs">✓</span>}
             </div>
-            <p className="text-slate-400 text-xs text-center">{m.label}</p>
-            <div className="flex items-center justify-end gap-1.5">
-              {rWins && <span className="text-emerald-400 text-xs">✓</span>}
+            <div className="text-center text-[10px] text-slate-500">{m.label}</div>
+            <div className={`text-left pl-3 flex items-center gap-1 ${rWins ? 'font-semibold' : ''}`}>
               <span className={`text-sm font-bold ${valueColor(m, r)}`}>{fmt(m, r)}</span>
+              {rWins && <span className="text-emerald-400 text-[9px]">▲</span>}
             </div>
           </div>
         ))}
@@ -225,9 +222,7 @@ function ComparisonGrid({
 
       {lowSample && (
         <p className="text-amber-400/80 text-[11px] mt-2 px-1">
-          ⚠ Late/Early/Productivity rates are based on a small number of present days
-          ({leftLabel}: {leftKPIs.presentSampleSize}, {rightLabel}: {rightKPIs.presentSampleSize}) —
-          a single late or on-time day can swing the % a lot.
+          ⚠ Rates based on small sample ({leftLabel}: {leftKPIs.presentSampleSize}d, {rightLabel}: {rightKPIs.presentSampleSize}d) — may not be representative.
         </p>
       )}
 
@@ -255,8 +250,6 @@ function ComparisonGrid({
 export default function EmployeeComparisonPanel({
   allRecords, employeeSummaries, leaveRecords, holidays, graceMinutes, shiftStartMinutes, shiftEndMinutes,
 }: EmployeeComparisonPanelProps) {
-  const [mode, setMode] = useState<'employee' | 'history'>('employee');
-
   const empOptions = useMemo(
     () => [...employeeSummaries].sort((a, b) => a.employeeName.localeCompare(b.employeeName)),
     [employeeSummaries]
@@ -264,27 +257,7 @@ export default function EmployeeComparisonPanel({
 
   const currentLeaveMap = useMemo(() => buildLeaveMap(leaveRecords), [leaveRecords]);
 
-  // ── Mode A: employee vs employee (same month) ──────────────────────────────
-  const [leftEmp, setLeftEmp] = useState(empOptions[0]?.employeeCode || '');
-  const [rightEmp, setRightEmp] = useState(empOptions[1]?.employeeCode || '');
-
-  const leftRecords = useMemo(() => allRecords.filter((r) => r.employeeCode === leftEmp), [allRecords, leftEmp]);
-  const rightRecords = useMemo(() => allRecords.filter((r) => r.employeeCode === rightEmp), [allRecords, rightEmp]);
-
-  const leftEmpKPIs = useMemo(() => {
-    if (!leftEmp) return null;
-    return computeEmployeeKPIs(leftRecords, currentLeaveMap, holidays, graceMinutes, shiftStartMinutes, shiftEndMinutes);
-  }, [leftRecords, leftEmp, currentLeaveMap, holidays, graceMinutes, shiftStartMinutes, shiftEndMinutes]);
-
-  const rightEmpKPIs = useMemo(() => {
-    if (!rightEmp) return null;
-    return computeEmployeeKPIs(rightRecords, currentLeaveMap, holidays, graceMinutes, shiftStartMinutes, shiftEndMinutes);
-  }, [rightRecords, rightEmp, currentLeaveMap, holidays, graceMinutes, shiftStartMinutes, shiftEndMinutes]);
-
-  const leftEmpName = empOptions.find((e) => e.employeeCode === leftEmp)?.employeeName || leftEmp;
-  const rightEmpName = empOptions.find((e) => e.employeeCode === rightEmp)?.employeeName || rightEmp;
-
-  // ── Mode B: same employee, any two of their uploaded months ─────────────────
+  // Employee vs own previous month
   const [histEmp, setHistEmp] = useState(empOptions[0]?.employeeCode || '');
   const histOfficeCode = empOptions.find((e) => e.employeeCode === histEmp)?.officeCode || '';
 
@@ -311,108 +284,68 @@ export default function EmployeeComparisonPanel({
 
   const histEmpName = empOptions.find((e) => e.employeeCode === histEmp)?.employeeName || histEmp;
 
-  if (employeeSummaries.length < 2) return null;
+  if (employeeSummaries.length < 1) return null;
 
   return (
     <div className="bg-slate-800 rounded-xl border border-slate-700 p-5">
-      <div className="mb-4 flex items-start justify-between gap-3 flex-wrap">
-        <div>
-          <h3 className="text-white font-semibold text-sm">Employee Comparison</h3>
-          <p className="text-slate-500 text-xs mt-0.5">Compare an employee against a colleague or two of their own months</p>
-        </div>
-        <div className="flex bg-slate-900/60 border border-slate-700 rounded-lg p-0.5">
-          <button
-            onClick={() => setMode('employee')}
-            className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${mode === 'employee' ? 'bg-violet-600 text-white' : 'text-slate-400 hover:text-white'}`}
-          >
-            vs Employee
-          </button>
-          <button
-            onClick={() => setMode('history')}
-            className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${mode === 'history' ? 'bg-violet-600 text-white' : 'text-slate-400 hover:text-white'}`}
-          >
-            vs Own Previous Month
-          </button>
-        </div>
+      <div className="mb-4">
+        <h3 className="text-white font-semibold text-sm">Employee Month Comparison</h3>
+        <p className="text-slate-500 text-xs mt-0.5">Compare an employee's performance across two of their uploaded months</p>
       </div>
 
-      {mode === 'employee' && (
-        <>
-          <div className="flex items-center gap-4 mb-5">
-            <EmployeeSearchInput options={empOptions} value={leftEmp} onChange={setLeftEmp} exclude={rightEmp} placeholder="Search employee A…" />
-            <span className="text-slate-500 text-sm font-medium">vs</span>
-            <EmployeeSearchInput options={empOptions} value={rightEmp} onChange={setRightEmp} exclude={leftEmp} placeholder="Search employee B…" />
-          </div>
-          {leftEmpKPIs && rightEmpKPIs && (
-            <>
-              <ComparisonGrid leftLabel={leftEmpName} rightLabel={rightEmpName} leftKPIs={leftEmpKPIs} rightKPIs={rightEmpKPIs} />
-              <div className="grid grid-cols-2 gap-4 mt-4 pt-4 border-t border-slate-700">
-                <CalendarHeatmap label={leftEmpName} records={leftRecords} leaveMap={currentLeaveMap} holidays={holidays} />
-                <CalendarHeatmap label={rightEmpName} records={rightRecords} leaveMap={currentLeaveMap} holidays={holidays} />
-              </div>
-              <HeatmapLegend />
-            </>
-          )}
-        </>
-      )}
+      <div className="flex items-center gap-3 mb-5 flex-wrap">
+        <EmployeeSearchInput
+          options={empOptions}
+          value={histEmp}
+          onChange={(code) => { setHistEmp(code); setMonthAKey(''); setMonthBKey(''); }}
+          placeholder="Search employee…"
+        />
+        <select
+          value={monthA?.monthKey || ''}
+          onChange={(e) => setMonthAKey(e.target.value)}
+          className="flex-1 bg-slate-700 border border-slate-600 text-white text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-violet-500"
+          disabled={history.length === 0}
+        >
+          {history.length === 0 && <option value="">No months available</option>}
+          {history.map((h) => <option key={h.monthKey} value={h.monthKey}>{h.label}</option>)}
+        </select>
+        <span className="text-slate-500 text-sm font-medium">vs</span>
+        <select
+          value={monthB?.monthKey || ''}
+          onChange={(e) => setMonthBKey(e.target.value)}
+          className="flex-1 bg-slate-700 border border-slate-600 text-white text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-violet-500"
+          disabled={history.length === 0}
+        >
+          {history.length === 0 && <option value="">No months available</option>}
+          {history.map((h) => <option key={h.monthKey} value={h.monthKey}>{h.label}</option>)}
+        </select>
+      </div>
 
-      {mode === 'history' && (
+      {monthAKPIs && monthBKPIs && monthA && monthB && monthA.monthKey !== monthB.monthKey ? (
         <>
-          <div className="flex items-center gap-3 mb-5 flex-wrap">
-            <EmployeeSearchInput
-              options={empOptions}
-              value={histEmp}
-              onChange={(code) => { setHistEmp(code); setMonthAKey(''); setMonthBKey(''); }}
-              placeholder="Search employee…"
+          <ComparisonGrid leftLabel={monthA.label} rightLabel={monthB.label} leftKPIs={monthAKPIs} rightKPIs={monthBKPIs} />
+          <div className="grid grid-cols-2 gap-4 mt-4 pt-4 border-t border-slate-700">
+            <CalendarHeatmap
+              label={`${histEmpName} · ${monthA.label}`}
+              records={monthA.records}
+              leaveMap={buildLeaveMap(getLeaveRecords(monthA.monthKey))}
+              holidays={getHolidays(monthA.officeCode, monthA.year)}
             />
-            <select
-              value={monthA?.monthKey || ''}
-              onChange={(e) => setMonthAKey(e.target.value)}
-              className="flex-1 bg-slate-700 border border-slate-600 text-white text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-violet-500"
-              disabled={history.length === 0}
-            >
-              {history.length === 0 && <option value="">No months</option>}
-              {history.map((h) => <option key={h.monthKey} value={h.monthKey}>{h.label}</option>)}
-            </select>
-            <span className="text-slate-500 text-sm font-medium">vs</span>
-            <select
-              value={monthB?.monthKey || ''}
-              onChange={(e) => setMonthBKey(e.target.value)}
-              className="flex-1 bg-slate-700 border border-slate-600 text-white text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-violet-500"
-              disabled={history.length === 0}
-            >
-              {history.length === 0 && <option value="">No months</option>}
-              {history.map((h) => <option key={h.monthKey} value={h.monthKey}>{h.label}</option>)}
-            </select>
+            <CalendarHeatmap
+              label={`${histEmpName} · ${monthB.label}`}
+              records={monthB.records}
+              leaveMap={buildLeaveMap(getLeaveRecords(monthB.monthKey))}
+              holidays={getHolidays(monthB.officeCode, monthB.year)}
+            />
           </div>
-
-          {monthAKPIs && monthBKPIs && monthA && monthB && monthA.monthKey !== monthB.monthKey ? (
-            <>
-              <ComparisonGrid leftLabel={monthA.label} rightLabel={monthB.label} leftKPIs={monthAKPIs} rightKPIs={monthBKPIs} />
-              <div className="grid grid-cols-2 gap-4 mt-4 pt-4 border-t border-slate-700">
-                <CalendarHeatmap
-                  label={`${histEmpName} · ${monthA.label}`}
-                  records={monthA.records}
-                  leaveMap={buildLeaveMap(getLeaveRecords(monthA.monthKey))}
-                  holidays={getHolidays(monthA.officeCode, monthA.year)}
-                />
-                <CalendarHeatmap
-                  label={`${histEmpName} · ${monthB.label}`}
-                  records={monthB.records}
-                  leaveMap={buildLeaveMap(getLeaveRecords(monthB.monthKey))}
-                  holidays={getHolidays(monthB.officeCode, monthB.year)}
-                />
-              </div>
-              <HeatmapLegend />
-            </>
-          ) : (
-            <p className="text-slate-500 text-sm text-center py-6">
-              {history.length < 2
-                ? `Upload at least one more month for ${histEmpName} to enable this comparison.`
-                : 'Pick two different months to compare.'}
-            </p>
-          )}
+          <HeatmapLegend />
         </>
+      ) : (
+        <p className="text-slate-500 text-sm text-center py-6">
+          {history.length < 2
+            ? `Upload at least one more month for ${histEmpName} to enable comparison.`
+            : 'Pick two different months above to compare.'}
+        </p>
       )}
     </div>
   );

@@ -7,8 +7,8 @@ import { durationToMinutes, minutesToHHMM } from './parseCSV';
 import { isHoliday, getHolidayName } from './holidays';
 import { DEFAULT_THRESHOLDS } from './settings';
 
-// v4: 8 effective hours (9h shift minus 1h lunch)
-export const SHIFT_MINUTES = 8 * 60;             // 480
+// Shift: 9:30 to 18:30, 1h lunch → 8h effective work expected
+export const SHIFT_MINUTES = 8 * 60;             // 480 effective minutes
 export const SHIFT_START_MINUTES = 9 * 60 + 30;  // 570 — 09:30 AM
 export const SHIFT_END_MINUTES = 18 * 60 + 30;   // 1110 — 18:30
 
@@ -48,9 +48,6 @@ export function timeStringToMinutes(timeStr: string): number {
   return hours * 60 + mins;
 }
 
-// A4: grace period configurable, default 10 minutes. Shift start/end are also
-// configurable now (Settings → Shift Window) — DO NOT assume 09:30–18:30, that
-// was the source of wildly wrong Late/Early rates for offices on other shifts.
 export function computeLateMinutes(
   inTime: string,
   graceMinutes: number = 10,
@@ -71,9 +68,6 @@ export function computeEarlyMinutes(
   return Math.max(0, shiftEnd - graceMinutes - outMins);
 }
 
-// A5: prefer the CSV's own lateBy/earlyBy when present & valid; otherwise
-// fall back to computing from raw punches using the configured grace period
-// and the configured shift window.
 export function getLateMinutes(
   r: AttendanceRecord,
   graceMinutes: number,
@@ -98,7 +92,35 @@ export function getEarlyMinutes(
   return computeEarlyMinutes(r.outTime, graceMinutes, shiftEnd);
 }
 
-// B7.3: join an AttendanceRecord with any LeaveRecord for that employee+date
+/**
+ * Productivity Lost (minutes) for a record — the NEW correct logic:
+ *
+ * Productivity lost = how many minutes short of SHIFT_MINUTES (8h) the
+ * employee actually worked, clamped to ≥ 0.
+ *
+ * Examples (all with 10-min grace):
+ *   In 10:00 Out 18:30 → duration ≈ 8h30m → 8h30 - 8h = 0 (no loss, though late)
+ *   In 09:30 Out 17:00 → duration ≈ 7h30m → 8h - 7h30 = 30 min lost
+ *   In 10:00 Out 18:00 → duration ≈ 8h    → 8h - 8h = 0 lost (came late but stayed)
+ *   In 09:45 Out 17:30 → duration ≈ 7h45m → 8h - 7h45 = 15 min lost
+ *
+ * We use the CSV duration (in/out difference) directly. If absent / no duration, 0.
+ */
+export function computeProductivityLostMinutes(
+  r: AttendanceRecord
+): number {
+  if (!isPresent(r.status) || r.isShortDay) return 0;
+  const worked = durationToMinutes(r.duration);
+  if (worked <= 0) return 0;
+  // subtract 60 min lunch if duration > 60 (shift duration from punch includes lunch)
+  // Actually the CSV "duration" from in/out punch already includes lunch time in total hours.
+  // So: effective = worked - 60 (lunch), then compare against SHIFT_MINUTES (480).
+  // But if worked ≤ 60 that means they barely punched in - no lunch subtraction.
+  const lunchMinutes = worked > 60 ? 60 : 0;
+  const effective = worked - lunchMinutes;
+  return Math.max(0, SHIFT_MINUTES - effective);
+}
+
 export function getEffectiveStatus(
   r: AttendanceRecord,
   leave: LeaveRecord | undefined,
@@ -127,8 +149,6 @@ export function buildLeaveMap(leaveRecords: LeaveRecord[]): Map<string, LeaveRec
   return m;
 }
 
-// ── B8: shared leave-aware KPI calculator, used for employee-vs-employee and
-// employee-vs-own-history comparisons (TeamComparisonPanel / EmployeeComparisonPanel) ──
 export interface ComparisonKPIs {
   attendanceRate: number;
   absenteeismRate: number;
@@ -144,8 +164,6 @@ export interface ComparisonKPIs {
   lwpCount: number;
   halfDayCount: number;
   scheduledDays: number;
-  // sample sizes the rates above were computed over, so the UI can flag
-  // "rate computed from only N days" instead of looking like a bug
   presentSampleSize: number;
 }
 
@@ -185,25 +203,26 @@ export function computeEmployeeKPIs(
   const absentDays = unexplainedAbsentCount;
   const presentDays = presentRecords.length + halfDayCount * 0.5;
 
-  // Planned/casual/sick leave is "explained" and doesn't count against attendance rate,
-  // matching how the main KPI cards treat the org-wide rate.
   const explainedLeave = plannedLeaveCount + casualLeaveCount + sickLeaveCount;
   const denom = scheduledDays - explainedLeave;
   const attendanceRate = denom > 0 ? (presentDays / denom) * 100 : 0;
   const absenteeismRate = scheduledDays > 0 ? (absentDays / scheduledDays) * 100 : 0;
 
-  const presentWithDuration = presentRecords.filter((r) => durationToMinutes(r.duration) > 0);
-  const totalMins = presentWithDuration.reduce((sum, r) => sum + durationToMinutes(r.duration), 0);
-  const avgHoursPerDay = presentWithDuration.length > 0 ? totalMins / presentWithDuration.length / 60 : 0;
+  // Effective hours: duration - 60min lunch
+  const presentWithDuration = presentRecords.filter((r) => durationToMinutes(r.duration) > 60);
+  const totalEffectiveMins = presentWithDuration.reduce((sum, r) => {
+    const raw = durationToMinutes(r.duration);
+    return sum + (raw - 60); // subtract lunch
+  }, 0);
+  const avgHoursPerDay = presentWithDuration.length > 0 ? totalEffectiveMins / presentWithDuration.length / 60 : 0;
 
   const lateRecords = presentRecords.filter((r) => getLateMinutes(r, grace, shiftStart) > 0);
   const earlyRecords = presentRecords.filter((r) => getEarlyMinutes(r, grace, shiftEnd) > 0);
   const lateArrivalRate = presentRecords.length > 0 ? (lateRecords.length / presentRecords.length) * 100 : 0;
   const earlyExitRate = presentRecords.length > 0 ? (earlyRecords.length / presentRecords.length) * 100 : 0;
 
-  const totalLostMins = presentRecords.reduce(
-    (sum, r) => sum + getLateMinutes(r, grace, shiftStart) + getEarlyMinutes(r, grace, shiftEnd), 0
-  );
+  // Productivity lost = total minutes short of 8h effective work
+  const totalLostMins = presentRecords.reduce((sum, r) => sum + computeProductivityLostMinutes(r), 0);
   const totalShiftMins = presentRecords.length * SHIFT_MINUTES;
   const productivityLost = totalShiftMins > 0 ? (totalLostMins / totalShiftMins) * 100 : 0;
 
@@ -224,12 +243,10 @@ export function useDashboardData(
   thresholds: Thresholds = DEFAULT_THRESHOLDS,
   leaveRecords: LeaveRecord[] = [],
   allOfficeRecords: AttendanceRecord[] = [],
-  dateFrom: string | null = null,  // YYYY-MM-DD inclusive start (null = no filter)
-  dateTo: string | null = null     // YYYY-MM-DD inclusive end   (null = no filter)
+  dateFrom: string | null = null,
+  dateTo: string | null = null
 ) {
-  // Derive view mode per SRS §12.1
   const isSingleDay = !!(dateFrom && dateTo && dateFrom === dateTo);
-  const isDateRange = !!(dateFrom && dateTo && dateFrom !== dateTo);
   const viewMode: import('./types').ViewMode =
     selectedDepartments.length >= 2 ? 'comparison'
     : isSingleDay ? 'single_day'
@@ -283,19 +300,18 @@ export function useDashboardData(
     const attendanceRate = scheduledCount > 0 ? (presentCount / scheduledCount) * 100 : 0;
     const absenteeismRate = scheduledCount > 0 ? (absentCount / scheduledCount) * 100 : 0;
 
-    const presentWithDuration = presentRecords.filter((r) => durationToMinutes(r.duration) > 0);
-    const totalMins = presentWithDuration.reduce((sum, r) => sum + durationToMinutes(r.duration), 0);
-    const avgWorkingHours = presentWithDuration.length > 0 ? totalMins / presentWithDuration.length / 60 : 0;
+    // Effective hours = duration - 60 min lunch
+    const presentWithDuration = presentRecords.filter((r) => durationToMinutes(r.duration) > 60);
+    const totalEffectiveMins = presentWithDuration.reduce((sum, r) => sum + (durationToMinutes(r.duration) - 60), 0);
+    const avgWorkingHours = presentWithDuration.length > 0 ? totalEffectiveMins / presentWithDuration.length / 60 : 0;
 
     const lateRecords = presentRecords.filter((r) => getLateMinutes(r, grace) > 0);
     const earlyRecords = presentRecords.filter((r) => getEarlyMinutes(r, grace) > 0);
     const lateArrivalRate = presentRecords.length > 0 ? (lateRecords.length / presentRecords.length) * 100 : 0;
     const earlyExitRate = presentRecords.length > 0 ? (earlyRecords.length / presentRecords.length) * 100 : 0;
 
-    const totalLostMins = presentRecords.reduce(
-      (sum, r) => sum + getLateMinutes(r, grace) + getEarlyMinutes(r, grace),
-      0
-    );
+    // Productivity lost = minutes short of 8h effective work
+    const totalLostMins = presentRecords.reduce((sum, r) => sum + computeProductivityLostMinutes(r), 0);
     const totalShiftMins = presentRecords.length * SHIFT_MINUTES;
     const productivityLost = totalShiftMins > 0 ? (totalLostMins / totalShiftMins) * 100 : 0;
 
@@ -356,7 +372,9 @@ export function useDashboardData(
       } else if (isPresent(r.status)) {
         emp.presentDays++;
         const mins = durationToMinutes(r.duration);
-        emp.totalMinutes += mins;
+        // store effective minutes (subtract lunch)
+        const effectiveMins = mins > 60 ? mins - 60 : 0;
+        emp.totalMinutes += effectiveMins;
         if (getLateMinutes(r, grace) > 0) emp.lateCount++;
         if (getEarlyMinutes(r, grace) > 0) emp.earlyExitCount++;
       } else if (isAbsent(r.status)) {
@@ -426,8 +444,9 @@ export function useDashboardData(
         d.shortDay++;
       } else if (isPresent(r.status)) {
         d.present++;
-        if (getLateMinutes(r, grace) > 0) { d.late++; d.lostMins += getLateMinutes(r, grace); }
-        if (getEarlyMinutes(r, grace) > 0) { d.earlyExit++; d.lostMins += getEarlyMinutes(r, grace); }
+        if (getLateMinutes(r, grace) > 0) d.late++;
+        if (getEarlyMinutes(r, grace) > 0) d.earlyExit++;
+        d.lostMins += computeProductivityLostMinutes(r);
       } else if (isAbsent(r.status)) {
         d.absentees.push(r.employeeName || r.employeeCode);
       }
@@ -437,7 +456,7 @@ export function useDashboardData(
       .sort(([a], [b]) => a.localeCompare(b))
       .map(([date, { present, total, absentees, late, earlyExit, lostMins, shortDay }]) => ({
         date: date.slice(5),
-        rawDate: date,           // YYYY-MM-DD — used by date-click handlers in Charts
+        rawDate: date,
         attendanceRate: total > 0 ? Math.round((present / total) * 100) : 0,
         presentCount: present,
         totalCount: total,
@@ -460,7 +479,7 @@ export function useDashboardData(
       if (!r.isShortDay) d.total++;
       if (isPresent(r.status) && !r.isShortDay) {
         d.present++;
-        d.lostMins += getLateMinutes(r, grace) + getEarlyMinutes(r, grace);
+        d.lostMins += computeProductivityLostMinutes(r);
       }
     }
 
@@ -477,8 +496,6 @@ export function useDashboardData(
       .sort((a, b) => a.rate - b.rate);
   }, [filtered, holidays, grace, thresholds.attendanceRateGreen, thresholds.attendanceRateAmber]);
 
-  // A7: office-wise attendance, computed from ALL offices regardless of the
-  // currently active office filter (cross-office comparison is its whole point)
   const officeAttendance: OfficeAttendance[] = useMemo(() => {
     const source = allOfficeRecords.length > 0 ? allOfficeRecords : records;
     const byOffice = new Map<string, { present: number; total: number }>();
@@ -504,12 +521,13 @@ export function useDashboardData(
 
     for (const r of filtered) {
       if (!isPresent(r.status) || r.isShortDay) continue;
-      const mins = durationToMinutes(r.duration);
-      if (mins <= 0) continue;
+      const rawMins = durationToMinutes(r.duration);
+      if (rawMins <= 60) continue;
+      const effectiveMins = rawMins - 60; // subtract lunch
       const dept = r.department || 'Unknown';
       if (!deptMap.has(dept)) deptMap.set(dept, { totalMins: 0, count: 0 });
       const d = deptMap.get(dept)!;
-      d.totalMins += mins;
+      d.totalMins += effectiveMins;
       d.count++;
     }
 
@@ -529,7 +547,6 @@ export function useDashboardData(
     return Array.from(set).sort();
   }, [filtered]);
 
-  // Single-day dept snapshot (SRS §12.6.2) — dept bars for the selected day
   const dayDeptSnapshots = useMemo((): import('./types').DayDeptSnapshot[] => {
     if (!isSingleDay) return [];
     const byDept = new Map<string, { present: number; absent: number; late: number; early: number; lostMins: number; total: number }>();
@@ -540,10 +557,9 @@ export function useDashboardData(
       d.total++;
       if (isPresent(r.status) && !r.isShortDay) {
         d.present++;
-        const lm = getLateMinutes(r, grace);
-        const em = getEarlyMinutes(r, grace);
-        if (lm > 0) { d.late++; d.lostMins += lm; }
-        if (em > 0) { d.early++; d.lostMins += em; }
+        if (getLateMinutes(r, grace) > 0) d.late++;
+        if (getEarlyMinutes(r, grace) > 0) d.early++;
+        d.lostMins += computeProductivityLostMinutes(r);
       } else if (isAbsent(r.status)) {
         d.absent++;
       }
