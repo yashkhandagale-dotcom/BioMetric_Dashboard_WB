@@ -1,7 +1,7 @@
 'use client';
 import { useState, useEffect, useCallback, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Upload, CheckCircle, Eye, ShieldX, Calendar, Settings as SettingsIcon, X as XIcon } from 'lucide-react';
+import { Upload, CheckCircle, Eye, ShieldX, Calendar, Settings as SettingsIcon, X as XIcon, ArrowLeft } from 'lucide-react';
 import { AttendanceRecord, ColumnMapping, EmployeeSummary, UploadedMonth, Holiday, Thresholds, LeaveRecord } from '@/lib/types';
 import {
   getMapping, saveMapping, getRecords, saveRecords, addUploadedMonth, getUploadedMonths,
@@ -432,7 +432,21 @@ function HRDashboard() {
       </header>
 
       <main className="px-6 py-6 max-w-7xl mx-auto">
-        {appState === 'upload' && <UploadZone onFiles={handleFiles} />}
+        {appState === 'upload' && (
+          <div className="space-y-6">
+            <div className="flex justify-between items-center">
+              <button
+                onClick={() => setAppState('dashboard')}
+                className="inline-flex items-center gap-2 text-slate-300 hover:text-white bg-slate-800/70 border border-slate-700 px-3 py-2 rounded-lg text-sm transition-colors"
+              >
+                <ArrowLeft className="w-4 h-4" />
+                Back to dashboard
+              </button>
+              <div className="text-slate-400 text-xs">Upload one or more biometric export CSVs to get started</div>
+            </div>
+            <UploadZone onFiles={handleFiles} />
+          </div>
+        )}
         {appState === 'mapping' && mappingQueue.length > 0 && (
           <ColumnMappingScreen
             officeCode={mappingQueue[0].officeCode}
