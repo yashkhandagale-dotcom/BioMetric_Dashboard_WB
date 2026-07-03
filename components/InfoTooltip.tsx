@@ -1,5 +1,6 @@
 'use client';
 import { useState, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { Info } from 'lucide-react';
 
 interface InfoTooltipProps {
@@ -10,36 +11,49 @@ interface InfoTooltipProps {
   position?: 'top' | 'bottom' | 'left' | 'right';
 }
 
+const TIP_W = 280;
+const TIP_H = 160;
+
 export default function InfoTooltip({ title, description, formula, example }: InfoTooltipProps) {
   const [open, setOpen] = useState(false);
-  const [pos, setPos] = useState<{ top?: number; bottom?: number; left?: number; right?: number }>({});
+  const [mounted, setMounted] = useState(false);
+  const [pos, setPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
   const btnRef = useRef<HTMLButtonElement>(null);
   const tipRef = useRef<HTMLDivElement>(null);
 
+  // Only render the portal on the client (avoids SSR "document is not defined")
+  useEffect(() => setMounted(true), []);
+
   useEffect(() => {
     if (!open) return;
-    // Position tooltip intelligently to stay on screen
-    if (btnRef.current) {
+
+    function computePosition() {
+      if (!btnRef.current) return;
       const rect = btnRef.current.getBoundingClientRect();
       const vw = window.innerWidth;
       const vh = window.innerHeight;
-      const TIP_W = 280;
-      const TIP_H = 160;
 
-      let style: typeof pos = {};
-      // Vertical: prefer below, fall back to above
-      if (rect.bottom + TIP_H + 8 < vh) {
-        style.top = rect.bottom + window.scrollY + 6;
-      } else {
-        style.top = rect.top + window.scrollY - TIP_H - 6;
+      // NOTE: rect.top/left/bottom are already viewport-relative,
+      // which is exactly what `position: fixed` needs — do NOT add
+      // window.scrollX/scrollY here (that's only correct for `absolute`).
+      let top = rect.bottom + 6;
+      if (top + TIP_H > vh - 8) {
+        top = rect.top - TIP_H - 6; // flip above if it would overflow bottom
       }
-      // Horizontal: align left of button, clamp to viewport
-      let left = rect.left + window.scrollX;
+      if (top < 8) top = 8;
+
+      let left = rect.left;
       if (left + TIP_W > vw - 8) left = vw - TIP_W - 8;
       if (left < 8) left = 8;
-      style.left = left;
-      setPos(style);
+
+      setPos({ top, left });
     }
+
+    computePosition();
+
+    // Keep it glued to the button while open (scroll/resize)
+    window.addEventListener('scroll', computePosition, true);
+    window.addEventListener('resize', computePosition);
 
     function handleClick(e: MouseEvent) {
       if (
@@ -52,7 +66,10 @@ export default function InfoTooltip({ title, description, formula, example }: In
     }
     document.addEventListener('mousedown', handleClick);
     document.addEventListener('keydown', handleKey);
+
     return () => {
+      window.removeEventListener('scroll', computePosition, true);
+      window.removeEventListener('resize', computePosition);
       document.removeEventListener('mousedown', handleClick);
       document.removeEventListener('keydown', handleKey);
     };
@@ -69,11 +86,12 @@ export default function InfoTooltip({ title, description, formula, example }: In
       >
         <Info className="w-3.5 h-3.5" />
       </button>
-      {open && (
+
+      {open && mounted && createPortal(
         <div
           ref={tipRef}
-          className="fixed z-[9999] bg-slate-900 border border-slate-600 rounded-xl p-4 shadow-2xl text-xs"
-          style={{ width: 280, ...pos }}
+          className="fixed z-[9999] bg-slate-900 border border-slate-600 rounded-xl p-4 shadow-2xl text-xs opacity-100"
+          style={{ width: TIP_W, top: pos.top, left: pos.left }}
         >
           <p className="text-white font-semibold mb-2">{title}</p>
           <p className="text-slate-300 mb-2">{description}</p>
@@ -86,7 +104,8 @@ export default function InfoTooltip({ title, description, formula, example }: In
           {example && (
             <p className="text-slate-400 italic text-[11px]">{example}</p>
           )}
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
