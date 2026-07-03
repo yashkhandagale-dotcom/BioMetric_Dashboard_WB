@@ -390,6 +390,8 @@ function HRDashboard() {
     allUploadedRecords.forEach(r => set.add(r.date));
     return Array.from(set).sort();
   })();
+  const minAvailableDate = allAvailableDates[0];
+  const maxAvailableDate = allAvailableDates[allAvailableDates.length - 1];
 
   return (
     <div className="min-h-screen bg-slate-900 text-white">
@@ -466,21 +468,21 @@ function HRDashboard() {
 
             {/* ── Filter Bar ─────────────────────────────────────────────── */}
             <div className="flex flex-wrap items-center gap-3">
-              {/* Month selector */}
-              <select value={selectedMonthKey} onChange={e => handleMonthChange(e.target.value)}
-                className="bg-slate-800 border border-slate-700 text-white text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-blue-500">
-                {uploadedMonths.map(m => <option key={m.key} value={m.key}>{m.label}</option>)}
-              </select>
-
-              {/* Date range — allow cross-month, no min/max restriction */}
+              {/* Date range — restricted to the span of dates actually present in uploaded data */}
               {allAvailableDates.length > 0 && (
                 <div className="flex items-center gap-1.5 bg-slate-800/60 border border-slate-700 rounded-lg px-3 py-1.5">
                   <span className="text-slate-500 text-xs font-medium">From</span>
                   <input
                     type="date"
                     value={dateFrom ?? ''}
+                    min={minAvailableDate}
+                    max={dateTo ?? maxAvailableDate}
                     onChange={e => {
                       const v = e.target.value || null;
+                      if (v && (v < minAvailableDate! || v > maxAvailableDate!)) {
+                        showToast('error', `No data outside ${minAvailableDate} → ${maxAvailableDate}.`);
+                        return;
+                      }
                       setDateFrom(v);
                       // Auto-set To = From for single-day selection if To not set
                       if (v && !dateTo) setDateTo(v);
@@ -494,8 +496,18 @@ function HRDashboard() {
                   <input
                     type="date"
                     value={dateTo ?? ''}
-                    min={dateFrom ?? undefined}
-                    onChange={e => setDateTo(e.target.value || null)}
+                    min={dateFrom ?? minAvailableDate}
+                    max={maxAvailableDate}
+                    onChange={e => {
+                      const v = e.target.value || null;
+                      if (v && (v < minAvailableDate! || v > maxAvailableDate!)) {
+                        showToast('error', `No data outside ${minAvailableDate} → ${maxAvailableDate}.`);
+                        return;
+                      }
+                      setDateTo(v);
+                      // Auto-set From = To for single-day selection if From not set
+                      if (v && !dateFrom) setDateFrom(v);
+                    }}
                     className="bg-transparent text-white text-xs focus:outline-none w-32"
                   />
                   {(dateFrom || dateTo) && (
@@ -631,8 +643,10 @@ function HRDashboard() {
                   <DeptProductivityChart
                     data={deptAttendance}
                     allRecords={filteredRecords}
+                    selectedDepts={selectedDepts}
                     externalDrillDept={deptDrillSync}
                     onDrillBack={() => setDeptDrillSync(null)}
+                    onDeptDrillChange={(dept) => setDeptDrillSync(dept)}
                   />
                 </div>
 

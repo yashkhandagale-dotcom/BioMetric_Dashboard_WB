@@ -368,19 +368,27 @@ export function DeptAttendanceChart({ data, allRecords, selectedDepts, onDeptCli
 
 // ── Productivity Lost by Dept ─────────────────────────────────────────────────
 export function DeptProductivityChart({
-  data, allRecords, externalDrillDept, onDrillBack
+  data, allRecords, selectedDepts, externalDrillDept, onDrillBack, onDeptDrillChange
 }: {
   data: DeptAttendance[];
   allRecords?: AttendanceRecord[];
+  selectedDepts?: string[];
   externalDrillDept?: string | null;
   onDrillBack?: () => void;
+  onDeptDrillChange?: (dept: string | null) => void;
 }) {
   const [internalDrill, setInternalDrill] = useState<string | null>(null);
   const [sortMode, setSortMode] = useState<SortMode>('default');
   const safeRecords = allRecords ?? [];
 
-  // External drill (from DeptAttendanceChart click) takes priority
-  const drillDept = externalDrillDept !== undefined ? externalDrillDept : internalDrill;
+  // Priority: top dept filter (selectedDepts) > a click on this chart's own bar
+  // (internalDrill) > drill synced in from the linked DeptAttendanceChart.
+  // Previously externalDrillDept was checked with `!== undefined`, which is
+  // always true once the parent passes the prop (even as null), so clicking
+  // a bar here never had any effect — internalDrill was always shadowed.
+  const drillDept = selectedDepts?.length === 1
+    ? selectedDepts[0]
+    : internalDrill ?? (externalDrillDept ?? null);
 
   const chartData = useMemo(() => {
     const d = data.map(d => ({ department: d.department, daysLost: +(d.productivityLostDays ?? 0).toFixed(2) }));
@@ -394,6 +402,17 @@ export function DeptProductivityChart({
     if (days > 5) return '#f87171';
     if (days >= 2) return '#fbbf24';
     return '#34d399';
+  }
+
+  function handleDrillIn(dept: string) {
+    setInternalDrill(dept);
+    onDeptDrillChange?.(dept);
+  }
+
+  function handleBack() {
+    setInternalDrill(null);
+    onDeptDrillChange?.(null);
+    onDrillBack?.();
   }
 
   const drillData = useMemo(() => {
@@ -422,7 +441,7 @@ export function DeptProductivityChart({
       <div className="bg-slate-800 rounded-xl border border-slate-700 p-4 min-h-[280px]">
         <div className="flex items-center gap-3 mb-1">
           <button
-            onClick={() => { setInternalDrill(null); onDrillBack?.(); }}
+            onClick={handleBack}
             className="flex items-center gap-1.5 text-blue-400 hover:text-blue-300 text-xs font-medium transition-colors shrink-0"
           >
             <ArrowLeft className="w-3.5 h-3.5" /> Back
@@ -493,7 +512,7 @@ export function DeptProductivityChart({
                 );
               }} />
               <Bar dataKey="daysLost" radius={[0, 4, 4, 0]} cursor="pointer"
-                onClick={(entry: any) => setInternalDrill(entry.department)}>
+                onClick={(entry: any) => handleDrillIn(entry.department)}>
                 {chartData.map((entry, i) => <Cell key={i} fill={lostColor(entry.daysLost)} />)}
                 <LabelList dataKey="daysLost" position="right" style={{ fontSize: 10, fill: '#94a3b8' }} formatter={(v: any) => `${v}d`} />
               </Bar>
