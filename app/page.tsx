@@ -18,7 +18,7 @@ import UploadZone from '@/components/UploadZone';
 import ColumnMappingScreen from '@/components/ColumnMappingScreen';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import KPICards from '@/components/KPICards';
-// import AbsenceBreakdown from '@/components/AbsenceBreakdown';
+
 import EmployeeTable from '@/components/EmployeeTable';
 import {
   DailyTrendChart, DeptAttendanceChart, HoursDistributionChart,
@@ -349,15 +349,20 @@ function HRDashboard() {
     showToast('success', 'Thresholds updated.');
   }
 
-  // FIX: single day — allow cross-month date range
-  // The date pickers use availableDates from ALL uploaded records, not just current month
-  // dateFrom/dateTo filter records directly so cross-month ranges work fine.
+  // All uploaded records across ALL months — this is ALWAYS the source of truth.
+  // The month dropdown only controls which holidays/leaves/office context to load.
+  // The date range (dateFrom/dateTo) windows into this pool.
+  // When no date range is set, we default to showing only the selected month's records
+  // so the default view still feels "per month" without requiring the user to set dates.
+  const allUploadedRecords = uploadedMonths.flatMap(m => getRecords(m.key));
+
+  // Effective record pool for the dashboard:
+  // - If user has set a date range → use all records across all months (cross-month support)
+  // - If no date range → use only the selected month's records (default per-month view)
+  const recordPool = (dateFrom || dateTo) ? allUploadedRecords : allRecords;
 
   const { kpi, employeeSummaries, dailyTrend, deptAttendance, hoursDistribution, officeAttendance, departments, offices, filteredRecords, availableDates, viewMode, dayDeptSnapshots } =
-    useDashboardData(allRecords, selectedOffice, selectedDepts, [], holidays, thresholds, leaveRecords, allOfficeRecords, dateFrom, dateTo);
-
-  // All uploaded records across all months (for cross-month date range + HR checker)
-  const allUploadedRecords = uploadedMonths.flatMap(m => getRecords(m.key));
+    useDashboardData(recordPool, selectedOffice, selectedDepts, [], holidays, thresholds, leaveRecords, allOfficeRecords, dateFrom, dateTo);
 
   const leaveMap = buildLeaveMap(leaveRecords);
 
@@ -554,8 +559,7 @@ function HRDashboard() {
             {/* ── KPI Cards ──────────────────────────────────────────────── */}
             <KPICards kpi={kpi} thresholds={thresholds} viewMode={viewMode} onCardClick={(f) => setTableFilter(f === tableFilter ? 'all' : f)} />
 
-            {/* Absence breakdown (monthly/range only) */}
-            {/* {viewMode !== 'single_day' && <AbsenceBreakdown kpi={kpi} />} */}
+
 
             {/* ── SINGLE DAY VIEW ─────────────────────────────────────────── */}
             {viewMode === 'single_day' && (
@@ -610,7 +614,7 @@ function HRDashboard() {
                   />
                   <HoursDistributionChart
                     data={hoursDistribution}
-                    allRecords={allRecords}
+                    allRecords={filteredRecords}
                     selectedDepts={selectedDepts}
                   />
                 </div>
@@ -619,7 +623,7 @@ function HRDashboard() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
                   <DeptAttendanceChart
                     data={deptAttendance}
-                    allRecords={allRecords}
+                    allRecords={filteredRecords}
                     selectedDepts={selectedDepts}
                     onDeptClick={(dept) => toggleDept(dept)}
                     onDeptDrillChange={(dept) => setDeptDrillSync(dept)}
@@ -687,7 +691,7 @@ function HRDashboard() {
           onClose={() => setShowSettings(false)}
           thresholds={thresholds}
           onSaveThresholds={handleSaveThresholds}
-          records={allRecords}
+          records={filteredRecords}
         />
       )}
 

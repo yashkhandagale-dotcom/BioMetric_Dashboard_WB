@@ -1,6 +1,7 @@
 'use client';
-import { useState, useMemo } from 'react';
-import { CheckCircle, ChevronDown, ChevronUp, Flag, Search } from 'lucide-react';
+import { useState, useMemo, useRef } from 'react';
+import { Upload, CheckCircle, X, AlertCircle, ChevronDown, ChevronUp, Flag } from 'lucide-react';
+import Papa from 'papaparse';
 import { AttendanceRecord } from '@/lib/types';
 import { isAbsent, isWeeklyOff } from '@/lib/useDashboardData';
 
@@ -16,56 +17,79 @@ interface HRAbsenceCheckerProps {
   allUploadedRecords: AttendanceRecord[];
 }
 
-// Payroll month "April" -> 25 March to 24 April.
-// selectedMonth is an <input type="month"> value: "YYYY-MM" (MM = 1-12).
-function payrollRangeForMonth(selectedMonth: string): { from: string; to: string } {
-  const [yearStr, monthStr] = selectedMonth.split('-');
-  const year = Number(yearStr);
-  const monthIndex = Number(monthStr) - 1; // 0-based, e.g. April -> 3
-
-  const fromDate = new Date(year, monthIndex - 1, 25); // 25th of previous month
-  const toDate = new Date(year, monthIndex, 24);        // 24th of selected month
-
-  const fmt = (d: Date) => d.toISOString().slice(0, 10);
-  return { from: fmt(fromDate), to: fmt(toDate) };
-}
-
-function formatMonthLabel(selectedMonth: string): string {
-  const [yearStr, monthStr] = selectedMonth.split('-');
-  const d = new Date(Number(yearStr), Number(monthStr) - 1, 1);
-  return d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+function parsePayrollDateRange(filename: string): { from: string; to: string } | null {
+  // Payroll CSV covers 25th of month to 24th of next month
+  // We detect range from data itself, not filename
+  return null;
 }
 
 export default function HRAbsenceChecker({ allUploadedRecords }: HRAbsenceCheckerProps) {
   const [open, setOpen] = useState(false);
-  const [selectedMonth, setSelectedMonth] = useState(''); // "YYYY-MM"
+  const [csvRecords, setCsvRecords] = useState<AttendanceRecord[]>([]);
   const [dateRange, setDateRange] = useState<{ from: string; to: string } | null>(null);
   const [flagMap, setFlagMap] = useState<Map<string, boolean>>(new Map()); // key = empCode__date
   const [expandedEmp, setExpandedEmp] = useState<string | null>(null);
   const [filterDept, setFilterDept] = useState('ALL');
-  const [submitted, setSubmitted] = useState(false); // gate: list only shows after HR applies filter
+  const fileRef = useRef<HTMLInputElement>(null);
 
+  // Use uploaded biometric records (passed in) filtered to the payroll date range
   const baseRecords = allUploadedRecords;
 
-  // Any change to the month invalidates the current view —
-  // HR must explicitly re-apply to see results for the new period.
-  function updateSelectedMonth(month: string) {
-    setSelectedMonth(month);
-    setSubmitted(false);
-  }
+  function handleCSVUpload(file: File) {
+    // The HR payroll CSV may have employee codes and date columns we can use
+    // OR it may simply be a list of employee codes and a date range
+    // We'll parse it to extract the date range (from/to)
+    Papa.parse(file, {
+      header: true,
+      skipEmptyLines: true,
+      complete: (result) => {
+        const rows = result.data as Record<string, string>[];
+        if (rows.length === 0) return;
 
-  function applyFilter() {
-    if (!selectedMonth) return;
-    setDateRange(payrollRangeForMonth(selectedMonth));
-    setSubmitted(true);
+        // Try to find date range from data
+        const dateColumns = Object.keys(rows[0]).filter(k =>
+          k.toLowerCase().includes('date') || /^\d{4}-\d{2}-\d{2}$/.test(rows[0][k])
+        );
+
+        let allDates: string[] = [];
+        for (const row of rows) {
+          for (const col of dateColumns) {
+            const v = row[col]?.trim();
+            if (v && /^\d{4}-\d{2}-\d{2}$/.test(v)) allDates.push(v);
+          }
+          // Also check all values
+          for (const v of Object.values(row)) {
+            const trimmed = v?.trim();
+            if (trimmed && /^\d{4}-\d{2}-\d{2}$/.test(trimmed)) allDates.push(trimmed);
+          }
+        }
+
+        if (allDates.length > 0) {
+          allDates.sort();
+          setDateRange({ from: allDates[0], to: allDates[allDates.length - 1] });
+        } else {
+          // Infer from biometric records available - use all dates
+          const recordDates = baseRecords.map(r => r.date).sort();
+          if (recordDates.length > 0) {
+            // Default to payroll period: find 25th of earliest month to 24th of next
+            const firstDate = new Date(recordDates[0]);
+            const from = new Date(firstDate.getFullYear(), firstDate.getMonth() - 1, 25);
+            const to = new Date(firstDate.getFullYear(), firstDate.getMonth(), 24);
+            setDateRange({
+              from: from.toISOString().slice(0, 10),
+              to: to.toISOString().slice(0, 10),
+            });
+          }
+        }
+      }
+    });
   }
 
   // Build absence list from biometric records in date range
-  // — only computed for display once HR has hit "Show Absences"
   const absenceData = useMemo(() => {
-    if (!submitted || !dateRange) return [];
-
-    const records = baseRecords.filter(r => r.date >= dateRange.from && r.date <= dateRange.to);
+    const records = dateRange
+      ? baseRecords.filter(r => r.date >= dateRange.from && r.date <= dateRange.to)
+      : baseRecords;
 
     const empMap = new Map<string, PayrollRecord>();
     for (const r of records) {
@@ -85,6 +109,7 @@ export default function HRAbsenceChecker({ allUploadedRecords }: HRAbsenceChecke
       empMap.get(key)!.absentDates.push(r.date);
     }
 
+    // Apply saved flags
     for (const [k, flagged] of flagMap.entries()) {
       const [code, date] = k.split('__');
       const emp = empMap.get(code);
@@ -95,7 +120,7 @@ export default function HRAbsenceChecker({ allUploadedRecords }: HRAbsenceChecke
     }
 
     return Array.from(empMap.values()).sort((a, b) => b.absentDates.length - a.absentDates.length);
-  }, [baseRecords, dateRange, flagMap, submitted]);
+  }, [baseRecords, dateRange, flagMap]);
 
   const departments = useMemo(() => {
     const s = new Set(absenceData.map(e => e.department));
@@ -122,8 +147,6 @@ export default function HRAbsenceChecker({ allUploadedRecords }: HRAbsenceChecke
   }, 0);
   const pendingCount = totalAbsences - flaggedCount;
 
-  const canApply = !!selectedMonth;
-
   return (
     <div className="bg-slate-800 rounded-xl border border-slate-700 overflow-hidden">
       {/* Header — always visible */}
@@ -138,14 +161,14 @@ export default function HRAbsenceChecker({ allUploadedRecords }: HRAbsenceChecke
           <div className="text-left">
             <h3 className="text-white font-semibold text-sm">HR Absence Checker</h3>
             <p className="text-slate-500 text-xs mt-0.5">
-              {submitted && dateRange
-                ? `${formatMonthLabel(selectedMonth)} payroll: ${dateRange.from} → ${dateRange.to} · ${pendingCount} absences to review`
-                : 'Select a payroll month and apply to view absences'}
+              {dateRange
+                ? `Payroll: ${dateRange.from} → ${dateRange.to} · ${pendingCount} absences to review`
+                : 'Upload payroll CSV to set period · click to expand'}
             </p>
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {submitted && pendingCount > 0 && (
+          {pendingCount > 0 && (
             <span className="bg-rose-500/20 text-rose-400 border border-rose-500/30 text-xs px-2 py-0.5 rounded-full font-medium">
               {pendingCount} pending
             </span>
@@ -156,69 +179,70 @@ export default function HRAbsenceChecker({ allUploadedRecords }: HRAbsenceChecke
 
       {open && (
         <div className="px-5 pb-5 border-t border-slate-700">
-          {/* Controls row */}
+          {/* Upload + controls row */}
           <div className="flex items-center gap-3 mt-4 flex-wrap">
-            {/* Month picker */}
-            <div className="flex items-center gap-2 bg-slate-700/50 border border-slate-600 rounded-lg px-3 py-1.5">
-              <span className="text-slate-400 text-xs">Payroll Month</span>
+            <div>
               <input
-                type="month"
-                value={selectedMonth}
-                onChange={e => updateSelectedMonth(e.target.value)}
-                className="bg-transparent text-white text-xs focus:outline-none"
+                ref={fileRef}
+                type="file"
+                accept=".csv"
+                className="hidden"
+                onChange={e => { const f = e.target.files?.[0]; if (f) handleCSVUpload(f); e.target.value = ''; }}
               />
+              <button
+                onClick={() => fileRef.current?.click()}
+                className="flex items-center gap-2 bg-slate-700 hover:bg-slate-600 border border-slate-600 text-white text-xs px-3 py-2 rounded-lg transition-colors"
+              >
+                <Upload className="w-3.5 h-3.5" />
+                Upload Payroll CSV (25th–24th)
+              </button>
             </div>
 
-            {/* Live preview of computed range */}
-            {selectedMonth && (
-              <span className="text-slate-500 text-xs">
-                = {payrollRangeForMonth(selectedMonth).from} → {payrollRangeForMonth(selectedMonth).to}
-              </span>
-            )}
+            {/* Manual date range override */}
+            <div className="flex items-center gap-2 bg-slate-700/50 border border-slate-600 rounded-lg px-3 py-1.5">
+              <span className="text-slate-400 text-xs">From</span>
+              <input
+                type="date"
+                value={dateRange?.from ?? ''}
+                onChange={e => setDateRange(prev => ({ from: e.target.value, to: prev?.to ?? '' }))}
+                className="bg-transparent text-white text-xs focus:outline-none w-28"
+              />
+              <span className="text-slate-600 text-xs">→</span>
+              <span className="text-slate-400 text-xs">To</span>
+              <input
+                type="date"
+                value={dateRange?.to ?? ''}
+                onChange={e => setDateRange(prev => ({ from: prev?.from ?? '', to: e.target.value }))}
+                className="bg-transparent text-white text-xs focus:outline-none w-28"
+              />
+            </div>
 
             {/* Dept filter */}
             <select
               value={filterDept}
               onChange={e => setFilterDept(e.target.value)}
-              disabled={!submitted}
-              className="bg-slate-700 border border-slate-600 text-white text-xs rounded-lg px-3 py-2 focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed"
+              className="bg-slate-700 border border-slate-600 text-white text-xs rounded-lg px-3 py-2 focus:outline-none"
             >
               {departments.map(d => <option key={d} value={d}>{d}</option>)}
             </select>
 
-            {/* Apply button — gates the list */}
-            <button
-              onClick={applyFilter}
-              disabled={!canApply}
-              className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 disabled:bg-slate-700 disabled:text-slate-500 disabled:cursor-not-allowed text-white text-xs px-3 py-2 rounded-lg transition-colors font-medium"
-            >
-              <Search className="w-3.5 h-3.5" />
-              Show Absences
-            </button>
-
-            {/* Stats — only meaningful once results are shown */}
-            {submitted && (
-              <div className="flex gap-2 text-xs ml-auto">
-                <span className="bg-slate-700 text-slate-300 px-2 py-1 rounded">{totalAbsences} absences</span>
-                <span className="bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 px-2 py-1 rounded">{flaggedCount} marked leave ✓</span>
-                <span className="bg-rose-600/20 text-rose-400 border border-rose-500/30 px-2 py-1 rounded">{pendingCount} to review</span>
-              </div>
-            )}
+            {/* Stats */}
+            <div className="flex gap-2 text-xs ml-auto">
+              <span className="bg-slate-700 text-slate-300 px-2 py-1 rounded">{totalAbsences} absences</span>
+              <span className="bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 px-2 py-1 rounded">{flaggedCount} marked leave ✓</span>
+              <span className="bg-rose-600/20 text-rose-400 border border-rose-500/30 px-2 py-1 rounded">{pendingCount} to review</span>
+            </div>
           </div>
 
           {/* Instructions */}
           <div className="mt-3 bg-blue-500/10 border border-blue-500/20 rounded-lg px-4 py-2.5 text-xs text-blue-300">
-            <strong>How to use:</strong> Pick the payroll month (e.g. "April" covers 25 Mar – 24 Apr), then click <strong>Show Absences</strong>. Review each absent day and click <Flag className="w-3 h-3 inline mx-0.5" /> to mark it as approved leave. Unmarked dates = unaccounted absences that need HR action.
+            <strong>How to use:</strong> Review each absent day below. Click <Flag className="w-3 h-3 inline mx-0.5" /> to mark a date as approved leave. Unmarked dates = unaccounted absences that need HR action.
           </div>
 
-          {/* Employee absence list — gated behind submitted */}
-          {!submitted ? (
+          {/* Employee absence list */}
+          {filtered.length === 0 ? (
             <div className="mt-4 text-center py-8 text-slate-500 text-sm">
-              {canApply ? 'Click "Show Absences" to load results for this month' : 'Select a payroll month to get started'}
-            </div>
-          ) : filtered.length === 0 ? (
-            <div className="mt-4 text-center py-8 text-slate-500 text-sm">
-              No absences found in this period 🎉
+              {dateRange ? 'No absences found in this period 🎉' : 'Set a date range to view absences'}
             </div>
           ) : (
             <div className="mt-4 space-y-2">
