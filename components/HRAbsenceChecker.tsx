@@ -126,13 +126,13 @@ export default function HRAbsenceChecker({ allUploadedRecords }: HRAbsenceChecke
       {/* Header — always visible */}
       <button
         onClick={() => setOpen(v => !v)}
-        className="w-full flex items-center justify-between px-5 py-4 hover:bg-slate-700/40 transition-colors"
+        className="w-full flex items-center justify-between flex-wrap gap-2 px-5 py-4 hover:bg-slate-700/40 transition-colors"
       >
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 bg-rose-600/20 border border-rose-500/30 rounded-lg flex items-center justify-center">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="w-8 h-8 bg-rose-600/20 border border-rose-500/30 rounded-lg flex items-center justify-center flex-shrink-0">
             <CheckCircle className="w-4 h-4 text-rose-400" />
           </div>
-          <div className="text-left">
+          <div className="text-left min-w-0">
             <h3 className="text-white font-semibold text-sm">HR Absence Checker</h3>
             <p className="text-slate-500 text-xs mt-0.5">
               {hasSearched && dateRange
@@ -193,7 +193,7 @@ export default function HRAbsenceChecker({ allUploadedRecords }: HRAbsenceChecke
 
             {/* Stats */}
             {hasSearched && (
-              <div className="flex gap-2 text-xs ml-auto">
+              <div className="flex gap-2 text-xs ml-auto flex-wrap">
                 <span className="bg-slate-700 text-slate-300 px-2 py-1 rounded">{totalAbsences} absences</span>
                 <span className="bg-emerald-600/20 text-emerald-400 border border-emerald-500/30 px-2 py-1 rounded">{flaggedCount} marked leave ✓</span>
                 <span className="bg-rose-600/20 text-rose-400 border border-rose-500/30 px-2 py-1 rounded">{pendingCount} to review</span>
@@ -226,17 +226,17 @@ export default function HRAbsenceChecker({ allUploadedRecords }: HRAbsenceChecke
                   <div key={emp.employeeCode} className="bg-slate-700/40 rounded-lg border border-slate-600/50 overflow-hidden">
                     <button
                       onClick={() => setExpandedEmp(isExpanded ? null : emp.employeeCode)}
-                      className="w-full flex items-center justify-between px-4 py-3 hover:bg-slate-700/60 transition-colors"
+                      className="w-full flex items-center justify-between flex-wrap gap-2 px-4 py-3 hover:bg-slate-700/60 transition-colors"
                     >
-                      <div className="flex items-center gap-3 text-left">
+                      <div className="flex items-center gap-3 text-left min-w-0">
                         <div className={`w-2 h-2 rounded-full flex-shrink-0 ${empPending > 0 ? 'bg-rose-400' : 'bg-emerald-400'}`} />
-                        <div>
+                        <div className="min-w-0 truncate">
                           <span className="text-white text-xs font-medium">{emp.employeeName}</span>
                           <span className="text-slate-500 text-xs ml-2">({emp.employeeCode})</span>
                           <span className="text-slate-400 text-xs ml-2">· {emp.department}</span>
                         </div>
                       </div>
-                      <div className="flex items-center gap-2 text-xs">
+                      <div className="flex items-center gap-2 text-xs flex-wrap">
                         <span className="text-slate-400">{emp.absentDates.length} absent</span>
                         {empFlagged > 0 && <span className="text-emerald-400">{empFlagged} ✓</span>}
                         {empPending > 0 && <span className="text-rose-400">{empPending} pending</span>}

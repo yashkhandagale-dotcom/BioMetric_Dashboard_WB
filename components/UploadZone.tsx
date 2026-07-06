@@ -56,7 +56,7 @@ export default function UploadZone({ onFiles }: UploadZoneProps) {
           onDragOver={onDragOver}
           onDragLeave={() => setDragging(false)}
           className={`
-            relative border-2 border-dashed rounded-2xl p-12 text-center cursor-pointer transition-all duration-200
+            relative border-2 border-dashed rounded-2xl p-6 sm:p-12 text-center cursor-pointer transition-all duration-200
             ${dragging
               ? 'border-blue-400 bg-blue-500/10 scale-[1.02]'
               : 'border-slate-600 bg-slate-800/50 hover:border-slate-400 hover:bg-slate-800'}

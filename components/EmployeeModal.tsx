@@ -47,7 +47,7 @@ export default function EmployeeModal({ employee, onClose, readOnly = false }: E
 
         <div className="overflow-y-auto flex-1 p-5 space-y-4">
           {/* Summary grid */}
-          <div className="grid grid-cols-3 gap-2">
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
             {[
               { label: 'Present Days', value: employee.presentDays, color: 'text-emerald-400' },
               { label: 'Absent Days', value: employee.absentDays, color: 'text-red-400' },
@@ -118,7 +118,7 @@ export default function EmployeeModal({ employee, onClose, readOnly = false }: E
               </h4>
               <div className="space-y-1 max-h-52 overflow-y-auto pr-1">
                 {dayWise.map((d) => (
-                  <div key={d.date} className="flex items-center justify-between bg-slate-700/30 rounded-lg px-3 py-2 text-xs">
+                  <div key={d.date} className="flex items-center justify-between flex-wrap gap-1 bg-slate-700/30 rounded-lg px-3 py-2 text-xs">
                     <span className="text-slate-300 font-mono">{d.date}</span>
                     <span className="text-slate-400">{d.inTime || '—'} → {d.outTime || '—'}</span>
                     <div className="flex gap-2">

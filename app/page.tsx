@@ -61,9 +61,9 @@ function ManagerView({ records }: { records: AttendanceRecord[] }) {
 
   return (
     <div className="min-h-screen bg-slate-900 text-white">
-      <header className="border-b border-slate-800 px-6 py-4 flex items-center justify-between">
+      <header className="border-b border-slate-800 px-4 sm:px-6 py-4 flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
+          <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center flex-shrink-0">
             <span className="text-white text-xs font-bold">WB</span>
           </div>
           <div>
@@ -72,11 +72,11 @@ function ManagerView({ records }: { records: AttendanceRecord[] }) {
           </div>
         </div>
         <div className="flex items-center gap-2 bg-slate-800 border border-slate-700 px-3 py-1.5 rounded-lg">
-          <Eye className="w-3.5 h-3.5 text-blue-400" />
+          <Eye className="w-3.5 h-3.5 text-blue-400 flex-shrink-0" />
           <span className="text-slate-400 text-xs">Read-only · {records.length.toLocaleString()} records</span>
         </div>
       </header>
-      <main className="px-6 py-6 max-w-7xl mx-auto space-y-6">
+      <main className="px-4 sm:px-6 py-6 max-w-7xl mx-auto space-y-6">
         <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl px-4 py-3 text-sm text-blue-300">
           Read-only view — upload, export and settings are not available here.
         </div>
@@ -396,16 +396,16 @@ function HRDashboard() {
   return (
     <div className="min-h-screen bg-slate-900 text-white">
       {toast && (
-        <div className={`fixed top-4 right-4 z-50 flex items-start gap-3 max-w-md px-4 py-3 rounded-xl shadow-2xl border
+        <div className={`fixed top-4 right-4 left-4 sm:left-auto z-50 flex items-start gap-3 sm:max-w-md px-4 py-3 rounded-xl shadow-2xl border
           ${toast.type === 'success' ? 'bg-emerald-900/90 border-emerald-500/40 text-emerald-200' : 'bg-red-900/90 border-red-500/40 text-red-200'}`}>
           <CheckCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
           <p className="text-sm">{toast.message}</p>
         </div>
       )}
 
-      <header className="border-b border-slate-800 px-6 py-4 flex items-center justify-between">
+      <header className="border-b border-slate-800 px-4 sm:px-6 py-4 flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
+          <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center flex-shrink-0">
             <span className="text-white text-xs font-bold">WB</span>
           </div>
           <div>
@@ -414,7 +414,7 @@ function HRDashboard() {
           </div>
         </div>
         {appState === 'dashboard' && (
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             {holidays.length > 0 && (
               <button
                 onClick={() => setShowHolidayModal(true)}
@@ -449,10 +449,10 @@ function HRDashboard() {
         )}
       </header>
 
-      <main className="px-6 py-6 max-w-7xl mx-auto">
+      <main className="px-4 sm:px-6 py-6 max-w-7xl mx-auto">
         {appState === 'upload' && (
           <div className="space-y-6">
-            <div className="flex justify-between items-center">
+            <div className="flex justify-between items-center flex-wrap gap-2">
               <button
                 onClick={() => setAppState('dashboard')}
                 className="inline-flex items-center gap-2 text-slate-300 hover:text-white bg-slate-800/70 border border-slate-700 px-3 py-2 rounded-lg text-sm transition-colors"
@@ -484,7 +484,7 @@ function HRDashboard() {
             <div className="flex flex-wrap items-center gap-3">
               {/* Date range — restricted to the span of dates actually present in uploaded data */}
               {allAvailableDates.length > 0 && (
-                <div className="flex items-center gap-1.5 bg-slate-800/60 border border-slate-700 rounded-lg px-3 py-1.5">
+                <div className="flex items-center gap-1.5 flex-wrap bg-slate-800/60 border border-slate-700 rounded-lg px-3 py-1.5">
                   <span className="text-slate-500 text-xs font-medium">From</span>
                   <input
                     type="date"
@@ -503,7 +503,7 @@ function HRDashboard() {
                       // If From > To, reset To
                       if (v && dateTo && v > dateTo) setDateTo(v);
                     }}
-                    className="bg-transparent text-white text-xs focus:outline-none w-32"
+                    className="bg-transparent text-white text-xs focus:outline-none w-28 sm:w-32"
                   />
                   <span className="text-slate-600 text-xs">→</span>
                   <span className="text-slate-500 text-xs font-medium">To</span>
@@ -522,7 +522,7 @@ function HRDashboard() {
                       // Auto-set From = To for single-day selection if From not set
                       if (v && !dateFrom) setDateFrom(v);
                     }}
-                    className="bg-transparent text-white text-xs focus:outline-none w-32"
+                    className="bg-transparent text-white text-xs focus:outline-none w-28 sm:w-32"
                   />
                   {(dateFrom || dateTo) && (
                     <button onClick={() => { setDateFrom(null); setDateTo(null); }} className="text-slate-500 hover:text-white transition-colors ml-1" title="Clear date range">
@@ -608,7 +608,7 @@ function HRDashboard() {
                   />
                 </div>
                 <div className="bg-slate-800/30 rounded-xl border border-slate-700 p-4">
-                  <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center justify-between flex-wrap gap-2 mb-4">
                     <h2 className="text-white font-semibold text-sm">
                       {selectedDepts.length === 1 ? `Team Members — ${selectedDepts[0]}` : `All Employees — ${dateFrom}`}
                       {tableFilter !== 'all' && (
@@ -675,7 +675,7 @@ function HRDashboard() {
                 />
                 <InsightsStrip summaries={employeeSummaries} dailyTrend={dailyTrend} deptAttendance={deptAttendance} records={filteredRecords} selectedDepts={selectedDepts} />
                 <div className="bg-slate-800/30 rounded-xl border border-slate-700 p-4">
-                  <div className="flex items-center justify-between mb-4">
+                  <div className="flex items-center justify-between flex-wrap gap-2 mb-4">
                     <h2 className="text-white font-semibold text-sm">
                       Employee Summary
                       {tableFilter !== 'all' && (

@@ -141,7 +141,7 @@ export default function TeamComparisonPanel({ allRecords, departments }: TeamCom
       </div>
 
       {/* Dropdowns */}
-      <div className="flex items-center gap-4 mb-5">
+      <div className="flex items-center gap-4 mb-5 flex-wrap">
         <select
           value={leftTeam}
           onChange={e => handleLeftChange(e.target.value)}

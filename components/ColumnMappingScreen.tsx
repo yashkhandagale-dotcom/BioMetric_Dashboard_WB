@@ -52,7 +52,7 @@ export default function ColumnMappingScreen({ officeCode, csvHeaders, initialMap
         </div>
 
         <div className="bg-slate-800 rounded-2xl border border-slate-700 overflow-hidden">
-          <div className="grid grid-cols-2 gap-0 text-xs font-medium text-slate-400 uppercase tracking-wide px-6 py-3 border-b border-slate-700 bg-slate-800/80">
+          <div className="grid grid-cols-2 gap-0 text-xs font-medium text-slate-400 uppercase tracking-wide px-4 sm:px-6 py-3 border-b border-slate-700 bg-slate-800/80">
             <span>Standard Field</span>
             <span>Your CSV Column</span>
           </div>
@@ -61,7 +61,7 @@ export default function ColumnMappingScreen({ officeCode, csvHeaders, initialMap
             {REQUIRED_STANDARD_FIELDS.map((field) => {
               const isMissing = touched.has(field) && !mapping[field];
               return (
-                <div key={field} className="grid grid-cols-2 items-center gap-4 px-6 py-3">
+                <div key={field} className="grid grid-cols-2 items-center gap-2 sm:gap-4 px-4 sm:px-6 py-3">
                   <div className="flex items-center gap-2">
                     <span className="text-white text-sm font-medium">{FIELD_LABELS[field]}</span>
                     <span className="text-red-400 text-xs">*</span>

@@ -160,7 +160,7 @@ function LeaveBadgeRow({ leftLabel, rightLabel, left, right }: { leftLabel: stri
   return (
     <div className="mt-3">
       <p className="text-slate-500 text-[11px] uppercase tracking-wide mb-2">Leave Breakdown</p>
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         {[{ label: leftLabel, kpi: left }, { label: rightLabel, kpi: right }].map(({ label, kpi }) => (
           <div key={label} className="flex flex-wrap gap-1.5">
             {LEAVE_BADGES.map((b) => {
@@ -324,7 +324,7 @@ export default function EmployeeComparisonPanel({
       {monthAKPIs && monthBKPIs && monthA && monthB && monthA.monthKey !== monthB.monthKey ? (
         <>
           <ComparisonGrid leftLabel={monthA.label} rightLabel={monthB.label} leftKPIs={monthAKPIs} rightKPIs={monthBKPIs} />
-          <div className="grid grid-cols-2 gap-4 mt-4 pt-4 border-t border-slate-700">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4 pt-4 border-t border-slate-700">
             <CalendarHeatmap
               label={`${histEmpName} · ${monthA.label}`}
               records={monthA.records}

@@ -122,7 +122,7 @@ export default function EmployeePanel({
         </div>
 
         <div className="flex-1 overflow-y-auto">
-          <div className="px-5 py-4 grid grid-cols-4 gap-2">
+          <div className="px-5 py-4 grid grid-cols-2 sm:grid-cols-4 gap-2">
             {[
               { label: 'Present', value: employee.presentDays, color: 'text-emerald-400' },
               { label: 'Absent', value: employee.absentDays, color: 'text-red-400' },
@@ -207,8 +207,8 @@ export default function EmployeePanel({
 
           <div className="px-5 pb-6">
             <h4 className="text-slate-400 text-xs font-semibold uppercase tracking-wide mb-2">Day-wise Records</h4>
-            <div className="rounded-xl border border-slate-700/50 overflow-hidden">
-              <table className="w-full text-xs">
+            <div className="rounded-xl border border-slate-700/50 overflow-x-auto">
+              <table className="w-full text-xs min-w-[480px]">
                 <thead>
                   <tr className="bg-slate-800 text-slate-500">
                     <th className="px-3 py-2 text-left font-medium">Date</th>

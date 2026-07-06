@@ -78,7 +78,8 @@ export default function HolidayModal({ officeCode, year, readOnly, onClose, onSa
               No office holiday calendar found for {year}, and no custom holidays added yet.
             </div>
           ) : (
-            <table className="w-full text-xs">
+            <div className="overflow-x-auto">
+            <table className="w-full text-xs min-w-[420px]">
               <thead>
                 <tr className="text-slate-500 border-b border-slate-800">
                   <th className="px-5 py-2 text-left font-medium">Date</th>
@@ -115,13 +116,14 @@ export default function HolidayModal({ officeCode, year, readOnly, onClose, onSa
                 })}
               </tbody>
             </table>
+            </div>
           )}
         </div>
 
         {!readOnly && (
           <div className="px-5 py-3 border-t border-slate-800 bg-slate-900/50">
             <p className="text-slate-500 text-xs mb-2">Add extra holiday (regional/ad-hoc, on top of the office calendar)</p>
-            <div className="flex gap-2">
+            <div className="flex gap-2 flex-wrap">
               <input
                 type="date"
                 value={newDate}

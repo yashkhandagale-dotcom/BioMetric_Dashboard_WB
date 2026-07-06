@@ -44,7 +44,7 @@ function SortToggle({ mode, onChange }: { mode: SortMode; onChange: (m: SortMode
     { key: 'az', label: 'A → Z' },
   ];
   return (
-    <div className="flex items-center gap-1">
+    <div className="flex items-center gap-1 flex-wrap">
       {options.map(o => (
         <button
           key={o.key}
@@ -279,7 +279,7 @@ export function DeptAttendanceChart({ data, allRecords, selectedDepts, onDeptCli
   if (drillDept) {
     return (
       <div className="bg-slate-800 rounded-xl border border-slate-700 p-4">
-        <div className="flex items-center gap-3 mb-1">
+        <div className="flex items-center flex-wrap gap-3 mb-1">
           <button onClick={handleBack} className="flex items-center gap-1.5 text-blue-400 hover:text-blue-300 text-xs font-medium transition-colors shrink-0">
             <ArrowLeft className="w-3.5 h-3.5" /> Back
           </button>
@@ -439,7 +439,7 @@ export function DeptProductivityChart({
   if (drillDept) {
     return (
       <div className="bg-slate-800 rounded-xl border border-slate-700 p-4 min-h-[280px]">
-        <div className="flex items-center gap-3 mb-1">
+        <div className="flex items-center flex-wrap gap-3 mb-1">
           <button
             onClick={handleBack}
             className="flex items-center gap-1.5 text-blue-400 hover:text-blue-300 text-xs font-medium transition-colors shrink-0"
@@ -581,7 +581,7 @@ export function HoursDistributionChart({ data, allRecords, selectedDepts }: {
   if (drillBin) {
     return (
       <div className="bg-slate-800 rounded-xl border border-slate-700 p-4 min-h-[280px]">
-        <div className="flex items-center gap-3 mb-1">
+        <div className="flex items-center flex-wrap gap-3 mb-1">
           <button onClick={() => setDrillBin(null)} className="flex items-center gap-1.5 text-blue-400 hover:text-blue-300 text-xs font-medium transition-colors shrink-0">
             <ArrowLeft className="w-3.5 h-3.5" /> Back
           </button>
@@ -819,7 +819,7 @@ function DayDeptEmployeeDrill({
 
   return (
     <div>
-      <div className="flex items-center gap-2 mb-3">
+      <div className="flex items-center flex-wrap gap-2 mb-3">
         <button onClick={onBack} className="flex items-center gap-1.5 text-blue-400 hover:text-blue-300 text-xs font-medium">
           <ArrowLeft className="w-3.5 h-3.5" /> Back
         </button>
@@ -827,9 +827,9 @@ function DayDeptEmployeeDrill({
       </div>
       <div className="space-y-1 max-h-60 overflow-y-auto">
         {present.map(r => (
-          <div key={r.employeeCode} className="flex items-center justify-between py-1.5 px-3 rounded bg-emerald-500/10">
-            <span className="text-white text-xs">{r.employeeName || r.employeeCode}</span>
-            <div className="flex items-center gap-2 text-xs">
+          <div key={r.employeeCode} className="flex items-center justify-between flex-wrap gap-1 py-1.5 px-3 rounded bg-emerald-500/10">
+            <span className="text-white text-xs truncate max-w-[140px]">{r.employeeName || r.employeeCode}</span>
+            <div className="flex items-center gap-2 text-xs flex-wrap">
               <span className="text-slate-400">{r.inTime} → {r.outTime}</span>
               {getLateMinutes(r, 10) > 0 && <span className="text-amber-400">Late {getLateMinutes(r, 10)}m</span>}
               {getEarlyMinutes(r, 10) > 0 && <span className="text-blue-400">Early {getEarlyMinutes(r, 10)}m</span>}
@@ -885,7 +885,7 @@ export function DayDeptAttendanceChart({ data, onDeptClick, allRecords }: {
 
     return (
       <div className="bg-slate-800 rounded-xl border border-slate-700 p-4 min-h-[260px]">
-        <div className="flex items-center gap-2 mb-3">
+        <div className="flex items-center flex-wrap gap-2 mb-3">
           {!singleDept && (
             <button onClick={() => setDrillDept(null)} className="flex items-center gap-1 text-blue-400 hover:text-blue-300 text-xs font-medium">
               <ArrowLeft className="w-3.5 h-3.5" /> Back
@@ -975,7 +975,7 @@ export function DayDeptLateChart({ data, onDeptClick, allRecords }: {
     );
     return (
       <div className="bg-slate-800 rounded-xl border border-slate-700 p-4 min-h-[260px]">
-        <div className="flex items-center gap-2 mb-3">
+        <div className="flex items-center flex-wrap gap-2 mb-3">
           {!singleDept && (
             <button onClick={() => setDrillDept(null)} className="flex items-center gap-1 text-blue-400 hover:text-blue-300 text-xs font-medium">
               <ArrowLeft className="w-3.5 h-3.5" /> Back
@@ -1065,7 +1065,7 @@ export function DayDeptProductivityChart({ data, onDeptClick, allRecords }: {
 
     return (
       <div className="bg-slate-800 rounded-xl border border-slate-700 p-4 min-h-[260px]">
-        <div className="flex items-center gap-2 mb-3">
+        <div className="flex items-center flex-wrap gap-2 mb-3">
           {!singleDept && (
             <button onClick={() => setDrillDept(null)} className="flex items-center gap-1 text-blue-400 hover:text-blue-300 text-xs font-medium">
               <ArrowLeft className="w-3.5 h-3.5" /> Back
