@@ -22,12 +22,13 @@ import KPICards from '@/components/KPICards';
 import EmployeeTable from '@/components/EmployeeTable';
 import {
   DailyTrendChart, DeptAttendanceChart, HoursDistributionChart,
-  DeptProductivityChart,
+  DeptProductivityChart, ComparisonTrendChart,
   DayDeptAttendanceChart, DayDeptLateChart, DayDeptProductivityChart
 } from '@/components/Charts';
 import ExportPanel from '@/components/ExportPanel';
 import EmployeePanel from '@/components/EmployeePanel';
 import EmployeeComparisonPanel from '@/components/EmployeeComparisonPanel';
+import TeamComparisonPanel from '@/components/TeamComparisonPanel';
 import HolidayModal from '@/components/HolidayModal';
 import InsightsStrip from '@/components/InsightsStrip';
 import SettingsPanel from '@/components/SettingsPanel';
@@ -364,6 +365,15 @@ function HRDashboard() {
   const { kpi, employeeSummaries, dailyTrend, deptAttendance, hoursDistribution, officeAttendance, departments, offices, filteredRecords, availableDates, viewMode, dayDeptSnapshots } =
     useDashboardData(recordPool, selectedOffice, selectedDepts, [], holidays, thresholds, leaveRecords, allOfficeRecords, dateFrom, dateTo);
 
+  // Comparison mode (2+ departments selected) needs the FULL department
+  // universe — not just the selected ones — so the bar charts below can show
+  // every department and simply dim the ones outside the comparison set,
+  // rather than only ever showing the selected departments in isolation.
+  const { deptAttendance: allDeptAttendance, filteredRecords: allDeptRecords } =
+    useDashboardData(recordPool, selectedOffice, [], [], holidays, thresholds, leaveRecords, allOfficeRecords, dateFrom, dateTo);
+
+  const isComparison = viewMode === 'comparison';
+
   const leaveMap = buildLeaveMap(leaveRecords);
 
   const currentMonth = uploadedMonths.find(m => m.key === selectedMonthKey);
@@ -628,16 +638,25 @@ function HRDashboard() {
               </>
             )}
 
-            {/* ── MONTHLY / RANGE VIEW ────────────────────────────────────── */}
+            {/* ── MONTHLY / RANGE / COMPARISON VIEW ───────────────────────── */}
             {viewMode !== 'single_day' && (
               <>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
-                  <DailyTrendChart
-                    data={dailyTrend}
-                    selectedDepts={selectedDepts}
-                    selectedDate={dateFrom === dateTo ? dateFrom : null}
-                    onDateClick={(d) => { setDateFrom(d); setDateTo(d); }}
-                  />
+                  {isComparison ? (
+                    <ComparisonTrendChart
+                      records={filteredRecords}
+                      selectedDepts={selectedDepts}
+                      holidays={holidays}
+                      graceMinutes={thresholds.graceMinutes}
+                    />
+                  ) : (
+                    <DailyTrendChart
+                      data={dailyTrend}
+                      selectedDepts={selectedDepts}
+                      selectedDate={dateFrom === dateTo ? dateFrom : null}
+                      onDateClick={(d) => { setDateFrom(d); setDateTo(d); }}
+                    />
+                  )}
                   <HoursDistributionChart
                     data={hoursDistribution}
                     allRecords={filteredRecords}
@@ -645,24 +664,32 @@ function HRDashboard() {
                   />
                 </div>
 
-                {/* Dept Attendance + Productivity Lost side by side, linked drill */}
+                {/* Dept Attendance + Productivity Lost side by side, linked drill.
+                    In comparison mode, show every department (dimming those not
+                    selected) rather than only the selected ones. */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
                   <DeptAttendanceChart
-                    data={deptAttendance}
-                    allRecords={filteredRecords}
+                    data={isComparison ? allDeptAttendance : deptAttendance}
+                    allRecords={isComparison ? allDeptRecords : filteredRecords}
                     selectedDepts={selectedDepts}
+                    highlightDepts={isComparison ? selectedDepts : undefined}
                     onDeptClick={(dept) => toggleDept(dept)}
                     onDeptDrillChange={(dept) => setDeptDrillSync(dept)}
                   />
                   <DeptProductivityChart
-                    data={deptAttendance}
-                    allRecords={filteredRecords}
+                    data={isComparison ? allDeptAttendance : deptAttendance}
+                    allRecords={isComparison ? allDeptRecords : filteredRecords}
                     selectedDepts={selectedDepts}
+                    highlightDepts={isComparison ? selectedDepts : undefined}
                     externalDrillDept={deptDrillSync}
                     onDrillBack={() => setDeptDrillSync(null)}
                     onDeptDrillChange={(dept) => setDeptDrillSync(dept)}
                   />
                 </div>
+
+                {isComparison && departments.length >= 2 && (
+                  <TeamComparisonPanel allRecords={filteredRecords} departments={departments} />
+                )}
 
                 <EmployeeComparisonPanel
                   allRecords={filteredRecords}
@@ -749,9 +776,11 @@ export default function Home() {
     const qp = new URLSearchParams(window.location.search);
     const isView = qp.get('view') === '1';
     if (isView) {
-      const records = readSharedData();
-      if (records && records.length > 0) { setManagerRecords(records); setViewMode('manager'); }
-      else setViewMode('denied');
+      (async () => {
+        const records = await readSharedData();
+        if (records && records.length > 0) { setManagerRecords(records); setViewMode('manager'); }
+        else setViewMode('denied');
+      })();
       return;
     }
     setViewMode('hr');

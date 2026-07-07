@@ -5,6 +5,7 @@ import { ColumnMapping, Thresholds, AttendanceRecord } from '@/lib/types';
 import { getAllMappings } from '@/lib/storage';
 import { DEFAULT_THRESHOLDS } from '@/lib/settings';
 import SharedLinkPanel from './SharedLinkPanel';
+import BackupPanel from './BackupPanel';
 
 interface SettingsPanelProps {
   onClose: () => void;
@@ -43,7 +44,7 @@ function hhmmToMins(hhmm: string): number {
 }
 
 export default function SettingsPanel({ onClose, thresholds, onSaveThresholds, records }: SettingsPanelProps) {
-  const [tab, setTab] = useState<'mapping' | 'thresholds' | 'share'>('thresholds');
+  const [tab, setTab] = useState<'mapping' | 'thresholds' | 'share' | 'backup'>('thresholds');
   const [draft, setDraft] = useState<Thresholds>(thresholds);
   const [dirty, setDirty] = useState(false);
   const mappings = getAllMappings();
@@ -81,13 +82,13 @@ export default function SettingsPanel({ onClose, thresholds, onSaveThresholds, r
         </div>
 
         <div className="flex border-b border-slate-800 flex-shrink-0">
-          {(['thresholds', 'mapping', 'share'] as const).map(t => (
+          {(['thresholds', 'mapping', 'share', 'backup'] as const).map(t => (
             <button
               key={t}
               onClick={() => setTab(t)}
               className={`flex-1 px-3 py-2.5 text-xs font-medium transition-colors ${tab === t ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-500 hover:text-slate-300'}`}
             >
-              {t === 'thresholds' ? 'Thresholds' : t === 'mapping' ? 'Column Mapping' : 'Shared Link'}
+              {t === 'thresholds' ? 'Thresholds' : t === 'mapping' ? 'Column Mapping' : t === 'share' ? 'Shared Link' : 'Backup'}
             </button>
           ))}
         </div>
@@ -170,6 +171,10 @@ export default function SettingsPanel({ onClose, thresholds, onSaveThresholds, r
 
           {tab === 'share' && (
             <SharedLinkPanel records={records} />
+          )}
+
+          {tab === 'backup' && (
+            <BackupPanel />
           )}
         </div>
       </div>

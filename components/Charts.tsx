@@ -6,9 +6,10 @@ import {
   BarChart, Bar, Cell, Legend, LabelList, AreaChart, Area, ReferenceLine
 } from 'recharts';
 import { ArrowLeft, ArrowUpDown, SortAsc, SortDesc } from 'lucide-react';
-import { DailyTrend, DeptAttendance, HoursDistribution, AttendanceRecord, DayDeptSnapshot } from '@/lib/types';
+import { DailyTrend, DeptAttendance, HoursDistribution, AttendanceRecord, DayDeptSnapshot, Holiday } from '@/lib/types';
 import { durationToMinutes, minutesToHHMM } from '@/lib/parseCSV';
 import { isPresent, isAbsent, isWeeklyOff, SHIFT_MINUTES, computeLateMinutes, computeEarlyMinutes, getLateMinutes, getEarlyMinutes, computeProductivityLostMinutes } from '@/lib/useDashboardData';
+import { isHoliday } from '@/lib/holidays';
 import InfoTooltip from './InfoTooltip';
 
 function rateColor(rate: number): string {
@@ -222,17 +223,110 @@ export function DailyTrendChart({ data, selectedDepts, onDateClick, selectedDate
   );
 }
 
+// ── Multi-Department Daily Trend (comparison mode) ───────────────────────────
+// One line per selected department, capped at 5 for readability. Used instead
+// of DailyTrendChart when 2+ departments are selected (SRS Sec 12.5.1).
+const COMPARISON_LINE_COLORS = ['#60a5fa', '#f472b6', '#34d399', '#fbbf24', '#a78bfa'];
+
+export function ComparisonTrendChart({ records, selectedDepts, holidays = [], graceMinutes = 10 }: {
+  records: AttendanceRecord[];
+  selectedDepts: string[];
+  holidays?: Holiday[];
+  graceMinutes?: number;
+}) {
+  const depts = selectedDepts.slice(0, 5);
+
+  const { chartData, dates } = useMemo(() => {
+    // date -> department -> { present, total }
+    const byDate = new Map<string, Map<string, { present: number; total: number }>>();
+    for (const r of records) {
+      if (!depts.includes(r.department)) continue;
+      if (isWeeklyOff(r.status)) continue;
+      if (isHoliday(r.date, holidays) && !isPresent(r.status)) continue;
+      if (!byDate.has(r.date)) byDate.set(r.date, new Map());
+      const deptMap = byDate.get(r.date)!;
+      if (!deptMap.has(r.department)) deptMap.set(r.department, { present: 0, total: 0 });
+      const d = deptMap.get(r.department)!;
+      if (!r.isShortDay) d.total++;
+      if (isPresent(r.status) && !r.isShortDay) d.present++;
+    }
+
+    const sortedDates = Array.from(byDate.keys()).sort();
+    const data = sortedDates.map(date => {
+      const deptMap = byDate.get(date)!;
+      const row: Record<string, string | number> = { date: date.slice(5), rawDate: date };
+      for (const dept of depts) {
+        const d = deptMap.get(dept);
+        row[dept] = d && d.total > 0 ? Math.round((d.present / d.total) * 100) : 0;
+      }
+      return row;
+    });
+    return { chartData: data, dates: sortedDates };
+  }, [records, depts, holidays]);
+
+  return (
+    <div className="bg-slate-800 rounded-xl border border-slate-700 p-4 min-h-[280px]">
+      <div className="flex items-start justify-between mb-1">
+        <div>
+          <h3 className="text-white font-semibold text-sm">Daily Attendance Trend — Comparison</h3>
+          <p className="text-slate-500 text-xs mt-0.5 mb-3">
+            {depts.length < selectedDepts.length
+              ? `Showing first ${depts.length} of ${selectedDepts.length} selected departments`
+              : 'One line per selected department'}
+          </p>
+        </div>
+        <InfoTooltip title="Daily Attendance Trend — Comparison" description="Daily attendance rate per department, so you can compare trends side by side. Holidays excluded." formula="Present ÷ (Scheduled - WeeklyOff - Holidays) × 100, per department" />
+      </div>
+      {chartData.length === 0 || dates.length === 0
+        ? <div className="h-48 flex items-center justify-center text-slate-500 text-sm">No data</div>
+        : (
+          <ResponsiveContainer width="100%" height={220}>
+            <LineChart data={chartData} margin={{ top: 5, right: 10, left: -20, bottom: 5 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+              <XAxis dataKey="date" tick={{ fontSize: 10, fill: '#64748b' }} interval="preserveStartEnd" />
+              <YAxis domain={[0, 100]} tick={{ fontSize: 10, fill: '#64748b' }} unit="%" />
+              <Tooltip
+                content={({ active, payload, label }: any) => {
+                  if (!active || !payload?.length) return null;
+                  return (
+                    <div className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs shadow-xl">
+                      <p className="text-slate-300 font-medium mb-1">{label}</p>
+                      {payload.map((p: any) => (
+                        <p key={p.dataKey} style={{ color: p.color }}>{p.dataKey}: <strong>{p.value}%</strong></p>
+                      ))}
+                    </div>
+                  );
+                }}
+                wrapperStyle={{ pointerEvents: 'none', zIndex: 50 }}
+              />
+              <Legend wrapperStyle={{ fontSize: 11, paddingTop: 8 }} formatter={(v: string) => <span style={{ color: '#94a3b8' }}>{v}</span>} />
+              {depts.map((dept, i) => (
+                <Line key={dept} type="monotone" dataKey={dept} name={dept}
+                  stroke={COMPARISON_LINE_COLORS[i % COMPARISON_LINE_COLORS.length]}
+                  strokeWidth={2} dot={{ r: 2 }} activeDot={{ r: 5 }} />
+              ))}
+            </LineChart>
+          </ResponsiveContainer>
+        )}
+    </div>
+  );
+}
+
 // ── Dept Attendance Ranking ───────────────────────────────────────────────────
 interface DeptAttendanceChartProps {
   data: DeptAttendance[];
   allRecords: AttendanceRecord[];
   selectedDepts?: string[];
+  // When set, bars for departments NOT in this list are dimmed — used in
+  // comparison mode where `data` includes every department but only the
+  // chosen ones should stand out.
+  highlightDepts?: string[];
   onDeptClick?: (dept: string) => void;
   // When a dept is clicked here, we also want to sync the productivity chart
   onDeptDrillChange?: (dept: string | null) => void;
 }
 
-export function DeptAttendanceChart({ data, allRecords, selectedDepts, onDeptClick, onDeptDrillChange }: DeptAttendanceChartProps) {
+export function DeptAttendanceChart({ data, allRecords, selectedDepts, highlightDepts, onDeptClick, onDeptDrillChange }: DeptAttendanceChartProps) {
   const [manualDrill, setManualDrill] = useState<string | null>(null);
   const [sortMode, setSortMode] = useState<SortMode>('default');
   const drillDept = selectedDepts?.length === 1 ? selectedDepts[0] : manualDrill;
@@ -356,8 +450,19 @@ export function DeptAttendanceChart({ data, allRecords, selectedDepts, onDeptCli
                   const dept = getDepartmentFromClick(entry);
                   if (dept) handleDrillIn(dept);
                 }}>
-                {sortedData.map((entry, i) => <Cell key={i} fill={rateColor(entry.rate)} />)}
-                <LabelList dataKey="rate" position="right" style={{ fontSize: 10, fill: '#94a3b8' }} formatter={(v: any) => `${v}%`} />
+                {sortedData.map((entry, i) => {
+                  const dimmed = highlightDepts && highlightDepts.length > 0 && !highlightDepts.includes(entry.department);
+                  return <Cell key={i} fill={rateColor(entry.rate)} fillOpacity={dimmed ? 0.25 : 1} />;
+                })}
+                <LabelList dataKey="rate" position="right" style={{ fontSize: 10, fill: '#94a3b8' }}
+                  formatter={(v: any) => `${v}%`}
+                  content={(props: any) => {
+                    const entry = sortedData[props.index];
+                    const dimmed = highlightDepts && highlightDepts.length > 0 && entry && !highlightDepts.includes(entry.department);
+                    return <text x={props.x + props.width + 4} y={props.y + (props.height ?? 0) / 2} dy={4}
+                      fontSize={10} fill={dimmed ? '#475569' : '#94a3b8'}>{props.value}%</text>;
+                  }}
+                />
               </Bar>
             </BarChart>
           </ResponsiveContainer>
@@ -368,11 +473,13 @@ export function DeptAttendanceChart({ data, allRecords, selectedDepts, onDeptCli
 
 // ── Productivity Lost by Dept ─────────────────────────────────────────────────
 export function DeptProductivityChart({
-  data, allRecords, selectedDepts, externalDrillDept, onDrillBack, onDeptDrillChange
+  data, allRecords, selectedDepts, highlightDepts, externalDrillDept, onDrillBack, onDeptDrillChange
 }: {
   data: DeptAttendance[];
   allRecords?: AttendanceRecord[];
   selectedDepts?: string[];
+  // See DeptAttendanceChartProps.highlightDepts — same dimming behaviour here.
+  highlightDepts?: string[];
   externalDrillDept?: string | null;
   onDrillBack?: () => void;
   onDeptDrillChange?: (dept: string | null) => void;
@@ -513,7 +620,10 @@ export function DeptProductivityChart({
               }} />
               <Bar dataKey="daysLost" radius={[0, 4, 4, 0]} cursor="pointer"
                 onClick={(entry: any) => handleDrillIn(entry.department)}>
-                {chartData.map((entry, i) => <Cell key={i} fill={lostColor(entry.daysLost)} />)}
+                {chartData.map((entry, i) => {
+                  const dimmed = highlightDepts && highlightDepts.length > 0 && !highlightDepts.includes(entry.department);
+                  return <Cell key={i} fill={lostColor(entry.daysLost)} fillOpacity={dimmed ? 0.25 : 1} />;
+                })}
                 <LabelList dataKey="daysLost" position="right" style={{ fontSize: 10, fill: '#94a3b8' }} formatter={(v: any) => `${v}d`} />
               </Bar>
             </BarChart>

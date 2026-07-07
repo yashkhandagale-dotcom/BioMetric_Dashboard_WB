@@ -140,3 +140,57 @@ export function validateToken(token: string): boolean {
   const stored = getToken();
   return stored === token;
 }
+
+// ── Full data backup / restore ───────────────────────────────────────────────
+// Everything the app keeps — records, mappings, months, leaves, holidays,
+// thresholds — lives in localStorage under various key prefixes. Rather than
+// enumerate every prefix (and risk missing one as new features add keys),
+// export/import the whole localStorage namespace as a single JSON blob, minus
+// the legacy shared-link keys which are being phased out in favour of the
+// server-side token store (see lib/sharedLink.ts).
+
+const EXCLUDED_KEY_PREFIXES = ['share_'];
+const EXCLUDED_KEYS = [KEYS.SHARED_TOKEN];
+
+function isBackedUpKey(key: string): boolean {
+  if (EXCLUDED_KEYS.includes(key)) return false;
+  return !EXCLUDED_KEY_PREFIXES.some((p) => key.startsWith(p));
+}
+
+export interface BackupFile {
+  app: 'attendance-dashboard-poc';
+  version: 1;
+  exportedAt: string;
+  data: Record<string, string>;
+}
+
+export function exportAllData(): BackupFile {
+  const data: Record<string, string> = {};
+  if (typeof window !== 'undefined') {
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (!key || !isBackedUpKey(key)) continue;
+      const value = localStorage.getItem(key);
+      if (value !== null) data[key] = value;
+    }
+  }
+  return {
+    app: 'attendance-dashboard-poc',
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    data,
+  };
+}
+
+export function importAllData(backup: BackupFile): { imported: number } {
+  if (!backup || typeof backup !== 'object' || !backup.data || typeof backup.data !== 'object') {
+    throw new Error('Invalid backup file');
+  }
+  let imported = 0;
+  for (const [key, value] of Object.entries(backup.data)) {
+    if (typeof value !== 'string') continue;
+    localStorage.setItem(key, value);
+    imported++;
+  }
+  return { imported };
+}
