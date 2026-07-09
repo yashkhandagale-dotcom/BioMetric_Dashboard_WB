@@ -93,6 +93,7 @@ function EmployeeSearchInput({
 const STATUS_COLOR: Record<EffectiveStatus, string> = {
   present: 'bg-emerald-500',
   absent: 'bg-red-500',
+  missed_punch_out: 'bg-orange-600',
   leave_planned: 'bg-blue-500',
   leave_casual: 'bg-cyan-500',
   leave_sick: 'bg-pink-500',
@@ -103,9 +104,9 @@ const STATUS_COLOR: Record<EffectiveStatus, string> = {
 };
 
 const STATUS_LABEL: Record<EffectiveStatus, string> = {
-  present: 'Present', absent: 'Absent', leave_planned: 'Planned Leave',
-  leave_casual: 'Casual Leave', leave_sick: 'Sick Leave', leave_lwp: 'LWP',
-  half_day: 'Half Day', weeklyoff: 'Weekly Off', holiday: 'Holiday',
+  present: 'Present', absent: 'Absent', missed_punch_out: 'Missed Punch Out',
+  leave_planned: 'Planned Leave', leave_casual: 'Casual Leave', leave_sick: 'Sick Leave',
+  leave_lwp: 'LWP', half_day: 'Half Day', weeklyoff: 'Weekly Off', holiday: 'Holiday',
 };
 
 function CalendarHeatmap({

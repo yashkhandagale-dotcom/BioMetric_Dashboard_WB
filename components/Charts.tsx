@@ -916,6 +916,7 @@ export const STATUS_COLORS_CELL: Record<string, string> = {
   late: '#fbbf24',
   earlyexit: '#60a5fa',
   absent: '#f87171',
+  missed_punch_out: '#d97706',
   weeklyoff: '#334155',
   shortday: '#f97316',
   holiday: '#a78bfa',
