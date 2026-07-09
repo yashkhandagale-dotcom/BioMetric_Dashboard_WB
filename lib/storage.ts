@@ -25,7 +25,7 @@ export function saveMapping(officeCode: string, mapping: ColumnMapping): void {
   localStorage.setItem(KEYS.MAPPINGS, JSON.stringify(all));
 }
 
-export function getAllMappings(): Record<string, ColumnMapping> {
+export async function getAllMappings(): Promise<Record<string, ColumnMapping>> {
   if (typeof window === 'undefined') return {};
   const raw = localStorage.getItem(KEYS.MAPPINGS);
   return raw ? JSON.parse(raw) : {};
