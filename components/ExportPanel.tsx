@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 import { useState, useRef, useMemo, useEffect } from 'react';
 import { Download, FileSpreadsheet, FileText, FileIcon, ChevronDown, Loader2, X, Calendar, Building2, Users } from 'lucide-react';
 import { UploadedMonth, Thresholds, Holiday, AttendanceRecord, LeaveRecord } from '@/lib/types';
@@ -24,7 +24,7 @@ function periodLabel(key: string): string {
   return `${MONTH_NAMES[parseInt(month, 10)] || month} ${year}`;
 }
 
-// FR-11D: dedicated multi-month export dialog — From-month / To-month /
+// FR-11D: dedicated multi-month export dialog ΓÇö From-month / To-month /
 // Office / Department selectors spanning every uploaded month, rather than
 // just exporting whatever happens to be on screen right now.
 export default function ExportPanel({ uploadedMonths, thresholds }: ExportPanelProps) {
@@ -33,7 +33,7 @@ export default function ExportPanel({ uploadedMonths, thresholds }: ExportPanelP
   const [loading, setLoading] = useState<'excel' | 'csv' | 'pdf' | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
-  // ── Scope selectors ─────────────────────────────────────────────────────
+  // ΓöÇΓöÇ Scope selectors ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
   const [fromPeriod, setFromPeriod] = useState('');
   const [toPeriod, setToPeriod] = useState('');
   const [office, setOffice] = useState('ALL');
@@ -67,7 +67,7 @@ export default function ExportPanel({ uploadedMonths, thresholds }: ExportPanelP
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
-  // ── Months within the selected From→To period + office ──────────────────
+  // ΓöÇΓöÇ Months within the selected FromΓåÆTo period + office ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
   const scopedMonths = useMemo(() => {
     if (!fromPeriod || !toPeriod) return [];
     const lo = fromPeriod <= toPeriod ? fromPeriod : toPeriod;
@@ -80,9 +80,9 @@ export default function ExportPanel({ uploadedMonths, thresholds }: ExportPanelP
     });
   }, [uploadedMonths, fromPeriod, toPeriod, office]);
 
-  // ── Scoped data — fetched async whenever scopedMonths changes ───────────
+  // ΓöÇΓöÇ Scoped data ΓÇö fetched async whenever scopedMonths changes ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
   // (getRecords / getHolidays / getAllLeaveRecords are all Supabase-backed
-  // and async now, so this can't live in a useMemo — it has to be state
+  // and async now, so this can't live in a useMemo ΓÇö it has to be state
   // populated via useEffect.)
   const [scopedRecords, setScopedRecords] = useState<AttendanceRecord[]>([]);
   const [holidays, setHolidays] = useState<Holiday[]>([]);
@@ -202,7 +202,7 @@ export default function ExportPanel({ uploadedMonths, thresholds }: ExportPanelP
             <div className="px-5 py-4 border-b border-slate-800 flex items-start justify-between gap-3">
               <div>
                 <h3 className="text-white font-semibold text-sm">Export Data</h3>
-                <p className="text-slate-400 text-xs mt-1">Choose the months, office and departments to include — spans every uploaded month, not just what's on screen.</p>
+                <p className="text-slate-400 text-xs mt-1">Choose the months, office and departments to include ΓÇö spans every uploaded month, not just what's on screen.</p>
               </div>
               <button onClick={() => setDialogOpen(false)} className="text-slate-500 hover:text-white transition-colors flex-shrink-0">
                 <X className="w-4 h-4" />
@@ -281,15 +281,15 @@ export default function ExportPanel({ uploadedMonths, thresholds }: ExportPanelP
               {/* Scope summary */}
               <div className="bg-slate-800/60 border border-slate-700 rounded-lg px-3 py-2 text-xs">
                 {scopedLoading ? (
-                  <p className="text-slate-400 flex items-center gap-1.5"><Loader2 className="w-3 h-3 animate-spin" /> Loading data for this scope…</p>
+                  <p className="text-slate-400 flex items-center gap-1.5"><Loader2 className="w-3 h-3 animate-spin" /> Loading data for this scopeΓÇª</p>
                 ) : canExport ? (
                   <p className="text-slate-300">
-                    <span className="text-emerald-400 font-medium">{scopedMonths.length}</span> month{scopedMonths.length !== 1 ? 's' : ''} ·{' '}
-                    <span className="text-emerald-400 font-medium">{new Set(filteredRecords.map(r => r.employeeCode)).size}</span> employees ·{' '}
+                    <span className="text-emerald-400 font-medium">{scopedMonths.length}</span> month{scopedMonths.length !== 1 ? 's' : ''} ┬╖{' '}
+                    <span className="text-emerald-400 font-medium">{new Set(filteredRecords.map(r => r.employeeCode)).size}</span> employees ┬╖{' '}
                     <span className="text-emerald-400 font-medium">{filteredRecords.length.toLocaleString()}</span> records
                   </p>
                 ) : (
-                  <p className="text-amber-400">No data matches this selection — adjust the range, office, or departments.</p>
+                  <p className="text-amber-400">No data matches this selection ΓÇö adjust the range, office, or departments.</p>
                 )}
               </div>
             </div>

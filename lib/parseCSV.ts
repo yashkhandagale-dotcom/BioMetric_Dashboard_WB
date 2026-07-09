@@ -34,6 +34,64 @@ function countPunches(punchRecords?: string): number {
   return Math.max(1, Math.ceil(parts.length / 2));
 }
 
+function isPunchTimeValid(timeStr: string): boolean {
+  if (!timeStr) return false;
+  const normalized = timeStr.trim();
+  // Handle various empty/null representations
+  if (!normalized || normalized === '0:00' || normalized === '--' || normalized === '—' || normalized === '-') return false;
+  return true;
+}
+
+function normalizeStatus(
+  statusStr: string,
+  inTimeStr: string,
+  outTimeStr: string,
+  dateStr: string,
+  punchCount: number
+): string {
+  const hasInPunch = isPunchTimeValid(inTimeStr);
+  const hasOutPunch = isPunchTimeValid(outTimeStr);
+
+  // If punch in exists but punch out doesn't → Missed Punch Out
+  if (hasInPunch && !hasOutPunch) {
+    return 'Missed Punch Out';
+  }
+
+  // If there are punch records → use actual status (never Weekly Off if they punched)
+  if (hasInPunch || hasOutPunch || punchCount > 0) {
+    return statusStr;
+  }
+
+  // If no punches at all → determine status
+  if (!hasInPunch && !hasOutPunch) {
+    const statusLower = statusStr.toLowerCase();
+    
+    // Check if it's a weekend (Saturday=6, Sunday=0)
+    try {
+      const date = new Date(dateStr);
+      const dayOfWeek = date.getDay();
+      const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+      
+      // If it's a weekend with no punches and marked as Weekly Off → keep it
+      if (isWeekend && statusLower.includes('weeklyoff')) {
+        return statusStr; // keep as is
+      }
+    } catch (e) {
+      // If date parsing fails, continue with normal logic
+    }
+    
+    // If marked absent → keep as is
+    if (statusLower.includes('absent')) return statusStr;
+    // If marked present but no punches → mark as Absent
+    if (statusLower.includes('present')) return 'Absent';
+    // Default to Absent
+    return 'Absent';
+  }
+
+  // If both punches exist or other cases → use original status
+  return statusStr;
+}
+
 export function parseCSVWithMapping(
   file: File,
   mapping: ColumnMapping,
@@ -66,13 +124,18 @@ export function parseCSVWithMapping(
           const lateByStr = String(row[mapping.lateBy] || '').trim();
           const earlyByStr = String(row[mapping.earlyBy] || '').trim();
           const durationStr = String(row[mapping.duration] || '0:00').trim();
-          const statusStr = String(row[mapping.status] || '').trim();
+          let statusStr = String(row[mapping.status] || '').trim();
           const inTimeStr = String(row[mapping.inTime] || '').trim();
           const outTimeStr = String(row[mapping.outTime] || '').trim();
 
           // Detect punch records column (common variations)
           const punchRecordsRaw = row['Punch Records'] || row['punch_records'] || row['PunchRecords'] || '';
           const punchCount = countPunches(punchRecordsRaw);
+
+          // Normalize status based on punch presence:
+          // - If punch in exists but no punch out → "Missed Punch Out"
+          // - If no punches at all → "Absent"
+          statusStr = normalizeStatus(statusStr, inTimeStr, outTimeStr, date, punchCount);
 
           // Short day: present but duration ≤ 5 minutes
           const durationMins = durationToMinutes(durationStr);

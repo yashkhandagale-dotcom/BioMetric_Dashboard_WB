@@ -36,7 +36,7 @@ export interface LeaveRecord {
 }
 
 export type EffectiveStatus =
-  | 'present' | 'absent'
+  | 'present' | 'absent' | 'missed_punch_out'
   | 'leave_planned' | 'leave_casual' | 'leave_sick' | 'leave_lwp'
   | 'half_day' | 'weeklyoff' | 'holiday';
 
