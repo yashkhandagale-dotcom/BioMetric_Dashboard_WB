@@ -4,7 +4,11 @@ import { durationToMinutes } from './parseCSV';
 const SHIFT_MINUTES = 540;
 const SHIFT_START_MINUTES = 9 * 60 + 30;
 const SHIFT_END_MINUTES = 18 * 60 + 30;
+const COMPANY_NAME = 'WonderBiz Technologies';
 
+// ────────────────────────────────────────────────────────────────────────────
+// Time / status utilities (preserved from original implementation)
+// ────────────────────────────────────────────────────────────────────────────
 function timeToMins(t: string): number {
   if (!t || t === '--' || t === '') return -1;
   const p = t.split(':');
@@ -24,29 +28,248 @@ function isPresent(s: string) { return s.toLowerCase().includes('present') && !s
 function isAbsent(s: string) { return s.toLowerCase().includes('absent'); }
 function isWeeklyOff(s: string) { return s.toLowerCase().includes('weeklyoff'); }
 
+// ────────────────────────────────────────────────────────────────────────────
+// Theme — clean corporate white / blue
+// ────────────────────────────────────────────────────────────────────────────
 type RGB = [number, number, number];
-const NAVY: RGB = [15, 31, 61];
+
+const NAVY: RGB = [15, 41, 89];          // deep corporate blue (header bands)
+const BLUE: RGB = [37, 99, 235];         // primary accent blue
+const LIGHT_BLUE: RGB = [219, 234, 254]; // light blue tints (badge bg, chips)
+const PALE_BLUE: RGB = [239, 246, 255];  // very light section backdrop
 const WHITE: RGB = [255, 255, 255];
-const GREEN: RGB = [5, 150, 105];
+const INK: RGB = [15, 23, 42];           // near-black text
+const SUBTLE: RGB = [100, 116, 139];     // secondary/gray text
+const BORDER: RGB = [226, 232, 240];     // hairlines
+const CARD_BG: RGB = [248, 250, 252];    // card background
+const GREEN: RGB = [22, 163, 74];
+const GREEN_BG: RGB = [220, 252, 231];
 const AMBER: RGB = [217, 119, 6];
+const AMBER_BG: RGB = [254, 243, 199];
 const RED: RGB = [220, 38, 38];
-const SLATE: RGB = [100, 116, 139];
-const BG: RGB = [15, 23, 42];
-const CARD: RGB = [30, 41, 59];
+const RED_BG: RGB = [254, 226, 226];
 
-function kpiRGB(metric: string, value: number): RGB {
-  if (metric === 'Attendance %' || metric === 'Avg Hours/Day') {
-    const g = metric === 'Avg Hours/Day' ? 8.5 : 80;
-    const a = metric === 'Avg Hours/Day' ? 7 : 70;
-    return value >= g ? GREEN : value >= a ? AMBER : RED;
-  }
-  return value < 10 ? GREEN : value < 25 ? AMBER : RED;
-}
-
-function statusRGB(rate: number): RGB {
+function statusColor(rate: number): RGB {
   return rate >= 80 ? GREEN : rate >= 70 ? AMBER : RED;
 }
+function statusBg(rate: number): RGB {
+  return rate >= 80 ? GREEN_BG : rate >= 70 ? AMBER_BG : RED_BG;
+}
+function statusLabel(rate: number): 'Green' | 'Amber' | 'Red' {
+  return rate >= 80 ? 'Green' : rate >= 70 ? 'Amber' : 'Red';
+}
+function kpiColor(kind: 'pct-good' | 'pct-bad' | 'hours', value: number): RGB {
+  if (kind === 'hours') return value >= 8.5 ? GREEN : value >= 7 ? AMBER : RED;
+  if (kind === 'pct-good') return value >= 80 ? GREEN : value >= 70 ? AMBER : RED;
+  return value < 10 ? GREEN : value < 25 ? AMBER : RED; // pct-bad: lower is better
+}
 
+// ────────────────────────────────────────────────────────────────────────────
+// Normalized employee record — defensively reads EmployeeSummary so this file
+// stays robust to minor differences in the upstream summary shape.
+// ────────────────────────────────────────────────────────────────────────────
+interface NormalizedEmployee {
+  code: string;
+  name: string;
+  department: string;
+  presentDays: number;
+  absentDays: number;
+  lateCount: number;
+  earlyCount: number;
+  attendanceRate: number;
+  avgHours: number;
+}
+
+function normalizeEmployee(s: EmployeeSummary): NormalizedEmployee {
+  const raw = s as unknown as Record<string, any>;
+  const presentDays = Number(raw.presentDays ?? raw.presentCount ?? raw.present ?? 0);
+  const absentDays = Number(raw.absentDays ?? raw.absentCount ?? raw.absent ?? 0);
+  const lateCount = Number(raw.lateCount ?? raw.lateDays ?? raw.late ?? 0);
+  const earlyCount = Number(raw.earlyCount ?? raw.earlyExitCount ?? raw.earlyDays ?? 0);
+  const scheduled = presentDays + absentDays;
+  const attendanceRate = Number(
+    raw.attendanceRate ?? raw.attendancePercent ?? raw.attendancePct ??
+    (scheduled > 0 ? (presentDays / scheduled) * 100 : 0)
+  );
+  const avgHours = Number(raw.avgHours ?? raw.avgHoursPerDay ?? raw.averageHours ?? 0);
+  return {
+    code: String(raw.employeeCode ?? raw.code ?? raw.empCode ?? ''),
+    name: String(raw.employeeName ?? raw.name ?? 'Unknown'),
+    department: String(raw.department ?? raw.dept ?? 'Unknown'),
+    presentDays,
+    absentDays,
+    lateCount,
+    earlyCount,
+    attendanceRate,
+    avgHours,
+  };
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Drawing helpers
+// ────────────────────────────────────────────────────────────────────────────
+function truncate(text: string, max: number): string {
+  return text.length > max ? text.slice(0, max - 1) + '…' : text;
+}
+
+function drawPageBackground(doc: any, w: number, h: number) {
+  doc.setFillColor(...WHITE);
+  doc.rect(0, 0, w, h, 'F');
+}
+
+function drawHeaderBand(
+  doc: any, w: number, title: string, subtitle: string, compact = false
+): number {
+  const bandH = compact ? 20 : 26;
+  doc.setFillColor(...NAVY);
+  doc.rect(0, 0, w, bandH, 'F');
+  doc.setFillColor(...BLUE);
+  doc.rect(0, bandH, w, 1.2, 'F');
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(compact ? 12 : 15);
+  doc.setTextColor(...WHITE);
+  doc.text(title, 14, compact ? 12 : 14);
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8.5);
+  doc.setTextColor(191, 219, 254);
+  doc.text(subtitle, 14, compact ? 17 : 21);
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(9);
+  doc.setTextColor(...WHITE);
+  doc.text(COMPANY_NAME, w - 14, compact ? 12 : 14, { align: 'right' });
+
+  return bandH + 8;
+}
+
+function drawSectionHeader(doc: any, title: string, x: number, y: number): number {
+  doc.setFillColor(...BLUE);
+  doc.rect(x, y - 3.6, 2.4, 5.2, 'F');
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(10.5);
+  doc.setTextColor(...INK);
+  doc.text(title, x + 5, y);
+  return y;
+}
+
+function drawKPICard(
+  doc: any, x: number, y: number, w: number, h: number,
+  label: string, value: string, color: RGB
+) {
+  doc.setFillColor(...CARD_BG);
+  doc.setDrawColor(...BORDER);
+  doc.setLineWidth(0.2);
+  doc.roundedRect(x, y, w, h, 2.2, 2.2, 'FD');
+  doc.setFillColor(...color);
+  doc.roundedRect(x, y, 2.6, h, 1.2, 1.2, 'F');
+
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(15.5);
+  doc.setTextColor(...color);
+  doc.text(value, x + 8, y + h * 0.52);
+
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(7.6);
+  doc.setTextColor(...SUBTLE);
+  doc.text(label, x + 8, y + h - 6);
+}
+
+function drawProgressBar(
+  doc: any, x: number, y: number, w: number, h: number, percent: number, color: RGB
+) {
+  const pct = Math.max(0, Math.min(100, percent));
+  doc.setFillColor(...BORDER);
+  doc.roundedRect(x, y, w, h, h / 2, h / 2, 'F');
+  const fillW = Math.max(h, (pct / 100) * w);
+  doc.setFillColor(...color);
+  doc.roundedRect(x, y, fillW, h, h / 2, h / 2, 'F');
+}
+
+function drawStatusBadge(doc: any, x: number, y: number, label: 'Green' | 'Amber' | 'Red') {
+  const color = label === 'Green' ? GREEN : label === 'Amber' ? AMBER : RED;
+  const bg = label === 'Green' ? GREEN_BG : label === 'Amber' ? AMBER_BG : RED_BG;
+  const text = label === 'Green' ? 'On Track' : label === 'Amber' ? 'Watch' : 'At Risk';
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(7.6);
+  const tw = doc.getTextWidth(text);
+  const padX = 3.2;
+  const pillW = tw + padX * 2;
+  const pillH = 5.6;
+  doc.setFillColor(...bg);
+  doc.roundedRect(x, y - pillH + 1.6, pillW, pillH, 1.8, 1.8, 'F');
+  doc.setTextColor(...color);
+  doc.text(text, x + padX, y);
+  return pillW;
+}
+
+function drawFootersOnAllPages(doc: any, w: number, h: number, label: string, genDate: string) {
+  const total = doc.getNumberOfPages();
+  for (let i = 1; i <= total; i++) {
+    doc.setPage(i);
+    doc.setDrawColor(...BORDER);
+    doc.setLineWidth(0.2);
+    doc.line(14, h - 11, w - 14, h - 11);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7);
+    doc.setTextColor(...SUBTLE);
+    doc.text(`${COMPANY_NAME} — Confidential`, 14, h - 6);
+    doc.text(`Period: ${label}`, w / 2, h - 6, { align: 'center' });
+    doc.text(`Page ${i} of ${total}  ·  Generated ${genDate}`, w - 14, h - 6, { align: 'right' });
+  }
+}
+
+function drawBarChart(
+  doc: any, x: number, y: number, w: number, h: number,
+  data: { label: string; value: number }[], maxValue: number,
+  color: RGB, valueFmt: (v: number) => string
+) {
+  doc.setDrawColor(...BORDER);
+  doc.setLineWidth(0.2);
+  doc.line(x, y + h, x + w, y + h); // baseline
+  doc.line(x, y, x, y + h); // axis
+
+  const n = Math.max(1, data.length);
+  const gap = 4;
+  const barW = Math.max(4, (w - gap * (n - 1)) / n);
+
+  data.forEach((d, i) => {
+    const bx = x + i * (barW + gap);
+    const barH = maxValue > 0 ? (d.value / maxValue) * (h - 6) : 0;
+    const by = y + h - barH;
+
+    doc.setFillColor(...color);
+    doc.roundedRect(bx, by, barW, Math.max(0.6, barH), 1, 1, 'F');
+
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(6.6);
+    doc.setTextColor(...INK);
+    doc.text(valueFmt(d.value), bx + barW / 2, by - 1.6, { align: 'center' });
+
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(6.2);
+    doc.setTextColor(...SUBTLE);
+    const lbl = truncate(d.label, 12);
+    doc.text(lbl, bx + barW / 2, y + h + 5, { align: 'center', maxWidth: barW + gap });
+  });
+}
+
+function drawPieSlice(doc: any, cx: number, cy: number, r: number, startDeg: number, endDeg: number, color: RGB) {
+  doc.setFillColor(...color);
+  const steps = Math.max(1, Math.ceil((endDeg - startDeg) / 3));
+  for (let i = 0; i < steps; i++) {
+    const a1 = (startDeg + ((endDeg - startDeg) * i) / steps) * (Math.PI / 180);
+    const a2 = (startDeg + ((endDeg - startDeg) * (i + 1)) / steps) * (Math.PI / 180);
+    const x1 = cx + r * Math.cos(a1), y1 = cy + r * Math.sin(a1);
+    const x2 = cx + r * Math.cos(a2), y2 = cy + r * Math.sin(a2);
+    doc.triangle(cx, cy, x1, y1, x2, y2, 'F');
+  }
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// Main export
+// ────────────────────────────────────────────────────────────────────────────
 export async function exportPDF(
   records: AttendanceRecord[],
   summaries: EmployeeSummary[],
@@ -61,7 +284,10 @@ export async function exportPDF(
   const W = doc.internal.pageSize.getWidth();   // 297
   const H = doc.internal.pageSize.getHeight();  // 210
 
-  // ── Compute KPIs ─────────────────────────────────────────────────────────
+  const genDate = new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+  const offices = [...new Set(records.map(r => r.officeCode))].filter(Boolean).join(', ') || '—';
+
+  // ── Company-wide KPIs ──────────────────────────────────────────────────
   const workRecs = records.filter(r => !isWeeklyOff(r.status));
   const presentRecs = workRecs.filter(r => isPresent(r.status));
   const absentRecs = workRecs.filter(r => isAbsent(r.status));
@@ -82,11 +308,16 @@ export async function exportPDF(
   const earlyRate = presentCount > 0 ? (earlyCount / presentCount) * 100 : 0;
   const productivityLost = totalShift > 0 ? (totalLost / totalShift) * 100 : 0;
 
-  const offices = [...new Set(records.map(r => r.officeCode))].filter(Boolean).join(', ');
-  const genDate = new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+  const employees: NormalizedEmployee[] = summaries.map(normalizeEmployee);
+  const totalEmployees = employees.length > 0
+    ? employees.length
+    : new Set(records.map(r => r.employeeCode)).size;
 
-  // ── Dept breakdown ────────────────────────────────────────────────────────
-  const deptMap = new Map<string, { present: number; total: number; lateC: number; earlyC: number; totalMins: number; presCount: number; emps: Set<string> }>();
+  // ── Department breakdown ────────────────────────────────────────────────
+  const deptMap = new Map<string, {
+    present: number; total: number; lateC: number; earlyC: number;
+    totalMins: number; presCount: number; emps: Set<string>;
+  }>();
   for (const r of workRecs) {
     const d = r.department || 'Unknown';
     if (!deptMap.has(d)) deptMap.set(d, { present: 0, total: 0, lateC: 0, earlyC: 0, totalMins: 0, presCount: 0, emps: new Set() });
@@ -106,204 +337,388 @@ export async function exportPDF(
     const avgH = v.presCount > 0 ? v.totalMins / v.presCount / 60 : 0;
     const lR = v.present > 0 ? (v.lateC / v.present) * 100 : 0;
     const eR = v.present > 0 ? (v.earlyC / v.present) * 100 : 0;
-    return { name, headcount: v.emps.size, rate, avgH, lR, eR };
+    return { name, headcount: v.emps.size, rate, avgH, lR, eR, lateC: v.lateC, earlyC: v.earlyC, present: v.present, absent: v.total - v.present };
   }).sort((a, b) => b.rate - a.rate);
 
-  // Top flags
   const worstDept = [...deptRows].sort((a, b) => a.rate - b.rate)[0];
-  const mostLate = [...summaries].sort((a, b) => b.lateCount - a.lateCount)[0];
-  const mostAbsent = [...summaries].sort((a, b) => b.absentDays - a.absentDays)[0];
+  const mostLate = [...employees].sort((a, b) => b.lateCount - a.lateCount)[0];
+  const mostAbsent = [...employees].sort((a, b) => b.absentDays - a.absentDays)[0];
 
-  // ══════════════════════════════════════════════════════════════════════════
-  // PAGE 1 — EXECUTIVE SUMMARY
-  // ══════════════════════════════════════════════════════════════════════════
-  doc.setFillColor(...BG);
-  doc.rect(0, 0, W, H, 'F');
+  // ══════════════════════════════════════════════════════════════════════
+  // PAGE 1 — Cover & Executive Summary
+  // ══════════════════════════════════════════════════════════════════════
+  drawPageBackground(doc, W, H);
 
-  // Header band
   doc.setFillColor(...NAVY);
-  doc.rect(0, 0, W, 28, 'F');
+  doc.rect(0, 0, W, 40, 'F');
+  doc.setFillColor(...BLUE);
+  doc.rect(0, 40, W, 1.4, 'F');
 
-  doc.setTextColor(...WHITE);
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(18);
-  doc.text('Attendance Insights Report', 14, 13);
+  doc.setFontSize(20);
+  doc.setTextColor(...WHITE);
+  doc.text(COMPANY_NAME, 14, 16);
 
   doc.setFont('helvetica', 'normal');
-  doc.setFontSize(9);
-  doc.setTextColor(148, 163, 184);
-  doc.text(`Period: ${label}   ·   Office: ${offices}   ·   Generated: ${genDate}`, 14, 21);
+  doc.setFontSize(11);
+  doc.setTextColor(191, 219, 254);
+  doc.text('Employee Attendance Insights Report', 14, 25);
 
-  // ── KPI Cards 2×3 grid ───────────────────────────────────────────────────
-  const kpis = [
-    { label: 'Attendance %', value: `${attendanceRate.toFixed(1)}%`, metric: 'Attendance %', num: attendanceRate },
-    { label: 'Absenteeism %', value: `${absenteeismRate.toFixed(1)}%`, metric: 'Absenteeism %', num: absenteeismRate },
-    { label: 'Avg Hours / Day', value: `${avgHours.toFixed(2)}h`, metric: 'Avg Hours/Day', num: avgHours },
-    { label: 'Late Arrival Rate', value: `${lateRate.toFixed(1)}%`, metric: 'Late Arrival Rate', num: lateRate },
-    { label: 'Early Exit Rate', value: `${earlyRate.toFixed(1)}%`, metric: 'Early Exit Rate', num: earlyRate },
-    { label: 'Productivity Lost', value: `${productivityLost.toFixed(1)}%`, metric: 'Productivity Lost %', num: productivityLost },
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8.5);
+  doc.setTextColor(191, 219, 254);
+  doc.text(`Reporting Period: ${label}   ·   Office(s): ${offices}   ·   Generated: ${genDate}`, 14, 33);
+
+  let y = 50;
+  y = drawSectionHeader(doc, 'Key Performance Indicators', 14, y);
+  y += 6;
+
+  const kpis: { label: string; value: string; color: RGB }[] = [
+    { label: 'Total Employees', value: `${totalEmployees}`, color: BLUE },
+    { label: 'Attendance %', value: `${attendanceRate.toFixed(1)}%`, color: kpiColor('pct-good', attendanceRate) },
+    { label: 'Absenteeism %', value: `${absenteeismRate.toFixed(1)}%`, color: kpiColor('pct-bad', absenteeismRate) },
+    { label: 'Avg Hours / Day', value: `${avgHours.toFixed(2)}h`, color: kpiColor('hours', avgHours) },
+    { label: 'Late Arrival %', value: `${lateRate.toFixed(1)}%`, color: kpiColor('pct-bad', lateRate) },
+    { label: 'Early Exit %', value: `${earlyRate.toFixed(1)}%`, color: kpiColor('pct-bad', earlyRate) },
+    { label: 'Productivity Lost %', value: `${productivityLost.toFixed(1)}%`, color: kpiColor('pct-bad', productivityLost) },
   ];
 
-  const cardW = 84, cardH = 28, cardGapX = 5, cardGapY = 4;
-  const startX = 14, startY = 33;
-
+  const cardCols = 4;
+  const cardGap = 5;
+  const cardW = (W - 28 - cardGap * (cardCols - 1)) / cardCols;
+  const cardH = 26;
   kpis.forEach((k, i) => {
-    const col = i % 3;
-    const row = Math.floor(i / 3);
-    const x = startX + col * (cardW + cardGapX);
-    const y = startY + row * (cardH + cardGapY);
-    const color = kpiRGB(k.metric, k.num);
-
-    doc.setFillColor(...CARD);
-    doc.roundedRect(x, y, cardW, cardH, 2, 2, 'F');
-    // colored left accent bar
-    doc.setFillColor(...color);
-    doc.roundedRect(x, y, 3, cardH, 1, 1, 'F');
-
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(16);
-    doc.setTextColor(...color);
-    doc.text(k.value, x + 9, y + 16);
-
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(8);
-    doc.setTextColor(148, 163, 184);
-    doc.text(k.label, x + 9, y + 23);
+    const col = i % cardCols;
+    const row = Math.floor(i / cardCols);
+    const x = 14 + col * (cardW + cardGap);
+    const cy = y + row * (cardH + cardGap);
+    drawKPICard(doc, x, cy, cardW, cardH, k.label, k.value, k.color);
   });
 
-  // ── Dept attendance bars ──────────────────────────────────────────────────
-  const barStartY = startY + 2 * (cardH + cardGapY) + 8;
-  const barAreaX = 14;
-  const barAreaW = W - 28;
-  const labelW = 70;
-  const maxBarW = barAreaW - labelW - 30;
+  const kpiRows = Math.ceil(kpis.length / cardCols);
+  y = y + kpiRows * (cardH + cardGap) + 6;
 
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(9);
-  doc.setTextColor(...WHITE);
-  doc.text('Department Attendance', barAreaX, barStartY - 3);
+  // ── Key Insights ─────────────────────────────────────────────────────
+  y = drawSectionHeader(doc, 'Key Insights', 14, y);
+  y += 4;
 
-  deptRows.slice(0, 7).forEach((dept, i) => {
-    const y = barStartY + i * 10;
-    const filled = Math.round((dept.rate / 100) * 10); // out of 10 blocks
-    const bar = '█'.repeat(filled) + '░'.repeat(10 - filled);
-    const color = statusRGB(dept.rate);
+  doc.setFillColor(...PALE_BLUE);
+  doc.setDrawColor(...BORDER);
+  const insightsBoxH = 46;
+  doc.roundedRect(14, y, W - 28, insightsBoxH, 2.5, 2.5, 'FD');
 
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(8);
-    doc.setTextColor(148, 163, 184);
-    const dname = dept.name.length > 22 ? dept.name.slice(0, 21) + '…' : dept.name;
-    doc.text(dname, barAreaX, y);
+  const insights: string[] = [];
+  insights.push(
+    attendanceRate >= 80
+      ? `Overall attendance stood at ${attendanceRate.toFixed(1)}%, at or above the 80% benchmark for the period.`
+      : `Overall attendance was ${attendanceRate.toFixed(1)}%, below the 80% benchmark and warrants management attention.`
+  );
+  if (worstDept) {
+    insights.push(`${worstDept.name} recorded the lowest attendance rate at ${worstDept.rate.toFixed(1)}% and should be prioritized for follow-up.`);
+  }
+  if (mostLate && mostLate.lateCount > 0) {
+    insights.push(`${mostLate.name} had the highest number of late arrivals (${mostLate.lateCount} day(s)) in this period.`);
+  }
+  if (mostAbsent && mostAbsent.absentDays > 0) {
+    insights.push(`${mostAbsent.name} recorded the most absences (${mostAbsent.absentDays} day(s)) among all employees.`);
+  }
+  insights.push(
+    productivityLost >= 10
+      ? `Productivity loss from late arrivals and early exits reached ${productivityLost.toFixed(1)}% of scheduled shift time.`
+      : `Productivity loss from late arrivals and early exits remained contained at ${productivityLost.toFixed(1)}% of scheduled shift time.`
+  );
 
-    doc.setTextColor(...color);
-    doc.setFont('courier', 'normal');
-    doc.setFontSize(8);
-    doc.text(bar, barAreaX + labelW, y);
-
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(8);
-    doc.text(`${dept.rate.toFixed(1)}%`, barAreaX + labelW + 52, y);
-  });
-
-  // ── Top 3 flags ──────────────────────────────────────────────────────────
-  const flagY = barStartY;
-  const flagX = W - 95;
-
-  doc.setFillColor(...CARD);
-  doc.roundedRect(flagX - 4, flagY - 8, 95, 55, 2, 2, 'F');
-
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(9);
-  doc.setTextColor(...WHITE);
-  doc.text('⚑  Attention Required', flagX, flagY - 1);
-
-  const flags = [
-    { icon: '📉', label: 'Worst Attendance', val: worstDept ? `${worstDept.name} (${worstDept.rate.toFixed(1)}%)` : '—' },
-    { icon: '⏰', label: 'Most Late Arrivals', val: mostLate ? `${mostLate.employeeName} (${mostLate.lateCount}d)` : '—' },
-    { icon: '🏃', label: 'Most Absences', val: mostAbsent ? `${mostAbsent.employeeName} (${mostAbsent.absentDays}d)` : '—' },
-  ];
-
-  flags.forEach((f, i) => {
-    const y = flagY + 9 + i * 13;
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(7.5);
-    doc.setTextColor(148, 163, 184);
-    doc.text(f.label, flagX, y);
-    doc.setFont('helvetica', 'normal');
-    doc.setTextColor(...WHITE);
-    const val = f.val.length > 28 ? f.val.slice(0, 27) + '…' : f.val;
-    doc.text(`${f.icon} ${val}`, flagX, y + 6);
-  });
-
-  // Footer p1
-  doc.setFontSize(7);
-  doc.setTextColor(...SLATE);
-  doc.text('Page 1 of 2', 14, H - 6);
-  doc.text('WonderBiz Technologies — Confidential', W / 2, H - 6, { align: 'center' });
-  doc.text(genDate, W - 14, H - 6, { align: 'right' });
-
-  // ══════════════════════════════════════════════════════════════════════════
-  // PAGE 2 — TEAM SNAPSHOT
-  // ══════════════════════════════════════════════════════════════════════════
-  doc.addPage();
-  doc.setFillColor(...BG);
-  doc.rect(0, 0, W, H, 'F');
-
-  // Header
-  doc.setFillColor(...NAVY);
-  doc.rect(0, 0, W, 22, 'F');
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(14);
-  doc.setTextColor(...WHITE);
-  doc.text('Team Snapshot', 14, 12);
+  let iy = y + 8;
   doc.setFont('helvetica', 'normal');
-  doc.setFontSize(8);
-  doc.setTextColor(148, 163, 184);
-  doc.text(`${label}  ·  ${genDate}`, 14, 19);
+  doc.setFontSize(8.6);
+  doc.setTextColor(...INK);
+  insights.slice(0, 5).forEach(line => {
+    doc.setFillColor(...BLUE);
+    doc.circle(19, iy - 1.3, 0.9, 'F');
+    const wrapped = doc.splitTextToSize(line, W - 28 - 14);
+    doc.text(wrapped, 23, iy);
+    iy += wrapped.length * 4.6 + 3.2;
+  });
+
+  // ══════════════════════════════════════════════════════════════════════
+  // PAGE 2 — Department Performance
+  // ══════════════════════════════════════════════════════════════════════
+  doc.addPage();
+  drawPageBackground(doc, W, H);
+  let cursorY = drawHeaderBand(doc, W, 'Department Performance', `${label}  ·  ${offices}`);
 
   autoTable(doc, {
-    startY: 27,
-    head: [['Department', 'Headcount', 'Attendance %', 'Avg Hours/Day', 'Late %', 'Early Exit %', 'Status']],
+    startY: cursorY + 2,
+    margin: { left: 14, right: 14 },
+    head: [['Department', 'Headcount', 'Attendance %', 'Avg Hours', 'Late %', 'Early Exit %', 'Status']],
     body: deptRows.map(d => [
-      d.name,
-      d.headcount,
-      `${d.rate.toFixed(1)}%`,
-      `${d.avgH.toFixed(2)}h`,
-      `${d.lR.toFixed(1)}%`,
-      `${d.eR.toFixed(1)}%`,
-      d.rate >= 80 ? 'Green' : d.rate >= 70 ? 'Amber' : 'Red',
+      d.name, String(d.headcount), `${d.rate.toFixed(1)}%`, `${d.avgH.toFixed(2)}h`,
+      `${d.lR.toFixed(1)}%`, `${d.eR.toFixed(1)}%`, statusLabel(d.rate),
     ]),
     styles: {
-      font: 'helvetica',
-      fontSize: 9,
-      cellPadding: 4,
-      textColor: [226, 232, 240] as [number, number, number],
-      fillColor: CARD,
-      lineColor: [51, 65, 85] as [number, number, number],
-      lineWidth: 0.1,
+      font: 'helvetica', fontSize: 8.6, cellPadding: 4.2,
+      textColor: INK as unknown as [number, number, number],
+      lineColor: BORDER as unknown as [number, number, number],
+      lineWidth: 0.15, fillColor: WHITE as unknown as [number, number, number],
+      minCellHeight: 10,
     },
-    headStyles: {
-      fillColor: NAVY,
-      textColor: WHITE,
-      fontStyle: 'bold',
-      fontSize: 9,
-    },
-    alternateRowStyles: { fillColor: [15, 23, 42] as [number, number, number] },
-    didParseCell: (data: any) => {
+    headStyles: { fillColor: NAVY as unknown as [number, number, number], textColor: WHITE as unknown as [number, number, number], fontStyle: 'bold', fontSize: 8.8 },
+    alternateRowStyles: { fillColor: PALE_BLUE as unknown as [number, number, number] },
+    columnStyles: { 2: { cellWidth: 46 }, 6: { cellWidth: 26 } },
+    didDrawCell: (data: any) => {
+      if (data.section === 'body' && data.column.index === 2) {
+        const rowData = deptRows[data.row.index];
+        if (rowData) {
+          const barX = data.cell.x + 2;
+          const barY = data.cell.y + data.cell.height - 3.4;
+          const barW = data.cell.width - 22;
+          drawProgressBar(doc, barX, barY, barW, 2.2, rowData.rate, statusColor(rowData.rate));
+        }
+      }
       if (data.section === 'body' && data.column.index === 6) {
-        const val = data.cell.raw as string;
-        data.cell.styles.textColor = val === 'Green' ? GREEN : val === 'Amber' ? AMBER : RED;
-        data.cell.styles.fontStyle = 'bold';
+        const rowData = deptRows[data.row.index];
+        if (rowData) {
+          const lbl = statusLabel(rowData.rate);
+          doc.setFillColor(0, 0, 0);
+          data.cell.text = [];
+          drawStatusBadge(doc, data.cell.x + 2, data.cell.y + data.cell.height / 2 + 2, lbl);
+        }
       }
     },
   });
 
-  // Footer p2
-  doc.setFontSize(7);
-  doc.setTextColor(...SLATE);
-  doc.text('Page 2 of 2', 14, H - 6);
-  doc.text('WonderBiz Technologies — Confidential', W / 2, H - 6, { align: 'center' });
-  doc.text(genDate, W - 14, H - 6, { align: 'right' });
+  // ══════════════════════════════════════════════════════════════════════
+  // PAGE 3 — Employee Performance Summary (Top performers)
+  // ══════════════════════════════════════════════════════════════════════
+  doc.addPage();
+  drawPageBackground(doc, W, H);
+  cursorY = drawHeaderBand(doc, W, 'Employee Performance Summary', `Top performing employees  ·  ${label}`);
+
+  const topPerformers = [...employees]
+    .sort((a, b) => b.attendanceRate - a.attendanceRate || a.lateCount - b.lateCount)
+    .slice(0, 15);
+
+  autoTable(doc, {
+    startY: cursorY + 2,
+    margin: { left: 14, right: 14 },
+    head: [['Employee Name', 'Department', 'Attendance %', 'Present Days', 'Absent Days', 'Late Count', 'Avg Hours', 'Status']],
+    body: topPerformers.map(e => [
+      e.name, e.department, `${e.attendanceRate.toFixed(1)}%`, String(e.presentDays),
+      String(e.absentDays), String(e.lateCount), `${e.avgHours.toFixed(2)}h`, statusLabel(e.attendanceRate),
+    ]),
+    styles: {
+      font: 'helvetica', fontSize: 8.6, cellPadding: 4.2,
+      textColor: INK as unknown as [number, number, number],
+      lineColor: BORDER as unknown as [number, number, number],
+      lineWidth: 0.15, fillColor: WHITE as unknown as [number, number, number],
+    },
+    headStyles: { fillColor: NAVY as unknown as [number, number, number], textColor: WHITE as unknown as [number, number, number], fontStyle: 'bold', fontSize: 8.8 },
+    alternateRowStyles: { fillColor: PALE_BLUE as unknown as [number, number, number] },
+    didDrawCell: (data: any) => {
+      if (data.section === 'body' && data.column.index === 7) {
+        const rowData = topPerformers[data.row.index];
+        if (rowData) {
+          data.cell.text = [];
+          drawStatusBadge(doc, data.cell.x + 2, data.cell.y + data.cell.height / 2 + 2, statusLabel(rowData.attendanceRate));
+        }
+      }
+    },
+  });
+
+  if (topPerformers.length === 0) {
+    doc.setFont('helvetica', 'italic');
+    doc.setFontSize(9);
+    doc.setTextColor(...SUBTLE);
+    doc.text('No employee summary data available for this period.', 14, cursorY + 12);
+  }
+
+  // ══════════════════════════════════════════════════════════════════════
+  // PAGE 4 — Employees Requiring Attention
+  // ══════════════════════════════════════════════════════════════════════
+  doc.addPage();
+  drawPageBackground(doc, W, H);
+  cursorY = drawHeaderBand(doc, W, 'Employees Requiring Attention', `Attendance below 80%, absences ≥ 3, or late arrivals ≥ 5  ·  ${label}`);
+
+  const atRisk = employees.filter(e => e.attendanceRate < 80 || e.absentDays >= 3 || e.lateCount >= 5);
+
+  function reasonFor(e: NormalizedEmployee): string {
+    const reasons: string[] = [];
+    if (e.attendanceRate < 80) reasons.push('Low attendance');
+    if (e.absentDays >= 3) reasons.push('Frequent absences');
+    if (e.lateCount >= 5) reasons.push('Frequent late arrivals');
+    return reasons.join(', ');
+  }
+
+  autoTable(doc, {
+    startY: cursorY + 2,
+    margin: { left: 14, right: 14 },
+    head: [['Employee Name', 'Department', 'Attendance %', 'Absent Days', 'Late Count', 'Reason']],
+    body: atRisk
+      .sort((a, b) => a.attendanceRate - b.attendanceRate)
+      .map(e => [e.name, e.department, `${e.attendanceRate.toFixed(1)}%`, String(e.absentDays), String(e.lateCount), reasonFor(e)]),
+    styles: {
+      font: 'helvetica', fontSize: 8.6, cellPadding: 4.2,
+      textColor: INK as unknown as [number, number, number],
+      lineColor: BORDER as unknown as [number, number, number],
+      lineWidth: 0.15, fillColor: WHITE as unknown as [number, number, number],
+    },
+    headStyles: { fillColor: RED as unknown as [number, number, number], textColor: WHITE as unknown as [number, number, number], fontStyle: 'bold', fontSize: 8.8 },
+    alternateRowStyles: { fillColor: RED_BG as unknown as [number, number, number] },
+    columnStyles: { 2: { textColor: RED as unknown as [number, number, number], fontStyle: 'bold' } },
+  });
+
+  if (atRisk.length === 0) {
+    doc.setFont('helvetica', 'italic');
+    doc.setFontSize(9.5);
+    doc.setTextColor(...GREEN);
+    doc.text('No employees currently meet the at-risk criteria for this period.', 14, cursorY + 12);
+  }
+
+  // ══════════════════════════════════════════════════════════════════════
+  // PAGE 5 — Complete Employee Attendance Register (auto-paginated)
+  // ══════════════════════════════════════════════════════════════════════
+  doc.addPage();
+  drawPageBackground(doc, W, H);
+  drawHeaderBand(doc, W, 'Complete Employee Attendance Register', `All employees  ·  ${label}`);
+
+  autoTable(doc, {
+    startY: 34,
+    margin: { left: 14, right: 14, top: 24, bottom: 16 },
+    head: [['Emp. Code', 'Employee Name', 'Department', 'Present Days', 'Absent Days', 'Late Count', 'Early Exit Count', 'Attendance %', 'Avg Hours']],
+    body: [...employees]
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map(e => [
+        e.code, e.name, e.department, String(e.presentDays), String(e.absentDays),
+        String(e.lateCount), String(e.earlyCount), `${e.attendanceRate.toFixed(1)}%`, `${e.avgHours.toFixed(2)}h`,
+      ]),
+    styles: {
+      font: 'helvetica', fontSize: 8, cellPadding: 3.4,
+      textColor: INK as unknown as [number, number, number],
+      lineColor: BORDER as unknown as [number, number, number],
+      lineWidth: 0.15, fillColor: WHITE as unknown as [number, number, number],
+    },
+    headStyles: { fillColor: NAVY as unknown as [number, number, number], textColor: WHITE as unknown as [number, number, number], fontStyle: 'bold', fontSize: 8.4 },
+    alternateRowStyles: { fillColor: PALE_BLUE as unknown as [number, number, number] },
+    showHead: 'everyPage',
+    rowPageBreak: 'auto',
+    didDrawPage: (data: any) => {
+      if (data.pageNumber > 1 || data.pageCount > 1) {
+        // Redraw a compact header band on every page this table spans.
+        drawPageBackground(doc, W, H);
+        drawHeaderBand(doc, W, 'Complete Employee Attendance Register (continued)', `All employees  ·  ${label}`, true);
+      }
+    },
+  });
+
+  if (employees.length === 0) {
+    doc.setFont('helvetica', 'italic');
+    doc.setFontSize(9);
+    doc.setTextColor(...SUBTLE);
+    doc.text('No employee summary data available for this period.', 14, 40);
+  }
+
+  // ══════════════════════════════════════════════════════════════════════
+  // PAGE 6 — Visual Analytics
+  // ══════════════════════════════════════════════════════════════════════
+  doc.addPage();
+  drawPageBackground(doc, W, H);
+  cursorY = drawHeaderBand(doc, W, 'Visual Analytics', `Attendance trends at a glance  ·  ${label}`);
+
+  const chartRowY = cursorY + 8;
+  const chartH = 62;
+  const colGap = 8;
+  const colW = (W - 28 - colGap) / 2;
+
+  // Chart 1 — Department attendance comparison
+  drawSectionHeader(doc, 'Department Attendance Comparison', 14, chartRowY - 4);
+  doc.setFillColor(...CARD_BG);
+  doc.setDrawColor(...BORDER);
+  doc.roundedRect(14, chartRowY, colW, chartH, 2, 2, 'FD');
+  drawBarChart(
+    doc, 22, chartRowY + 8, colW - 16, chartH - 22,
+    deptRows.slice(0, 8).map(d => ({ label: d.name, value: d.rate })),
+    100, BLUE, v => `${v.toFixed(0)}%`
+  );
+
+  // Chart 2 — Late arrivals by department
+  const col2X = 14 + colW + colGap;
+  drawSectionHeader(doc, 'Late Arrivals by Department', col2X, chartRowY - 4);
+  doc.setFillColor(...CARD_BG);
+  doc.setDrawColor(...BORDER);
+  doc.roundedRect(col2X, chartRowY, colW, chartH, 2, 2, 'FD');
+  const maxLate = Math.max(1, ...deptRows.map(d => d.lateC));
+  drawBarChart(
+    doc, col2X + 8, chartRowY + 8, colW - 16, chartH - 22,
+    deptRows.slice(0, 8).map(d => ({ label: d.name, value: d.lateC })),
+    maxLate, AMBER, v => `${v.toFixed(0)}`
+  );
+
+  // Chart 3 — Attendance vs Absence distribution (donut)
+  const chart3Y = chartRowY + chartH + 14;
+  drawSectionHeader(doc, 'Attendance vs Absence Distribution', 14, chart3Y - 4);
+  doc.setFillColor(...CARD_BG);
+  doc.setDrawColor(...BORDER);
+  const chart3H = H - chart3Y - 16;
+  doc.roundedRect(14, chart3Y, W - 28, chart3H, 2, 2, 'FD');
+
+  const cx = 14 + 46;
+  const cy = chart3Y + chart3H / 2;
+  const r = Math.min(24, chart3H / 2 - 8);
+  const totalForPie = presentCount + absentCount;
+  const presentDeg = totalForPie > 0 ? (presentCount / totalForPie) * 360 : 0;
+
+  if (totalForPie > 0) {
+    drawPieSlice(doc, cx, cy, r, -90, -90 + presentDeg, GREEN);
+    drawPieSlice(doc, cx, cy, r, -90 + presentDeg, 270, RED);
+  } else {
+    doc.setDrawColor(...BORDER);
+    doc.circle(cx, cy, r, 'S');
+  }
+  doc.setFillColor(...WHITE);
+  doc.circle(cx, cy, r * 0.55, 'F');
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(11);
+  doc.setTextColor(...INK);
+  doc.text(`${attendanceRate.toFixed(0)}%`, cx, cy + 1.5, { align: 'center' });
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(6);
+  doc.setTextColor(...SUBTLE);
+  doc.text('Present', cx, cy + 5.5, { align: 'center' });
+
+  const legendX = 14 + 46 + r + 16;
+  const legendItems = [
+    { label: `Present days`, value: presentCount, color: GREEN },
+    { label: `Absent days`, value: absentCount, color: RED },
+  ];
+  legendItems.forEach((item, i) => {
+    const ly = cy - 6 + i * 12;
+    doc.setFillColor(...item.color);
+    doc.roundedRect(legendX, ly - 4, 5, 5, 1, 1, 'F');
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9);
+    doc.setTextColor(...INK);
+    doc.text(`${item.value}`, legendX + 9, ly);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7.5);
+    doc.setTextColor(...SUBTLE);
+    doc.text(item.label, legendX + 9, ly + 5);
+  });
+
+  const summaryX = legendX + 70;
+  if (summaryX < W - 40) {
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8);
+    doc.setTextColor(...SUBTLE);
+    const note = doc.splitTextToSize(
+      `Out of ${scheduled} scheduled employee-days this period, ${presentCount} were marked present and ${absentCount} absent, ` +
+      `yielding an overall attendance rate of ${attendanceRate.toFixed(1)}%.`,
+      W - 28 - (summaryX - 14) - 10
+    );
+    doc.text(note, summaryX, cy - 8);
+  }
+
+  // ── Footers on every page ─────────────────────────────────────────────
+  drawFootersOnAllPages(doc, W, H, label, genDate);
 
   doc.save(`Attendance_Report_${label}.pdf`);
 }

@@ -143,6 +143,19 @@ export default function KPICards({ kpi, thresholds = DEFAULT_THRESHOLDS, viewMod
       },
     },
     
+    // {
+    //   label: 'Absenteeism Rate',
+    //   value: `${kpi.absenteeismRate.toFixed(1)}%`,
+    //   sub: `${kpi.absentCount} absent of ${kpi.scheduledCount} scheduled`,
+    //   status: getStatus(kpi.absenteeismRate, t.absenteeismRateGreen, t.absenteeismRateAmber, true),
+    //   filter: 'absent',
+    //   info: {
+    //     title: 'Absenteeism Rate',
+    //     description: '% of scheduled working days where employees were absent. Weekly offs and holidays excluded from denominator.',
+    //     formula: '(Absent ÷ Scheduled) × 100%',
+    //     example: '10 absent out of 100 scheduled = 10%.',
+    //   },
+    // },
     {
       label: 'Avg Effective Hours',
       value: `${kpi.avgWorkingHours.toFixed(1)}h`,

@@ -1,12 +1,19 @@
 'use client';
-import { useState, useMemo, useRef } from 'react';
+import { useState, useMemo, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   BarChart, Bar, Cell, Legend, LabelList, AreaChart, Area, ReferenceLine
 } from 'recharts';
-import { ArrowLeft, ArrowUpDown, SortAsc, SortDesc } from 'lucide-react';
-import { DailyTrend, DeptAttendance, HoursDistribution, AttendanceRecord, DayDeptSnapshot, Holiday } from '@/lib/types';
+import {
+  ArrowLeft,
+  ArrowUpDown,
+  SortAsc,
+  SortDesc,
+  ChevronDown,
+  ChevronUp
+} from 'lucide-react';
+import { DailyTrend, DeptAttendance, HoursDistribution, AttendanceRecord, DayDeptSnapshot, Holiday, OfficeAttendance } from '@/lib/types';
 import { durationToMinutes, minutesToHHMM } from '@/lib/parseCSV';
 import { isPresent, isAbsent, isWeeklyOff, SHIFT_MINUTES, computeLateMinutes, computeEarlyMinutes, getLateMinutes, getEarlyMinutes, computeProductivityLostMinutes } from '@/lib/useDashboardData';
 import { isHoliday } from '@/lib/holidays';
@@ -67,12 +74,22 @@ export function DailyTrendChart({ data, selectedDepts, onDateClick, selectedDate
   selectedDate?: string | null;
 }) {
   const [absentModal, setAbsentModal] = useState<{ date: string; names: string[] } | null>(null);
-  // We keep a ref to the "pending modal" so the chart onClick can be suppressed
-  // when the user actually clicks the "+N more" button inside the tooltip.
-  const pendingModalRef = useRef<{ date: string; names: string[] } | null>(null);
 
-  // Custom tooltip — NOTE: rendered inside Recharts wrapper which sets pointer-events:none.
-  // We use wrapperStyle={{ pointerEvents: 'auto' }} on <Tooltip> to re-enable clicks.
+  // Single click on a point drills into that day (onDateClick); double click
+  // on the SAME point opens the full absentee list. We can't tell single vs
+  // double apart until a short window has passed, so a single click is held
+  // in a timeout and only fires if a second click doesn't arrive in time.
+  // (The previous approach — a button inside the Recharts tooltip — was
+  // unreliable because the tooltip wrapper sets pointer-events:none and
+  // disappears as soon as the mouse leaves the dot.)
+  const lastClickRef = useRef<{ date: string; time: number } | null>(null);
+  const clickTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => { if (clickTimerRef.current) clearTimeout(clickTimerRef.current); };
+  }, []);
+
+  // Custom tooltip — hover-only now; no interactive elements inside it.
   const CustomTooltip = ({ active, payload, label }: any) => {
     if (!active || !payload?.length) return null;
     const entry = payload[0]?.payload;
@@ -94,42 +111,69 @@ export function DailyTrendChart({ data, selectedDepts, onDateClick, selectedDate
             <div className="border-t border-slate-700 my-1.5" />
             <p className="text-red-400 mb-1">Absent ({absentees.length}):</p>
             {shown.map((n, i) => <p key={i} className="text-slate-400 truncate">{n}</p>)}
-            {absentees.length > 5 ? (
-              <button
-                className="text-blue-400 underline text-[10px] mt-1 cursor-pointer hover:text-blue-300"
-                onMouseDown={(e) => {
-                  // Use mousedown (fires before chart's onClick) to capture intent
-                  e.stopPropagation();
-                  pendingModalRef.current = { date: label, names: absentees };
-                }}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  e.preventDefault();
-                  setAbsentModal({ date: label, names: absentees });
-                  pendingModalRef.current = null;
-                }}
-              >
-                +{extra} more — click to see all
-              </button>
-            ) : null}
+            {extra > 0 && <p className="text-slate-500 text-[10px] mt-1">+{extra} more — double-click the point to see all</p>}
           </>
         )}
       </div>
     );
   };
 
-  function handleChartClick(p: any) {
-    // If the user clicked the "+N more" button, pendingModalRef is set — skip date drill
-    if (pendingModalRef.current) {
-      setAbsentModal(pendingModalRef.current);
-      pendingModalRef.current = null;
-      return;
-    }
-    if (onDateClick && p?.activePayload?.[0]) {
-      onDateClick(p.activePayload[0].payload.rawDate ?? p.activePayload[0].payload.date);
-    }
+ function handleChartClick(e: any) {
+  console.log("CLICK", e);
+
+  const index = Number(e?.activeTooltipIndex);
+
+  if (Number.isNaN(index) || index < 0 || index >= data.length) {
+    console.log("Invalid index");
+    return;
   }
 
+  const payload = data[index];
+
+  console.log("Payload:", payload);
+
+  const rawDate = payload.rawDate ?? payload.date;
+  const absentees = payload.absentees ?? [];
+  const now = Date.now();
+
+  const isDoubleClick =
+    !!lastClickRef.current &&
+    lastClickRef.current.date === rawDate &&
+    now - lastClickRef.current.time < 400;
+
+  if (isDoubleClick) {
+    if (clickTimerRef.current) {
+      clearTimeout(clickTimerRef.current);
+      clickTimerRef.current = null;
+    }
+
+    lastClickRef.current = null;
+
+    console.log("Opening modal", absentees.length);
+
+    if (absentees.length) {
+      setAbsentModal({
+        date: payload.date,
+        names: absentees,
+      });
+    }
+
+    return;
+  }
+
+  lastClickRef.current = {
+    date: rawDate,
+    time: now,
+  };
+
+  if (clickTimerRef.current) clearTimeout(clickTimerRef.current);
+
+  clickTimerRef.current = setTimeout(() => {
+    onDateClick?.(rawDate);
+    clickTimerRef.current = null;
+    lastClickRef.current = null;
+  }, 400);
+}
   return (
     <>
       <div className="bg-slate-800 rounded-xl border border-slate-700 p-4 min-h-[280px]">
@@ -150,7 +194,7 @@ export function DailyTrendChart({ data, selectedDepts, onDateClick, selectedDate
                   Showing: {selectedDate.slice(5)} · click another point to switch, click same to clear
                 </p>
               )}
-              <p className="text-slate-600 text-[10px] mb-1">Hover a point to see absentees · click to drill into that day</p>
+              <p className="text-slate-600 text-[10px] mb-1">Hover a point to see absentees · click to drill into that day · double-click to see the full absentee list</p>
               <ResponsiveContainer width="100%" height={200}>
                 <LineChart
                   data={data}
@@ -463,6 +507,71 @@ export function DeptAttendanceChart({ data, allRecords, selectedDepts, highlight
                       fontSize={10} fill={dimmed ? '#475569' : '#94a3b8'}>{props.value}%</text>;
                   }}
                 />
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        )}
+    </div>
+  );
+}
+
+// ── Office-wise Attendance (FR-07 / Table 12) ────────────────────────────────
+export function OfficeAttendanceChart({ data, onOfficeClick }: {
+  data: OfficeAttendance[];
+  onOfficeClick?: (office: string) => void;
+}) {
+  const [sortMode, setSortMode] = useState<SortMode>('default');
+
+  const avgRate = data.length > 0 ? data.reduce((s, d) => s + d.rate, 0) / data.length : 0;
+
+  const sortedData = useMemo(() => {
+    const d = [...data];
+    if (sortMode === 'az') return d.sort((a, b) => a.office.localeCompare(b.office));
+    if (sortMode === 'worst') return d.sort((a, b) => a.rate - b.rate);
+    if (sortMode === 'best') return d.sort((a, b) => b.rate - a.rate);
+    return d.sort((a, b) => a.rate - b.rate); // default: worst first
+  }, [data, sortMode]);
+
+  return (
+    <div className="bg-slate-800 rounded-xl border border-slate-700 p-4">
+      <div className="flex items-start justify-between mb-1">
+        <div>
+          <h3 className="text-white font-semibold text-sm">Office-wise Attendance</h3>
+          <p className="text-slate-500 text-xs mt-0.5 mb-2">Attendance rate comparison across offices</p>
+        </div>
+        <InfoTooltip title="Office-wise Attendance" description="Attendance rate per office for the selected period, so HR can compare performance across locations." formula="Present ÷ Scheduled × 100" />
+      </div>
+      <div className="mb-3">
+        <SortToggle mode={sortMode} onChange={setSortMode} />
+      </div>
+      {sortedData.length === 0
+        ? <div className="h-48 flex items-center justify-center text-slate-500 text-sm">No data</div>
+        : (
+          <ResponsiveContainer width="100%" height={Math.max(200, sortedData.length * 44)}>
+            <BarChart data={sortedData} layout="vertical" margin={{ top: 5, right: 50, left: 4, bottom: 5 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#334155" horizontal={false} />
+              <XAxis type="number" domain={[0, 100]} tick={{ fontSize: 10, fill: '#64748b' }} unit="%" />
+              <YAxis type="category" dataKey="office" width={110} tick={{ fontSize: 10, fill: '#94a3b8' }} />
+              <ReferenceLine x={avgRate} stroke="#64748b" strokeDasharray="4 2" />
+              <Tooltip content={({ active, payload, label }: any) => {
+                if (!active || !payload?.length) return null;
+                const entry = payload[0]?.payload;
+                return (
+                  <div className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs shadow-xl">
+                    <p className="text-slate-300 font-medium mb-1">{label}</p>
+                    <p style={{ color: rateColor(entry?.rate) }}>Rate: <strong>{entry?.rate}%</strong></p>
+                    <p className="text-slate-400 mt-1">{entry?.presentCount} present / {entry?.scheduledCount} scheduled</p>
+                    {onOfficeClick && <p className="text-slate-500 text-[10px] mt-1">Click to filter by this office</p>}
+                  </div>
+                );
+              }} cursor={{ fill: 'rgba(255,255,255,0.04)' }} />
+              <Bar dataKey="rate" cursor={onOfficeClick ? 'pointer' : 'default'} radius={[0, 4, 4, 0]}
+                onClick={(entry: any) => {
+                  const office = entry?.office ?? entry?.payload?.office ?? entry?.activePayload?.[0]?.payload?.office;
+                  if (office && onOfficeClick) onOfficeClick(office);
+                }}>
+                {sortedData.map((entry, i) => <Cell key={i} fill={rateColor(entry.rate)} />)}
+                <LabelList dataKey="rate" position="right" style={{ fontSize: 10, fill: '#94a3b8' }} formatter={(v: any) => `${v}%`} />
               </Bar>
             </BarChart>
           </ResponsiveContainer>
@@ -830,6 +939,7 @@ export function AttendanceHeatmap({ records, onCellClick }: {
   onCellClick?: (emp: string, date: string) => void;
 }) {
   const [tooltip, setTooltip] = useState<{ r: AttendanceRecord; x: number; y: number } | null>(null);
+  const [expandedHeatmap, setExpandedHeatmap] = useState(false);
 
   const { employees, dates, cellMap } = useMemo(() => {
     const empSet = new Map<string, string>();
@@ -868,7 +978,7 @@ export function AttendanceHeatmap({ records, onCellClick }: {
               <div key={d} className="w-5 text-[8px] text-slate-600 text-center flex-shrink-0">{d.slice(8)}</div>
             ))}
           </div>
-          {employees.slice(0, 80).map(emp => (
+          {(expandedHeatmap ? employees : employees.slice(0, 15)).map(emp => (
             <div key={emp.code} className="flex items-center gap-0.5 mb-0.5">
               <div className="w-36 text-[10px] text-slate-400 truncate flex-shrink-0 text-right pr-2" title={emp.name}>
                 {emp.name.length > 16 ? emp.name.slice(0, 15) + '…' : emp.name}
@@ -892,6 +1002,28 @@ export function AttendanceHeatmap({ records, onCellClick }: {
           ))}
         </div>
       </div>
+
+      {/* Expand/Collapse Button */}
+{employees.length > 10 && (
+  <div className="flex justify-center mt-3">
+    <button
+      onClick={() => setExpandedHeatmap(!expandedHeatmap)}
+      className="flex items-center gap-2 text-blue-400 hover:text-blue-300 text-sm font-medium transition-colors"
+    >
+      {expandedHeatmap ? (
+        <>
+          <ChevronUp className="w-4 h-4" />
+          Collapse Heatmap
+        </>
+      ) : (
+        <>
+          <ChevronDown className="w-4 h-4" />
+          Show Full Heatmap ({employees.length})
+        </>
+      )}
+    </button>
+  </div>
+)}
 
       <div className="flex flex-wrap gap-3 mt-3">
         {Object.entries({ present: 'Present', late: 'Late', earlyexit: 'Early Exit', absent: 'Absent', shortday: 'Short Day', weeklyoff: 'Weekly Off', holiday: 'Holiday' }).map(([k, label]) => (

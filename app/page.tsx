@@ -23,7 +23,8 @@ import EmployeeTable from '@/components/EmployeeTable';
 import {
   DailyTrendChart, DeptAttendanceChart, HoursDistributionChart,
   DeptProductivityChart, ComparisonTrendChart,
-  DayDeptAttendanceChart, DayDeptLateChart, DayDeptProductivityChart
+  DayDeptAttendanceChart, DayDeptLateChart, DayDeptProductivityChart,
+  OfficeAttendanceChart, AttendanceHeatmap
 } from '@/components/Charts';
 import ExportPanel from '@/components/ExportPanel';
 import EmployeePanel from '@/components/EmployeePanel';
@@ -329,6 +330,15 @@ function HRDashboard() {
     setSelectedOffice('ALL');
     setSelectedDepts([]);
     setTableFilter('all');
+    // Bug fix: previously dateFrom/dateTo were left as-is after a re-upload
+    // or overwrite, so a date range picked before the upload (e.g. a single
+    // day, or a range confined to the old data) stayed stuck in the picker
+    // and silently constrained the min/max of the date inputs — making it
+    // look like new dates couldn't be selected even though fresh months had
+    // just been imported. Reset the range here, same as handleMonthChange.
+    setDateFrom(null);
+    setDateTo(null);
+    setDeptDrillSync(null);
     setAppState('dashboard');
     setPendingBatch([]);
 
@@ -411,12 +421,6 @@ function HRDashboard() {
 
   const leaveMap = buildLeaveMap(leaveRecords);
 
-  const currentMonth = uploadedMonths.find(m => m.key === selectedMonthKey);
-  const baseLabel = currentMonth ? `${currentMonth.officeCode}_${currentMonth.month}${currentMonth.year}` : 'ALL';
-  const exportLabel = selectedDepts.length > 0
-    ? `${baseLabel}_${selectedDepts.join('-').replace(/\s+/g, '')}`
-    : baseLabel;
-
   const currentOffice = getOfficeFromKey(selectedMonthKey);
   const currentYear = getYearFromKey(selectedMonthKey);
 
@@ -485,7 +489,7 @@ function HRDashboard() {
             >
               <SettingsIcon className="w-3.5 h-3.5" /> Settings
             </button>
-            <ExportPanel records={filteredRecords} summaries={employeeSummaries} label={exportLabel} leaveRecords={leaveRecords} />
+            <ExportPanel uploadedMonths={uploadedMonths} thresholds={thresholds} />
             <button onClick={() => setAppState('upload')}
               className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">
               <Upload className="w-4 h-4" /> Upload CSV
@@ -725,6 +729,25 @@ function HRDashboard() {
                     onDeptDrillChange={(dept) => setDeptDrillSync(dept)}
                   />
                 </div>
+
+                {/* Office-wise attendance comparison — only meaningful across 2+ offices */}
+                {offices.length > 1 && (
+                  <OfficeAttendanceChart
+                    data={officeAttendance}
+                    onOfficeClick={(office) => handleOfficeChange(office === selectedOffice ? 'ALL' : office)}
+                  />
+                )}
+
+                {/* Company-wide attendance heatmap (employee × date grid) */}
+                {filteredRecords.length > 0 && (
+                  <AttendanceHeatmap
+                    records={filteredRecords}
+                    onCellClick={(empCode) => {
+                      const emp = employeeSummaries.find(e => e.employeeCode === empCode);
+                      if (emp) setSelectedEmp(emp);
+                    }}
+                  />
+                )}
 
                 {isComparison && departments.length >= 2 && (
                   <TeamComparisonPanel allRecords={filteredRecords} departments={departments} />

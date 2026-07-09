@@ -17,8 +17,8 @@ interface SettingsPanelProps {
 const THRESHOLD_FIELDS: { key: keyof Thresholds; label: string; group: string }[] = [
   { key: 'attendanceRateGreen', label: 'Attendance Rate — Green ≥', group: 'Attendance Rate (%)' },
   { key: 'attendanceRateAmber', label: 'Attendance Rate — Amber ≥', group: 'Attendance Rate (%)' },
-  { key: 'absenteeismRateGreen', label: 'Absenteeism Rate — Green <', group: 'Absenteeism Rate (%)' },
-  { key: 'absenteeismRateAmber', label: 'Absenteeism Rate — Amber <', group: 'Absenteeism Rate (%)' },
+  // { key: 'absenteeismRateGreen', label: 'Absenteeism Rate — Green <', group: 'Absenteeism Rate (%)' },
+  // { key: 'absenteeismRateAmber', label: 'Absenteeism Rate — Amber <', group: 'Absenteeism Rate (%)' },
   { key: 'avgHoursPctGreen', label: 'Avg Hours % — Green ≥', group: 'Avg Hours (% of 8h)' },
   { key: 'avgHoursPctAmber', label: 'Avg Hours % — Amber ≥', group: 'Avg Hours (% of 8h)' },
   { key: 'lateRateGreen', label: 'Late Arrival Rate — Green <', group: 'Late Arrival Rate (%)' },
