@@ -393,6 +393,20 @@ function HRDashboard() {
     if (selectedMonthKey) setLeaveRecords(await getLeaveRecords(selectedMonthKey));
   }
 
+  async function refreshDepartmentOverrides() {
+    // Reload records to apply any department overrides that were just set
+    const monthKey = selectedMonthKey;
+    if (monthKey) {
+      const records = await getRecords(monthKey);
+      // Find and update the records in allUploadedRecords
+      setAllUploadedRecords(prev => {
+        const map = new Map(prev.map(r => [`${r.employeeCode}__${r.date}__${r.officeCode}`, r]));
+        records.forEach(r => map.set(`${r.employeeCode}__${r.date}__${r.officeCode}`, r));
+        return Array.from(map.values());
+      });
+    }
+  }
+
 
   async function handleSaveThresholds(t: Thresholds) {
     await saveThresholds(t);
@@ -797,6 +811,8 @@ function HRDashboard() {
         monthKey={selectedMonthKey}
         leaveMap={leaveMap}
         onLeaveChange={refreshLeaveRecords}
+        allDepartments={departments}
+        onDepartmentChange={refreshDepartmentOverrides}
       />
 
       {showHolidayModal && (

@@ -1,12 +1,13 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { X, Clock, LogOut, TrendingUp, Zap, AlertTriangle, Info, Tag } from 'lucide-react';
+import { X, Clock, LogOut, TrendingUp, Zap, AlertTriangle, Info, Tag, Edit2 } from 'lucide-react';
 import { EmployeeSummary, Holiday, LeaveType, LeaveRecord } from '@/lib/types';
 import { getLateMinutes, getEarlyMinutes } from '@/lib/useDashboardData';
 import { DEFAULT_THRESHOLDS } from '@/lib/settings';
 import { durationToMinutes } from '@/lib/parseCSV';
 import { getHolidayName } from '@/lib/holidays';
 import { upsertLeaveRecord, deleteLeaveRecord } from '@/lib/leaveStorage';
+import { setEmployeeDepartment, clearEmployeeDepartmentOverride, getEmployeeDepartmentOverride } from '@/lib/departmentStorage';
 import { PersonalHeatmap } from './Charts';
 
 interface EmployeePanelProps {
@@ -18,6 +19,8 @@ interface EmployeePanelProps {
   monthKey?: string; // needed to persist leave marks (B7.2)
   leaveMap?: Map<string, LeaveRecord>; // employeeCode__date -> LeaveRecord
   onLeaveChange?: () => void;
+  allDepartments?: string[]; // list of all available departments
+  onDepartmentChange?: () => void; // callback when department changes
 }
 
 function minsToTimeStr(minsFromMidnight: number): string {
@@ -67,9 +70,11 @@ function getStatusBadge(status: string, isShortDay: boolean | undefined, lateMin
 
 export default function EmployeePanel({
   employee, onClose, readOnly, holidays = [], graceMinutes = DEFAULT_THRESHOLDS.graceMinutes,
-  monthKey, leaveMap, onLeaveChange,
+  monthKey, leaveMap, onLeaveChange, allDepartments = [], onDepartmentChange,
 }: EmployeePanelProps) {
   const [leavePopoverFor, setLeavePopoverFor] = useState<string | null>(null);
+  const [showDeptEditor, setShowDeptEditor] = useState(false);
+  const [selectedDept, setSelectedDept] = useState<string | null>(null);
   const [, forceRerender] = useState(0);
 
   useEffect(() => {
@@ -103,20 +108,64 @@ export default function EmployeePanel({
     forceRerender(v => v + 1);
   }
 
+  async function changeDepartment(newDept: string) {
+    if (!employee) return;
+    setShowDeptEditor(false);
+    if (newDept === employee.department) {
+      clearEmployeeDepartmentOverride(employee.employeeCode, employee.officeCode);
+    } else {
+      setEmployeeDepartment(employee.employeeCode, employee.officeCode, newDept);
+    }
+    onDepartmentChange?.();
+    forceRerender(v => v + 1);
+  }
+
   return (
     <>
       <div className="fixed inset-0 bg-black/40 z-40" onClick={onClose} />
       <div className="fixed right-0 top-0 h-full w-full md:w-[480px] bg-slate-900 border-l border-slate-700 z-50 flex flex-col shadow-2xl transition-transform duration-200 ease-out">
         <div className="flex items-start justify-between px-5 py-4 border-b border-slate-800 flex-shrink-0">
-          <div>
+          <div className="flex-1">
             <h3 className="text-white font-semibold text-base">{employee.employeeName}</h3>
-            <div className="flex items-center gap-2 mt-1">
-              <span className="text-slate-400 text-xs">{employee.department}</span>
+            <div className="flex items-center gap-2 mt-1 flex-wrap">
+              {!showDeptEditor ? (
+                <>
+                  <span className="text-slate-400 text-xs">{employee.department}</span>
+                  {!readOnly && (
+                    <button
+                      onClick={() => {
+                        setShowDeptEditor(true);
+                        setSelectedDept(getEmployeeDepartmentOverride(employee.employeeCode, employee.officeCode) || employee.department);
+                      }}
+                      className="text-slate-500 hover:text-blue-400 transition-colors"
+                      title="Change department"
+                    >
+                      <Edit2 className="w-3 h-3" />
+                    </button>
+                  )}
+                </>
+              ) : (
+                <select
+                  autoFocus
+                  value={selectedDept || ''}
+                  onChange={e => setSelectedDept(e.target.value)}
+                  onBlur={() => changeDepartment(selectedDept || employee.department)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') changeDepartment(selectedDept || employee.department);
+                    if (e.key === 'Escape') setShowDeptEditor(false);
+                  }}
+                  className="bg-slate-700 border border-blue-500 text-white text-xs px-2 py-0.5 rounded focus:outline-none"
+                >
+                  {allDepartments.map(d => (
+                    <option key={d} value={d}>{d}</option>
+                  ))}
+                </select>
+              )}
               <span className="text-slate-600">·</span>
               <span className="bg-blue-600/20 text-blue-400 text-[10px] font-medium px-1.5 py-0.5 rounded">{employee.officeCode}</span>
             </div>
           </div>
-          <button onClick={onClose} className="text-slate-400 hover:text-white transition-colors mt-0.5">
+          <button onClick={onClose} className="text-slate-400 hover:text-white transition-colors mt-0.5 flex-shrink-0">
             <X className="w-5 h-5" />
           </button>
         </div>
