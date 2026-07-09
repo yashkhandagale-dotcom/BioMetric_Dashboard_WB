@@ -1,5 +1,5 @@
 'use client';
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { AttendanceRecord, EmployeeSummary, LeaveRecord, Holiday, EffectiveStatus } from '@/lib/types';
 import { computeEmployeeKPIs, ComparisonKPIs, buildLeaveMap, getEffectiveStatus, leaveKey } from '@/lib/useDashboardData';
 import { getEmployeeMonthHistory } from '@/lib/storage';
@@ -261,9 +261,13 @@ export default function EmployeeComparisonPanel({
   const [histEmp, setHistEmp] = useState(empOptions[0]?.employeeCode || '');
   const histOfficeCode = empOptions.find((e) => e.employeeCode === histEmp)?.officeCode || '';
 
-  const history = useMemo(() => {
-    if (!histEmp) return [];
-    return getEmployeeMonthHistory(histEmp, histOfficeCode);
+  const [history, setHistory] = useState<Awaited<ReturnType<typeof getEmployeeMonthHistory>>>([]);
+
+  useEffect(() => {
+    if (!histEmp) { setHistory([]); return; }
+    let cancelled = false;
+    getEmployeeMonthHistory(histEmp, histOfficeCode).then((h) => { if (!cancelled) setHistory(h); });
+    return () => { cancelled = true; };
   }, [histEmp, histOfficeCode]);
 
   const [monthAKey, setMonthAKey] = useState('');
@@ -272,15 +276,31 @@ export default function EmployeeComparisonPanel({
   const monthA = history.find((h) => h.monthKey === monthAKey) || history[history.length - 2] || history[0];
   const monthB = history.find((h) => h.monthKey === monthBKey) || history[history.length - 1];
 
+  // Per-month holidays + leave map, fetched once per monthKey and cached.
+  const [monthExtras, setMonthExtras] = useState<Record<string, { holidays: Holiday[]; leaveMap: Map<string, LeaveRecord> }>>({});
+
+  useEffect(() => {
+    [monthA, monthB].forEach((m) => {
+      if (!m || monthExtras[m.monthKey]) return;
+      let cancelled = false;
+      Promise.all([getHolidays(m.officeCode, m.year), getLeaveRecords(m.monthKey)]).then(([holidays, leaves]) => {
+        if (cancelled) return;
+        setMonthExtras((prev) => ({ ...prev, [m.monthKey]: { holidays, leaveMap: buildLeaveMap(leaves) } }));
+      });
+      return () => { cancelled = true; };
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [monthA?.monthKey, monthB?.monthKey]);
+
   function kpisForHistMonth(m: typeof history[number] | undefined): ComparisonKPIs | null {
     if (!m) return null;
-    const monthHolidays = getHolidays(m.officeCode, m.year);
-    const monthLeaves = buildLeaveMap(getLeaveRecords(m.monthKey));
-    return computeEmployeeKPIs(m.records, monthLeaves, monthHolidays, graceMinutes, shiftStartMinutes, shiftEndMinutes);
+    const extras = monthExtras[m.monthKey];
+    if (!extras) return null;
+    return computeEmployeeKPIs(m.records, extras.leaveMap, extras.holidays, graceMinutes, shiftStartMinutes, shiftEndMinutes);
   }
 
-  const monthAKPIs = useMemo(() => kpisForHistMonth(monthA), [monthA, graceMinutes, shiftStartMinutes, shiftEndMinutes]);
-  const monthBKPIs = useMemo(() => kpisForHistMonth(monthB), [monthB, graceMinutes, shiftStartMinutes, shiftEndMinutes]);
+  const monthAKPIs = useMemo(() => kpisForHistMonth(monthA), [monthA, monthExtras, graceMinutes, shiftStartMinutes, shiftEndMinutes]);
+  const monthBKPIs = useMemo(() => kpisForHistMonth(monthB), [monthB, monthExtras, graceMinutes, shiftStartMinutes, shiftEndMinutes]);
 
   const histEmpName = empOptions.find((e) => e.employeeCode === histEmp)?.employeeName || histEmp;
 
@@ -328,14 +348,14 @@ export default function EmployeeComparisonPanel({
             <CalendarHeatmap
               label={`${histEmpName} · ${monthA.label}`}
               records={monthA.records}
-              leaveMap={buildLeaveMap(getLeaveRecords(monthA.monthKey))}
-              holidays={getHolidays(monthA.officeCode, monthA.year)}
+              leaveMap={monthExtras[monthA.monthKey]?.leaveMap || new Map()}
+              holidays={monthExtras[monthA.monthKey]?.holidays || []}
             />
             <CalendarHeatmap
               label={`${histEmpName} · ${monthB.label}`}
               records={monthB.records}
-              leaveMap={buildLeaveMap(getLeaveRecords(monthB.monthKey))}
-              holidays={getHolidays(monthB.officeCode, monthB.year)}
+              leaveMap={monthExtras[monthB.monthKey]?.leaveMap || new Map()}
+              holidays={monthExtras[monthB.monthKey]?.holidays || []}
             />
           </div>
           <HeatmapLegend />

@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { X, Settings as SettingsIcon, RotateCcw } from 'lucide-react';
 import { ColumnMapping, Thresholds, AttendanceRecord } from '@/lib/types';
 import { getAllMappings } from '@/lib/storage';
@@ -48,7 +48,11 @@ export default function SettingsPanel({ onClose, thresholds, onSaveThresholds, r
   const [tab, setTab] = useState<'mapping' | 'thresholds' | 'share' | 'backup' | 'departments'>('thresholds');
   const [draft, setDraft] = useState<Thresholds>(thresholds);
   const [dirty, setDirty] = useState(false);
-  const mappings = getAllMappings();
+  const [mappings, setMappings] = useState<Record<string, ColumnMapping>>({});
+
+  useEffect(() => {
+    getAllMappings().then(setMappings);
+  }, []);
 
   const [departments, setDepartments] = useState<string[]>(() => getAllKnownDepartments(records));
   const [newDeptName, setNewDeptName] = useState('');

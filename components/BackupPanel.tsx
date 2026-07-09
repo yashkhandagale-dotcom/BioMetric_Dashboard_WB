@@ -8,8 +8,8 @@ export default function BackupPanel({ onRestored }: { onRestored?: () => void })
   const [status, setStatus] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const [confirming, setConfirming] = useState(false);
 
-  function handleExport() {
-    const backup = exportAllData();
+  async function handleExport() {
+    const backup = await exportAllData();
     const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -33,10 +33,10 @@ export default function BackupPanel({ onRestored }: { onRestored?: () => void })
     if (!file) return;
 
     const reader = new FileReader();
-    reader.onload = () => {
+    reader.onload = async () => {
       try {
         const parsed = JSON.parse(String(reader.result)) as BackupFile;
-        const { imported } = importAllData(parsed);
+        const { imported } = await importAllData(parsed);
         setStatus({ type: 'success', message: `Restored ${imported} item${imported === 1 ? '' : 's'}. Reload the page to see the restored data.` });
         onRestored?.();
       } catch {

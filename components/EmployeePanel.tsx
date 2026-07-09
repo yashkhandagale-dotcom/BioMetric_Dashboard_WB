@@ -83,22 +83,22 @@ export default function EmployeePanel({
 
   const records = (employee.records || []).sort((a, b) => a.date.localeCompare(b.date));
 
-  function markLeave(date: string, employeeCode: string, officeCode: string, leaveType: LeaveType, halfDayLeaveType?: LeaveType) {
+  async function markLeave(date: string, employeeCode: string, officeCode: string, leaveType: LeaveType, halfDayLeaveType?: LeaveType) {
     if (!monthKey) return;
     const record: LeaveRecord = {
       employeeCode, officeCode, date, leaveType, halfDayLeaveType,
       markedAt: new Date().toISOString(),
     };
-    upsertLeaveRecord(monthKey, record);
     setLeavePopoverFor(null);
+    await upsertLeaveRecord(monthKey, record);
     onLeaveChange?.();
     forceRerender(v => v + 1);
   }
 
-  function clearLeave(date: string, employeeCode: string) {
+  async function clearLeave(date: string, employeeCode: string) {
     if (!monthKey) return;
-    deleteLeaveRecord(monthKey, employeeCode, date);
     setLeavePopoverFor(null);
+    await deleteLeaveRecord(monthKey, employeeCode, date);
     onLeaveChange?.();
     forceRerender(v => v + 1);
   }
