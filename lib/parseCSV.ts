@@ -35,7 +35,10 @@ function countPunches(punchRecords?: string): number {
 }
 
 function isPunchTimeValid(timeStr: string): boolean {
-  if (!timeStr || timeStr === '0:00' || timeStr === '--' || timeStr === '') return false;
+  if (!timeStr) return false;
+  const normalized = timeStr.trim();
+  // Handle various empty/null representations
+  if (!normalized || normalized === '0:00' || normalized === '--' || normalized === '—' || normalized === '-') return false;
   return true;
 }
 
