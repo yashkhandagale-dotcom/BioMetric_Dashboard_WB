@@ -314,8 +314,11 @@ function HRDashboard() {
       const { records } = await parseCSVWithMapping(pf.file, mapping, pf.officeCode, thresholds.graceMinutes);
       const monthKey = `${pf.year}_${pf.month}_${pf.officeCode}`;
       const monthLabel = `${pf.officeCode} \u2014 ${getMonthName(pf.month)} ${pf.year}`;
-      const { added, updated } = await saveRecords(monthKey, records);
+      // NOTE: uploaded_months row must exist BEFORE attendance_records rows,
+      // since attendance_records.month_key has a foreign key referencing
+      // uploaded_months.key. Creating it first avoids a 409/23503 FK violation.
       await addUploadedMonth({ key: monthKey, label: monthLabel, officeCode: pf.officeCode, month: pf.month, year: pf.year });
+      const { added, updated } = await saveRecords(monthKey, records);
       lastMonthKey = monthKey;
       results.push(`${pf.officeCode} ${getMonthName(pf.month)} ${pf.year} (${added} new, ${updated} updated)`);
     }

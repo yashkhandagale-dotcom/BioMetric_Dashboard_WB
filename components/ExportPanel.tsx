@@ -1,7 +1,7 @@
 'use client';
 import { useState, useRef, useMemo, useEffect } from 'react';
 import { Download, FileSpreadsheet, FileText, FileIcon, ChevronDown, Loader2, X, Calendar, Building2, Users } from 'lucide-react';
-import { UploadedMonth, Thresholds, Holiday } from '@/lib/types';
+import { UploadedMonth, Thresholds, Holiday, AttendanceRecord, LeaveRecord } from '@/lib/types';
 import { getRecords } from '@/lib/storage';
 import { getAllLeaveRecords } from '@/lib/leaveStorage';
 import { getHolidays } from '@/lib/holidays';
@@ -80,10 +80,47 @@ export default function ExportPanel({ uploadedMonths, thresholds }: ExportPanelP
     });
   }, [uploadedMonths, fromPeriod, toPeriod, office]);
 
-  const scopedRecords = useMemo(
-    () => scopedMonths.flatMap(m => getRecords(m.key)),
-    [scopedMonths]
-  );
+  // ── Scoped data — fetched async whenever scopedMonths changes ───────────
+  // (getRecords / getHolidays / getAllLeaveRecords are all Supabase-backed
+  // and async now, so this can't live in a useMemo — it has to be state
+  // populated via useEffect.)
+  const [scopedRecords, setScopedRecords] = useState<AttendanceRecord[]>([]);
+  const [holidays, setHolidays] = useState<Holiday[]>([]);
+  const [leaveRecords, setLeaveRecords] = useState<LeaveRecord[]>([]);
+  const [scopedLoading, setScopedLoading] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (scopedMonths.length === 0) {
+      setScopedRecords([]);
+      setHolidays([]);
+      setLeaveRecords([]);
+      return;
+    }
+    setScopedLoading(true);
+    (async () => {
+      const [recs, leaves] = await Promise.all([
+        Promise.all(scopedMonths.map(m => getRecords(m.key))).then(r => r.flat()),
+        getAllLeaveRecords(scopedMonths.map(m => m.key)),
+      ]);
+
+      const seen = new Set<string>();
+      const allHolidays: Holiday[] = [];
+      for (const m of scopedMonths) {
+        const key = `${m.officeCode}_${m.year}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        allHolidays.push(...(await getHolidays(m.officeCode, m.year)));
+      }
+
+      if (cancelled) return;
+      setScopedRecords(recs);
+      setLeaveRecords(leaves);
+      setHolidays(allHolidays);
+      setScopedLoading(false);
+    })();
+    return () => { cancelled = true; };
+  }, [scopedMonths]);
 
   const departments = useMemo(() => {
     return Array.from(new Set(scopedRecords.map(r => r.department))).filter(Boolean).sort();
@@ -99,23 +136,6 @@ export default function ExportPanel({ uploadedMonths, thresholds }: ExportPanelP
     if (selectedDepts.length === 0) return scopedRecords;
     return scopedRecords.filter(r => selectedDepts.includes(r.department));
   }, [scopedRecords, selectedDepts]);
-
-  const holidays = useMemo(() => {
-    const seen = new Set<string>();
-    const all: Holiday[] = [];
-    for (const m of scopedMonths) {
-      const key = `${m.officeCode}_${m.year}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      all.push(...getHolidays(m.officeCode, m.year));
-    }
-    return all;
-  }, [scopedMonths]);
-
-  const leaveRecords = useMemo(
-    () => getAllLeaveRecords(scopedMonths.map(m => m.key)),
-    [scopedMonths]
-  );
 
   const { employeeSummaries } = useDashboardData(
     filteredRecords, 'ALL', [], [], holidays, thresholds, leaveRecords
@@ -133,7 +153,7 @@ export default function ExportPanel({ uploadedMonths, thresholds }: ExportPanelP
     setSelectedDepts(prev => prev.includes(d) ? prev.filter(x => x !== d) : [...prev, d]);
   }
 
-  const canExport = scopedMonths.length > 0 && filteredRecords.length > 0;
+  const canExport = scopedMonths.length > 0 && filteredRecords.length > 0 && !scopedLoading;
 
   async function handleExcel() {
     if (!canExport) return;
@@ -260,7 +280,9 @@ export default function ExportPanel({ uploadedMonths, thresholds }: ExportPanelP
 
               {/* Scope summary */}
               <div className="bg-slate-800/60 border border-slate-700 rounded-lg px-3 py-2 text-xs">
-                {canExport ? (
+                {scopedLoading ? (
+                  <p className="text-slate-400 flex items-center gap-1.5"><Loader2 className="w-3 h-3 animate-spin" /> Loading data for this scope…</p>
+                ) : canExport ? (
                   <p className="text-slate-300">
                     <span className="text-emerald-400 font-medium">{scopedMonths.length}</span> month{scopedMonths.length !== 1 ? 's' : ''} ·{' '}
                     <span className="text-emerald-400 font-medium">{new Set(filteredRecords.map(r => r.employeeCode)).size}</span> employees ·{' '}
