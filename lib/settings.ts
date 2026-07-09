@@ -1,6 +1,5 @@
 import { Thresholds } from './types';
-
-const KEY = 'dashboard_thresholds';
+import { createClient } from './supabase/client';
 
 export const DEFAULT_THRESHOLDS: Thresholds = {
   attendanceRateGreen: 80, attendanceRateAmber: 70,
@@ -16,17 +15,22 @@ export const DEFAULT_THRESHOLDS: Thresholds = {
   shiftEndMinutes: 18 * 60 + 30,  // 18:30
 };
 
-export function getThresholds(): Thresholds {
-  if (typeof window === 'undefined') return DEFAULT_THRESHOLDS;
-  const raw = localStorage.getItem(KEY);
-  if (!raw) return DEFAULT_THRESHOLDS;
-  try {
-    return { ...DEFAULT_THRESHOLDS, ...JSON.parse(raw) };
-  } catch {
-    return DEFAULT_THRESHOLDS;
-  }
+// Single shared row (id=1) — thresholds apply to the whole HR workspace,
+// same as before when they lived in one browser's localStorage.
+export async function getThresholds(): Promise<Thresholds> {
+  const supabase = createClient();
+  const { data } = await supabase
+    .from('dashboard_settings')
+    .select('thresholds')
+    .eq('id', 1)
+    .maybeSingle();
+  if (!data?.thresholds) return DEFAULT_THRESHOLDS;
+  return { ...DEFAULT_THRESHOLDS, ...(data.thresholds as Partial<Thresholds>) };
 }
 
-export function saveThresholds(t: Thresholds): void {
-  localStorage.setItem(KEY, JSON.stringify(t));
+export async function saveThresholds(t: Thresholds): Promise<void> {
+  const supabase = createClient();
+  await supabase
+    .from('dashboard_settings')
+    .upsert({ id: 1, thresholds: t, updated_at: new Date().toISOString() });
 }

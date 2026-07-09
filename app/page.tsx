@@ -6,7 +6,7 @@ import { AttendanceRecord, ColumnMapping, EmployeeSummary, UploadedMonth, Holida
 import {
   getMapping, saveMapping, getRecords, saveRecords, addUploadedMonth, getUploadedMonths,
 } from '@/lib/storage';
-import { getThresholds, saveThresholds } from '@/lib/settings';
+import { getThresholds, saveThresholds, DEFAULT_THRESHOLDS } from '@/lib/settings';
 import { getLeaveRecords } from '@/lib/leaveStorage';
 import { buildLeaveMap } from '@/lib/useDashboardData';
 import { parseCSVHeaders, parseCSVWithMapping } from '@/lib/parseCSV';
@@ -121,9 +121,10 @@ function HRDashboard() {
   const [showHolidayModal, setShowHolidayModal] = useState(false);
   const [holidays, setHolidays] = useState<Holiday[]>([]);
   const [tableFilter, setTableFilter] = useState<string>('all');
-  const [thresholds, setThresholds] = useState<Thresholds>(getThresholds());
+  const [thresholds, setThresholds] = useState<Thresholds>(DEFAULT_THRESHOLDS);
   const [leaveRecords, setLeaveRecords] = useState<LeaveRecord[]>([]);
   const [allOfficeRecords, setAllOfficeRecords] = useState<AttendanceRecord[]>([]);
+  const [allUploadedRecords, setAllUploadedRecords] = useState<AttendanceRecord[]>([]);
   const [dateFrom, setDateFrom] = useState<string | null>(null);
   const [dateTo, setDateTo] = useState<string | null>(null);
 
@@ -132,17 +133,43 @@ function HRDashboard() {
   const [deptDrillSync, setDeptDrillSync] = useState<string | null>(null);
 
   useEffect(() => {
+    getThresholds().then(setThresholds);
+  }, []);
+
+  useEffect(() => {
     if (!selectedMonthKey) return;
+    let cancelled = false;
     const officeCode = getOfficeFromKey(selectedMonthKey);
     const year = getYearFromKey(selectedMonthKey);
-    setHolidays(getHolidays(officeCode, year));
-    setLeaveRecords(getLeaveRecords(selectedMonthKey));
-
-    const months = getUploadedMonths();
-    const month = selectedMonthKey.split('_')[1];
-    const sameMonth = months.filter(m => m.month === month && m.year === year);
-    setAllOfficeRecords(sameMonth.flatMap(m => getRecords(m.key)));
+    (async () => {
+      const [h, l, months] = await Promise.all([
+        getHolidays(officeCode, year),
+        getLeaveRecords(selectedMonthKey),
+        getUploadedMonths(),
+      ]);
+      if (cancelled) return;
+      setHolidays(h);
+      setLeaveRecords(l);
+      const month = selectedMonthKey.split('_')[1];
+      const sameMonth = months.filter(m => m.month === month && m.year === year);
+      const officeRecs = (await Promise.all(sameMonth.map(m => getRecords(m.key)))).flat();
+      if (cancelled) return;
+      setAllOfficeRecords(officeRecs);
+    })();
+    return () => { cancelled = true; };
   }, [selectedMonthKey]);
+
+  // All records across every uploaded month — re-fetched whenever the set of
+  // uploaded months changes. This is ALWAYS the source of truth; the month
+  // dropdown only controls which holidays/leaves/office context to load.
+  useEffect(() => {
+    if (uploadedMonths.length === 0) { setAllUploadedRecords([]); return; }
+    let cancelled = false;
+    Promise.all(uploadedMonths.map(m => getRecords(m.key))).then((recs) => {
+      if (!cancelled) setAllUploadedRecords(recs.flat());
+    });
+    return () => { cancelled = true; };
+  }, [uploadedMonths]);
 
   useEffect(() => {
     function handler(e: Event) {
@@ -157,18 +184,20 @@ function HRDashboard() {
   }, []);
 
   useEffect(() => {
-    const months = getUploadedMonths();
-    if (months.length === 0) return;
-    setUploadedMonths(months);
-    const monthParam = searchParams.get('month');
-    const officeParam = searchParams.get('office');
-    const deptParam = searchParams.get('dept');
-    const matchMonth = months.find(m => m.key === monthParam) ?? months[months.length - 1];
-    setSelectedMonthKey(matchMonth.key);
-    setAllRecords(getRecords(matchMonth.key));
-    if (officeParam) setSelectedOffice(officeParam);
-    if (deptParam) setSelectedDepts(deptParam.split(',').filter(Boolean));
-    setAppState('dashboard');
+    (async () => {
+      const months = await getUploadedMonths();
+      if (months.length === 0) return;
+      setUploadedMonths(months);
+      const monthParam = searchParams.get('month');
+      const officeParam = searchParams.get('office');
+      const deptParam = searchParams.get('dept');
+      const matchMonth = months.find(m => m.key === monthParam) ?? months[months.length - 1];
+      setSelectedMonthKey(matchMonth.key);
+      setAllRecords(await getRecords(matchMonth.key));
+      if (officeParam) setSelectedOffice(officeParam);
+      if (deptParam) setSelectedDepts(deptParam.split(',').filter(Boolean));
+      setAppState('dashboard');
+    })();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const syncURL = useCallback((monthKey: string, office: string, depts: string[]) => {
@@ -179,6 +208,12 @@ function HRDashboard() {
     const qs = params.toString();
     router.replace(qs ? `?${qs}` : '/', { scroll: false });
   }, [router]);
+
+  async function handleSignOut() {
+    await fetch('/api/auth/signout', { method: 'POST' });
+    router.replace('/login');
+    router.refresh();
+  }
 
   function showToast(type: Toast['type'], message: string) {
     setToast({ type, message });
@@ -213,7 +248,7 @@ function HRDashboard() {
     for (const pf of valid) {
       if (seen.has(pf.officeCode)) continue;
       seen.add(pf.officeCode);
-      if (!getMapping(pf.officeCode)) {
+      if (!(await getMapping(pf.officeCode))) {
         const headers = await parseCSVHeaders(pf.file);
         queue.push({ officeCode: pf.officeCode, headers });
       }
@@ -231,7 +266,7 @@ function HRDashboard() {
   async function handleMappingSave(mapping: ColumnMapping) {
     const current = mappingQueue[0];
     if (!current) return;
-    saveMapping(current.officeCode, mapping);
+    await saveMapping(current.officeCode, mapping);
 
     const remaining = mappingQueue.slice(1);
     if (remaining.length > 0) {
@@ -253,7 +288,7 @@ function HRDashboard() {
   }
 
   async function proceedToConflictCheck(batch: PendingFile[]) {
-    const months = getUploadedMonths();
+    const months = await getUploadedMonths();
     const conflicts: { key: string; label: string }[] = [];
     for (const pf of batch) {
       const key = `${pf.year}_${pf.month}_${pf.officeCode}`;
@@ -273,21 +308,21 @@ function HRDashboard() {
     let lastMonthKey = '';
 
     for (const pf of batch) {
-      const mapping = getMapping(pf.officeCode);
+      const mapping = await getMapping(pf.officeCode);
       if (!mapping) continue;
       const { records } = await parseCSVWithMapping(pf.file, mapping, pf.officeCode, thresholds.graceMinutes);
       const monthKey = `${pf.year}_${pf.month}_${pf.officeCode}`;
       const monthLabel = `${pf.officeCode} \u2014 ${getMonthName(pf.month)} ${pf.year}`;
-      const { added, updated } = saveRecords(monthKey, records);
-      addUploadedMonth({ key: monthKey, label: monthLabel, officeCode: pf.officeCode, month: pf.month, year: pf.year });
+      const { added, updated } = await saveRecords(monthKey, records);
+      await addUploadedMonth({ key: monthKey, label: monthLabel, officeCode: pf.officeCode, month: pf.month, year: pf.year });
       lastMonthKey = monthKey;
       results.push(`${pf.officeCode} ${getMonthName(pf.month)} ${pf.year} (${added} new, ${updated} updated)`);
     }
 
-    const months = getUploadedMonths();
+    const months = await getUploadedMonths();
     setUploadedMonths(months);
     if (lastMonthKey) {
-      setAllRecords(getRecords(lastMonthKey));
+      setAllRecords(await getRecords(lastMonthKey));
       setSelectedMonthKey(lastMonthKey);
       syncURL(lastMonthKey, 'ALL', []);
     }
@@ -304,9 +339,9 @@ function HRDashboard() {
     setSkippedFiles([]);
   }
 
-  function handleMonthChange(key: string) {
+  async function handleMonthChange(key: string) {
     setSelectedMonthKey(key);
-    setAllRecords(getRecords(key));
+    setAllRecords(await getRecords(key));
     setSelectedOffice('ALL');
     setSelectedDepts([]);
     setTableFilter('all');
@@ -340,12 +375,12 @@ function HRDashboard() {
     syncURL(selectedMonthKey, selectedOffice, []);
   }
 
-  function refreshLeaveRecords() {
-    if (selectedMonthKey) setLeaveRecords(getLeaveRecords(selectedMonthKey));
+  async function refreshLeaveRecords() {
+    if (selectedMonthKey) setLeaveRecords(await getLeaveRecords(selectedMonthKey));
   }
 
-  function handleSaveThresholds(t: Thresholds) {
-    saveThresholds(t);
+  async function handleSaveThresholds(t: Thresholds) {
+    await saveThresholds(t);
     setThresholds(t);
     showToast('success', 'Thresholds updated.');
   }
@@ -355,7 +390,7 @@ function HRDashboard() {
   // The date range (dateFrom/dateTo) windows into this pool.
   // When no date range is set, we default to showing only the selected month's records
   // so the default view still feels "per month" without requiring the user to set dates.
-  const allUploadedRecords = uploadedMonths.flatMap(m => getRecords(m.key));
+  // (allUploadedRecords is populated by the useEffect above, keyed off uploadedMonths.)
 
   // Effective record pool for the dashboard:
   // - If user has set a date range → use all records across all months (cross-month support)
@@ -454,6 +489,10 @@ function HRDashboard() {
             <button onClick={() => setAppState('upload')}
               className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">
               <Upload className="w-4 h-4" /> Upload CSV
+            </button>
+            <button onClick={handleSignOut}
+              className="text-slate-500 hover:text-slate-300 px-2 py-1.5 rounded-lg text-xs transition-colors">
+              Sign out
             </button>
           </div>
         )}

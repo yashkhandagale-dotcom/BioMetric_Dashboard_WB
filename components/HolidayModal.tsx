@@ -28,7 +28,9 @@ export default function HolidayModal({ officeCode, year, readOnly, onClose, onSa
   const [dirty, setDirty] = useState(false);
 
   useEffect(() => {
-    setHolidays(getHolidays(officeCode, year));
+    let cancelled = false;
+    getHolidays(officeCode, year).then((h) => { if (!cancelled) setHolidays(h); });
+    return () => { cancelled = true; };
   }, [officeCode, year]);
 
   function addHoliday() {
@@ -47,8 +49,8 @@ export default function HolidayModal({ officeCode, year, readOnly, onClose, onSa
     setDirty(true);
   }
 
-  function handleSave() {
-    saveHolidays(officeCode, year, holidays);
+  async function handleSave() {
+    await saveHolidays(officeCode, year, holidays);
     setDirty(false);
     onSaved?.(holidays);
     onClose();

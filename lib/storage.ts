@@ -1,104 +1,173 @@
 import { AttendanceRecord, ColumnMapping, UploadedMonth } from './types';
-
-const KEYS = {
-  MAPPINGS: 'office_mappings',
-  RECORDS_PREFIX: 'records_',
-  MONTHS: 'uploaded_months',
-  SHARED_TOKEN: 'shared_view_token',
-};
+import { createClient } from './supabase/client';
 
 // ── Column Mappings ──────────────────────────────────────────────────────────
 
-export function getMapping(officeCode: string): ColumnMapping | null {
-  if (typeof window === 'undefined') return null;
-  const raw = localStorage.getItem(KEYS.MAPPINGS);
-  if (!raw) return null;
-  const all = JSON.parse(raw) as Record<string, ColumnMapping>;
-  return all[officeCode] || null;
+export async function getMapping(officeCode: string): Promise<ColumnMapping | null> {
+  const supabase = createClient();
+  const { data } = await supabase
+    .from('column_mappings')
+    .select('mapping')
+    .eq('office_code', officeCode)
+    .maybeSingle();
+  return (data?.mapping as ColumnMapping) ?? null;
 }
 
-export function saveMapping(officeCode: string, mapping: ColumnMapping): void {
-  const raw = localStorage.getItem(KEYS.MAPPINGS);
-  const all = raw ? (JSON.parse(raw) as Record<string, ColumnMapping>) : {};
-  all[officeCode] = mapping;
-  localStorage.setItem(KEYS.MAPPINGS, JSON.stringify(all));
+export async function saveMapping(officeCode: string, mapping: ColumnMapping): Promise<void> {
+  const supabase = createClient();
+  await supabase
+    .from('column_mappings')
+    .upsert({ office_code: officeCode, mapping, updated_at: new Date().toISOString() });
 }
 
-export function getAllMappings(): Record<string, ColumnMapping> {
-  if (typeof window === 'undefined') return {};
-  const raw = localStorage.getItem(KEYS.MAPPINGS);
-  return raw ? JSON.parse(raw) : {};
+export async function getAllMappings(): Promise<Record<string, ColumnMapping>> {
+  const supabase = createClient();
+  const { data } = await supabase.from('column_mappings').select('office_code, mapping');
+  const result: Record<string, ColumnMapping> = {};
+  (data ?? []).forEach((row) => {
+    result[row.office_code] = row.mapping as ColumnMapping;
+  });
+  return result;
 }
 
-export function deleteMapping(officeCode: string): void {
-  const raw = localStorage.getItem(KEYS.MAPPINGS);
-  if (!raw) return;
-  const all = JSON.parse(raw) as Record<string, ColumnMapping>;
-  delete all[officeCode];
-  localStorage.setItem(KEYS.MAPPINGS, JSON.stringify(all));
+export async function deleteMapping(officeCode: string): Promise<void> {
+  const supabase = createClient();
+  await supabase.from('column_mappings').delete().eq('office_code', officeCode);
 }
 
 // ── Attendance Records ───────────────────────────────────────────────────────
 
-function recordKey(r: AttendanceRecord): string {
-  return `${r.employeeCode}__${r.date}__${r.officeCode}`;
+function toRow(monthKey: string, r: AttendanceRecord) {
+  return {
+    month_key: monthKey,
+    employee_code: r.employeeCode,
+    employee_name: r.employeeName,
+    department: r.department,
+    date: r.date,
+    in_time: r.inTime,
+    out_time: r.outTime,
+    status: r.status,
+    punch_records: r.punchRecords,
+    late_by: r.lateBy,
+    early_by: r.earlyBy,
+    overtime: r.overtime,
+    duration: r.duration,
+    office_code: r.officeCode,
+    punch_count: r.punchCount,
+    is_short_day: r.isShortDay,
+    extra_fields: r.extraFields ?? null,
+    late_is_estimated: r.lateIsEstimated,
+    early_is_estimated: r.earlyIsEstimated,
+    updated_at: new Date().toISOString(),
+  };
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function fromRow(row: any): AttendanceRecord {
+  return {
+    date: row.date,
+    employeeCode: row.employee_code,
+    employeeName: row.employee_name,
+    department: row.department,
+    inTime: row.in_time,
+    outTime: row.out_time,
+    status: row.status,
+    punchRecords: row.punch_records ?? undefined,
+    lateBy: row.late_by,
+    earlyBy: row.early_by,
+    overtime: row.overtime ?? undefined,
+    duration: row.duration,
+    officeCode: row.office_code,
+    punchCount: row.punch_count ?? undefined,
+    isShortDay: row.is_short_day ?? undefined,
+    extraFields: row.extra_fields ?? undefined,
+    lateIsEstimated: row.late_is_estimated ?? undefined,
+    earlyIsEstimated: row.early_is_estimated ?? undefined,
+  };
 }
 
 // A3: upsert-by (employeeCode, date, officeCode) — new records overwrite the
-// old one for that compound key, unrelated existing records are preserved.
-export function mergeRecords(
-  existing: AttendanceRecord[],
-  incoming: AttendanceRecord[]
-): { merged: AttendanceRecord[]; added: number; updated: number } {
-  const map = new Map<string, AttendanceRecord>();
-  for (const r of existing) map.set(recordKey(r), r);
-  let added = 0, updated = 0;
-  for (const r of incoming) {
-    const k = recordKey(r);
-    if (map.has(k)) updated++; else added++;
-    map.set(k, r);
-  }
-  return { merged: Array.from(map.values()), added, updated };
-}
-
-export function saveRecords(
+// old one for that compound key. Supabase does this natively via the unique
+// constraint on (employee_code, date, office_code) + upsert.
+export async function saveRecords(
   monthKey: string,
   records: AttendanceRecord[]
-): { added: number; updated: number } {
-  const existing = getRecords(monthKey);
-  const { merged, added, updated } = mergeRecords(existing, records);
-  localStorage.setItem(KEYS.RECORDS_PREFIX + monthKey, JSON.stringify(merged));
+): Promise<{ added: number; updated: number }> {
+  const supabase = createClient();
+
+  // Work out added vs. updated by checking which keys already exist.
+  const keys = records.map((r) => `${r.employeeCode}__${r.date}__${r.officeCode}`);
+  const { data: existingRows } = await supabase
+    .from('attendance_records')
+    .select('employee_code, date, office_code')
+    .eq('month_key', monthKey);
+  const existingKeys = new Set(
+    (existingRows ?? []).map((r) => `${r.employee_code}__${r.date}__${r.office_code}`)
+  );
+  let added = 0, updated = 0;
+  keys.forEach((k) => (existingKeys.has(k) ? updated++ : added++));
+
+  const rows = records.map((r) => toRow(monthKey, r));
+  // Chunk to stay comfortably under request size limits on large CSVs.
+  const CHUNK = 500;
+  for (let i = 0; i < rows.length; i += CHUNK) {
+    const chunk = rows.slice(i, i + CHUNK);
+    const { error } = await supabase
+      .from('attendance_records')
+      .upsert(chunk, { onConflict: 'employee_code,date,office_code' });
+    if (error) throw error;
+  }
+
   return { added, updated };
 }
 
-export function getRecords(monthKey: string): AttendanceRecord[] {
-  if (typeof window === 'undefined') return [];
-  const raw = localStorage.getItem(KEYS.RECORDS_PREFIX + monthKey);
-  return raw ? JSON.parse(raw) : [];
+export async function getRecords(monthKey: string): Promise<AttendanceRecord[]> {
+  const supabase = createClient();
+  const { data } = await supabase
+    .from('attendance_records')
+    .select('*')
+    .eq('month_key', monthKey);
+  return (data ?? []).map(fromRow);
 }
 
-export function getAllRecords(): AttendanceRecord[] {
-  if (typeof window === 'undefined') return [];
-  const months = getUploadedMonths();
-  return months.flatMap((m) => getRecords(m.key));
+export async function getAllRecords(): Promise<AttendanceRecord[]> {
+  const supabase = createClient();
+  const { data } = await supabase.from('attendance_records').select('*');
+  return (data ?? []).map(fromRow);
 }
 
 // ── B8: pull one employee's records from every uploaded month (same office),
 // sorted oldest → newest, for "compare with own previous month" view. ──────────
-export function getEmployeeMonthHistory(
+export async function getEmployeeMonthHistory(
   employeeCode: string,
   officeCode: string
-): { monthKey: string; label: string; year: string; month: string; officeCode: string; records: AttendanceRecord[] }[] {
-  if (typeof window === 'undefined') return [];
-  const months = getUploadedMonths().filter((m) => m.officeCode === officeCode);
-  return months
+): Promise<{ monthKey: string; label: string; year: string; month: string; officeCode: string; records: AttendanceRecord[] }[]> {
+  const supabase = createClient();
+  const { data: months } = await supabase
+    .from('uploaded_months')
+    .select('*')
+    .eq('office_code', officeCode);
+  const { data: rows } = await supabase
+    .from('attendance_records')
+    .select('*')
+    .eq('employee_code', employeeCode)
+    .eq('office_code', officeCode);
+
+  const recordsByMonth = new Map<string, AttendanceRecord[]>();
+  (rows ?? []).forEach((row) => {
+    const monthKey = row.month_key as string;
+    if (!recordsByMonth.has(monthKey)) recordsByMonth.set(monthKey, []);
+    recordsByMonth.get(monthKey)!.push(fromRow(row));
+  });
+
+  return (months ?? [])
     .map((m) => ({
       monthKey: m.key,
       label: m.label,
       year: m.year,
       month: m.month,
-      officeCode: m.officeCode,
-      records: getRecords(m.key).filter((r) => r.employeeCode === employeeCode),
+      officeCode: m.office_code,
+      records: recordsByMonth.get(m.key) ?? [],
     }))
     .filter((m) => m.records.length > 0)
     .sort((a, b) => `${a.records[0]?.date}`.localeCompare(`${b.records[0]?.date}`));
@@ -106,91 +175,85 @@ export function getEmployeeMonthHistory(
 
 // ── Uploaded Months ──────────────────────────────────────────────────────────
 
-export function getUploadedMonths(): UploadedMonth[] {
-  if (typeof window === 'undefined') return [];
-  const raw = localStorage.getItem(KEYS.MONTHS);
-  return raw ? JSON.parse(raw) : [];
+export async function getUploadedMonths(): Promise<UploadedMonth[]> {
+  const supabase = createClient();
+  const { data } = await supabase.from('uploaded_months').select('*').order('created_at');
+  return (data ?? []).map((m) => ({
+    key: m.key,
+    label: m.label,
+    officeCode: m.office_code,
+    month: m.month,
+    year: m.year,
+  }));
 }
 
-export function addUploadedMonth(month: UploadedMonth): void {
-  const months = getUploadedMonths();
-  const existing = months.findIndex((m) => m.key === month.key);
-  if (existing >= 0) {
-    months[existing] = month;
-  } else {
-    months.push(month);
-  }
-  localStorage.setItem(KEYS.MONTHS, JSON.stringify(months));
-}
-
-// ── Shared Link Token ────────────────────────────────────────────────────────
-
-export function generateToken(): string {
-  const token = crypto.randomUUID();
-  localStorage.setItem(KEYS.SHARED_TOKEN, token);
-  return token;
-}
-
-export function getToken(): string | null {
-  if (typeof window === 'undefined') return null;
-  return localStorage.getItem(KEYS.SHARED_TOKEN);
-}
-
-export function validateToken(token: string): boolean {
-  const stored = getToken();
-  return stored === token;
+export async function addUploadedMonth(month: UploadedMonth): Promise<void> {
+  const supabase = createClient();
+  await supabase.from('uploaded_months').upsert({
+    key: month.key,
+    label: month.label,
+    office_code: month.officeCode,
+    month: month.month,
+    year: month.year,
+  });
 }
 
 // ── Full data backup / restore ───────────────────────────────────────────────
-// Everything the app keeps — records, mappings, months, leaves, holidays,
-// thresholds — lives in localStorage under various key prefixes. Rather than
-// enumerate every prefix (and risk missing one as new features add keys),
-// export/import the whole localStorage namespace as a single JSON blob, minus
-// the legacy shared-link keys which are being phased out in favour of the
-// server-side token store (see lib/sharedLink.ts).
-
-const EXCLUDED_KEY_PREFIXES = ['share_'];
-const EXCLUDED_KEYS = [KEYS.SHARED_TOKEN];
-
-function isBackedUpKey(key: string): boolean {
-  if (EXCLUDED_KEYS.includes(key)) return false;
-  return !EXCLUDED_KEY_PREFIXES.some((p) => key.startsWith(p));
-}
+// Everything the app keeps now lives in Supabase. Export/import pulls every
+// table down as one JSON blob — handy for point-in-time backups, or for a
+// one-time migration from an older localStorage-only deployment.
 
 export interface BackupFile {
-  app: 'attendance-dashboard-poc';
-  version: 1;
+  app: 'attendance-dashboard';
+  version: 2;
   exportedAt: string;
-  data: Record<string, string>;
-}
-
-export function exportAllData(): BackupFile {
-  const data: Record<string, string> = {};
-  if (typeof window !== 'undefined') {
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (!key || !isBackedUpKey(key)) continue;
-      const value = localStorage.getItem(key);
-      if (value !== null) data[key] = value;
-    }
-  }
-  return {
-    app: 'attendance-dashboard-poc',
-    version: 1,
-    exportedAt: new Date().toISOString(),
-    data,
+  data: {
+    uploaded_months: unknown[];
+    attendance_records: unknown[];
+    column_mappings: unknown[];
+    leave_records: unknown[];
+    custom_holidays: unknown[];
+    dashboard_settings: unknown[];
   };
 }
 
-export function importAllData(backup: BackupFile): { imported: number } {
-  if (!backup || typeof backup !== 'object' || !backup.data || typeof backup.data !== 'object') {
+export async function exportAllData(): Promise<BackupFile> {
+  const supabase = createClient();
+  const [months, records, mappings, leaves, holidays, settings] = await Promise.all([
+    supabase.from('uploaded_months').select('*'),
+    supabase.from('attendance_records').select('*'),
+    supabase.from('column_mappings').select('*'),
+    supabase.from('leave_records').select('*'),
+    supabase.from('custom_holidays').select('*'),
+    supabase.from('dashboard_settings').select('*'),
+  ]);
+  return {
+    app: 'attendance-dashboard',
+    version: 2,
+    exportedAt: new Date().toISOString(),
+    data: {
+      uploaded_months: months.data ?? [],
+      attendance_records: records.data ?? [],
+      column_mappings: mappings.data ?? [],
+      leave_records: leaves.data ?? [],
+      custom_holidays: holidays.data ?? [],
+      dashboard_settings: settings.data ?? [],
+    },
+  };
+}
+
+export async function importAllData(backup: BackupFile): Promise<{ imported: number }> {
+  if (!backup || typeof backup !== 'object' || !backup.data) {
     throw new Error('Invalid backup file');
   }
+  const supabase = createClient();
   let imported = 0;
-  for (const [key, value] of Object.entries(backup.data)) {
-    if (typeof value !== 'string') continue;
-    localStorage.setItem(key, value);
-    imported++;
+  const tables = Object.keys(backup.data) as (keyof BackupFile['data'])[];
+  for (const table of tables) {
+    const rows = backup.data[table];
+    if (!Array.isArray(rows) || rows.length === 0) continue;
+    const { error } = await supabase.from(table).upsert(rows);
+    if (!error) imported += rows.length;
   }
   return { imported };
 }
