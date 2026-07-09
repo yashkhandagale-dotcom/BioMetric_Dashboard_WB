@@ -34,6 +34,36 @@ function countPunches(punchRecords?: string): number {
   return Math.max(1, Math.ceil(parts.length / 2));
 }
 
+function isPunchTimeValid(timeStr: string): boolean {
+  if (!timeStr || timeStr === '0:00' || timeStr === '--' || timeStr === '') return false;
+  return true;
+}
+
+function normalizeStatus(
+  statusStr: string,
+  inTimeStr: string,
+  outTimeStr: string
+): string {
+  const hasInPunch = isPunchTimeValid(inTimeStr);
+  const hasOutPunch = isPunchTimeValid(outTimeStr);
+
+  // If punch in exists but punch out doesn't → Missed Punch Out
+  if (hasInPunch && !hasOutPunch) {
+    return 'Missed Punch Out';
+  }
+
+  // If no punches at all → mark as Absent (unless already marked differently)
+  if (!hasInPunch && !hasOutPunch) {
+    const statusLower = statusStr.toLowerCase();
+    if (statusLower.includes('absent')) return statusStr; // keep as is
+    if (statusLower.includes('present')) return 'Absent'; // mark absent if marked present but no punches
+    return 'Absent';
+  }
+
+  // If both punches exist or other cases → use original status
+  return statusStr;
+}
+
 export function parseCSVWithMapping(
   file: File,
   mapping: ColumnMapping,
@@ -66,9 +96,14 @@ export function parseCSVWithMapping(
           const lateByStr = String(row[mapping.lateBy] || '').trim();
           const earlyByStr = String(row[mapping.earlyBy] || '').trim();
           const durationStr = String(row[mapping.duration] || '0:00').trim();
-          const statusStr = String(row[mapping.status] || '').trim();
+          let statusStr = String(row[mapping.status] || '').trim();
           const inTimeStr = String(row[mapping.inTime] || '').trim();
           const outTimeStr = String(row[mapping.outTime] || '').trim();
+
+          // Normalize status based on punch presence:
+          // - If punch in exists but no punch out → "Missed Punch Out"
+          // - If no punches at all → "Absent"
+          statusStr = normalizeStatus(statusStr, inTimeStr, outTimeStr);
 
           // Detect punch records column (common variations)
           const punchRecordsRaw = row['Punch Records'] || row['punch_records'] || row['PunchRecords'] || '';

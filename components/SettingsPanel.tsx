@@ -4,6 +4,7 @@ import { X, Settings as SettingsIcon, RotateCcw } from 'lucide-react';
 import { ColumnMapping, Thresholds, AttendanceRecord } from '@/lib/types';
 import { getAllMappings } from '@/lib/storage';
 import { DEFAULT_THRESHOLDS } from '@/lib/settings';
+import { getAllKnownDepartments, addDepartment } from '@/lib/departmentStorage';
 import SharedLinkPanel from './SharedLinkPanel';
 import BackupPanel from './BackupPanel';
 
@@ -44,10 +45,27 @@ function hhmmToMins(hhmm: string): number {
 }
 
 export default function SettingsPanel({ onClose, thresholds, onSaveThresholds, records }: SettingsPanelProps) {
-  const [tab, setTab] = useState<'mapping' | 'thresholds' | 'share' | 'backup'>('thresholds');
+  const [tab, setTab] = useState<'mapping' | 'thresholds' | 'share' | 'backup' | 'departments'>('thresholds');
   const [draft, setDraft] = useState<Thresholds>(thresholds);
   const [dirty, setDirty] = useState(false);
   const mappings = getAllMappings();
+
+  const [departments, setDepartments] = useState<string[]>(() => getAllKnownDepartments(records));
+  const [newDeptName, setNewDeptName] = useState('');
+  const [deptError, setDeptError] = useState<string | null>(null);
+
+  function handleAddDepartment() {
+    const trimmed = newDeptName.trim();
+    if (!trimmed) return;
+    const ok = addDepartment(trimmed, departments);
+    if (!ok) {
+      setDeptError(`"${trimmed}" already exists.`);
+      return;
+    }
+    setDeptError(null);
+    setNewDeptName('');
+    setDepartments(getAllKnownDepartments(records));
+  }
 
   function update(key: keyof Thresholds, value: string) {
     const n = parseFloat(value);
@@ -81,14 +99,14 @@ export default function SettingsPanel({ onClose, thresholds, onSaveThresholds, r
           </button>
         </div>
 
-        <div className="flex border-b border-slate-800 flex-shrink-0">
-          {(['thresholds', 'mapping', 'share', 'backup'] as const).map(t => (
+        <div className="flex border-b border-slate-800 flex-shrink-0 overflow-x-auto">
+          {(['thresholds', 'mapping', 'departments', 'share', 'backup'] as const).map(t => (
             <button
               key={t}
               onClick={() => setTab(t)}
-              className={`flex-1 px-3 py-2.5 text-xs font-medium transition-colors ${tab === t ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-500 hover:text-slate-300'}`}
+              className={`flex-1 px-3 py-2.5 text-xs font-medium whitespace-nowrap transition-colors ${tab === t ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-500 hover:text-slate-300'}`}
             >
-              {t === 'thresholds' ? 'Thresholds' : t === 'mapping' ? 'Column Mapping' : t === 'share' ? 'Shared Link' : 'Backup'}
+              {t === 'thresholds' ? 'Thresholds' : t === 'mapping' ? 'Column Mapping' : t === 'departments' ? 'Departments' : t === 'share' ? 'Shared Link' : 'Backup'}
             </button>
           ))}
         </div>
@@ -166,6 +184,57 @@ export default function SettingsPanel({ onClose, thresholds, onSaveThresholds, r
                   <RemapButton officeCode={office} mapping={mapping} />
                 </div>
               ))}
+            </div>
+          )}
+
+          {tab === 'departments' && (
+            <div className="space-y-4">
+              <div>
+                <h4 className="text-slate-400 text-xs font-semibold uppercase tracking-wide mb-2">Create Department</h4>
+                <p className="text-slate-500 text-[11px] mb-2">
+                  New departments show up as an assignable option on each employee&apos;s panel right away,
+                  even before any employee is moved into them.
+                </p>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={newDeptName}
+                    onChange={(e) => { setNewDeptName(e.target.value); setDeptError(null); }}
+                    onKeyDown={(e) => { if (e.key === 'Enter') handleAddDepartment(); }}
+                    placeholder="e.g. Customer Success"
+                    className="flex-1 bg-slate-800 border border-slate-600 rounded-md px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
+                  />
+                  <button
+                    onClick={handleAddDepartment}
+                    disabled={!newDeptName.trim()}
+                    className="bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+                  >
+                    Add
+                  </button>
+                </div>
+                {deptError && <p className="text-red-400 text-xs mt-1.5">{deptError}</p>}
+              </div>
+
+              <div>
+                <h4 className="text-slate-400 text-xs font-semibold uppercase tracking-wide mb-2">
+                  All Departments ({departments.length})
+                </h4>
+                {departments.length === 0 ? (
+                  <p className="text-slate-500 text-sm">No departments yet — upload a CSV or create one above.</p>
+                ) : (
+                  <div className="flex flex-wrap gap-1.5">
+                    {departments.map((d) => (
+                      <span key={d} className="bg-slate-800/60 border border-slate-700 text-slate-300 text-xs px-2.5 py-1 rounded-lg">
+                        {d}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <p className="text-slate-500 text-[11px] mt-2">
+                  To move an individual employee into a different department, open their profile from the
+                  Employees table and use the department dropdown there.
+                </p>
+              </div>
             </div>
           )}
 

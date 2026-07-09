@@ -1,4 +1,5 @@
 import { AttendanceRecord, ColumnMapping, UploadedMonth } from './types';
+import { applyDepartmentOverrides } from './departmentStorage';
 
 const KEYS = {
   MAPPINGS: 'office_mappings',
@@ -61,20 +62,31 @@ export function mergeRecords(
   return { merged: Array.from(map.values()), added, updated };
 }
 
+function getRawRecords(monthKey: string): AttendanceRecord[] {
+  if (typeof window === 'undefined') return [];
+  const raw = localStorage.getItem(KEYS.RECORDS_PREFIX + monthKey);
+  return raw ? JSON.parse(raw) : [];
+}
+
 export function saveRecords(
   monthKey: string,
   records: AttendanceRecord[]
 ): { added: number; updated: number } {
-  const existing = getRecords(monthKey);
+  // Merge against RAW existing records (department overrides NOT applied) —
+  // otherwise an HR department reassignment would get baked permanently into
+  // storage the next time that office's CSV is re-uploaded/merged.
+  const existing = getRawRecords(monthKey);
   const { merged, added, updated } = mergeRecords(existing, records);
   localStorage.setItem(KEYS.RECORDS_PREFIX + monthKey, JSON.stringify(merged));
   return { added, updated };
 }
 
 export function getRecords(monthKey: string): AttendanceRecord[] {
-  if (typeof window === 'undefined') return [];
-  const raw = localStorage.getItem(KEYS.RECORDS_PREFIX + monthKey);
-  return raw ? JSON.parse(raw) : [];
+  const records = getRawRecords(monthKey);
+  // Overlay any HR-made department reassignments (lib/departmentStorage.ts) —
+  // non-destructive, so the underlying CSV-derived data is never touched and
+  // a future remap/backup still reflects what the machine actually reported.
+  return applyDepartmentOverrides(records);
 }
 
 export function getAllRecords(): AttendanceRecord[] {

@@ -19,7 +19,12 @@ export function isPresent(status: string): boolean {
 
 export function isAbsent(status: string): boolean {
   const s = status.toLowerCase();
-  return s.includes('absent') || s === 'absent (no outpunch)';
+  return s.includes('absent') && !s.includes('missed');
+}
+
+export function isMissedPunchOut(status: string): boolean {
+  const s = status.toLowerCase();
+  return s.includes('missed') && s.includes('punch');
 }
 
 export function isWeeklyOff(status: string): boolean {
@@ -136,6 +141,7 @@ export function getEffectiveStatus(
     if (leave.leaveType === 'lwp') return 'leave_lwp';
   }
   if (isPresent(r.status)) return 'present';
+  if (isMissedPunchOut(r.status)) return 'missed_punch_out';
   return 'absent';
 }
 

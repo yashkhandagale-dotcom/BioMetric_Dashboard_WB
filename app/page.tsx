@@ -8,6 +8,7 @@ import {
 } from '@/lib/storage';
 import { getThresholds, saveThresholds } from '@/lib/settings';
 import { getLeaveRecords } from '@/lib/leaveStorage';
+import { getAllKnownDepartments } from '@/lib/departmentStorage';
 import { buildLeaveMap } from '@/lib/useDashboardData';
 import { parseCSVHeaders, parseCSVWithMapping } from '@/lib/parseCSV';
 import { validateFile } from '@/lib/validateFile';
@@ -352,6 +353,20 @@ function HRDashboard() {
 
   function refreshLeaveRecords() {
     if (selectedMonthKey) setLeaveRecords(getLeaveRecords(selectedMonthKey));
+  }
+
+  // After HR reassigns an employee's department (lib/departmentStorage.ts),
+  // re-pull records from storage so the override is reflected everywhere:
+  // KPI cards, dept charts, employee table, exports — same shape as the
+  // month-load effect above, just triggered on demand instead of on mount.
+  function refreshAfterDepartmentChange() {
+    if (!selectedMonthKey) return;
+    setAllRecords(getRecords(selectedMonthKey));
+    const year = getYearFromKey(selectedMonthKey);
+    const month = selectedMonthKey.split('_')[1];
+    const months = getUploadedMonths();
+    const sameMonth = months.filter(m => m.month === month && m.year === year);
+    setAllOfficeRecords(sameMonth.flatMap(m => getRecords(m.key)));
   }
 
   function handleSaveThresholds(t: Thresholds) {
@@ -753,6 +768,8 @@ function HRDashboard() {
         monthKey={selectedMonthKey}
         leaveMap={leaveMap}
         onLeaveChange={refreshLeaveRecords}
+        allDepartments={getAllKnownDepartments(allUploadedRecords)}
+        onDepartmentChange={refreshAfterDepartmentChange}
       />
 
       {showHolidayModal && (
