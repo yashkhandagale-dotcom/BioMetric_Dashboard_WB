@@ -284,6 +284,9 @@ export async function exportPDF(
 
   const employees: NormalizedEmployee[] = summaries.map(normalizeEmployee);
   const totalEmployees = employees.length > 0 ? employees.length : new Set(records.map(r => r.employeeCode)).size;
+  const employeesByAttendance = [...employees].sort((a, b) => a.attendanceRate - b.attendanceRate);
+  const bottomEmployees = employeesByAttendance.slice(0, Math.min(8, employeesByAttendance.length));
+  const topEmployees = [...employeesByAttendance].slice(Math.max(0, employeesByAttendance.length - 8)).reverse();
 
   // ── Company-wide KPIs — computed the SAME way the live dashboard does ───
   const workRecs = records.filter(r => {
@@ -294,6 +297,11 @@ export async function exportPDF(
   const presentRecs = workRecs.filter(r => isPresent(r.status) && !r.isShortDay);
   const absentRecs = workRecs.filter(r => isAbsent(r.status));
   const missedPunchRecs = workRecs.filter(r => isMissedPunchOut(r.status));
+
+  const scopedDepartments = Array.from(new Set(workRecs.map(r => r.department || 'Unknown')));
+  const isTeamScope = scopedDepartments.length === 1;
+  const scopeName = isTeamScope ? scopedDepartments[0] : 'Company-wide';
+  const scopeLabel = isTeamScope ? 'Team' : 'Company-wide';
 
   const scheduled = workRecs.length;
   const presentCount = presentRecs.length;
@@ -356,7 +364,8 @@ export async function exportPDF(
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(8.5);
   doc.setTextColor(191, 219, 254);
-  doc.text(`Reporting Period: ${label}   ·   Office(s): ${offices}   ·   Generated: ${genDate}`, 14, 33);
+  doc.text(`Reporting Period: ${label}   ·   Scope: ${scopeName}   ·   Office(s): ${offices}`, 14, 33);
+  doc.text(`Generated: ${genDate}`, 14, 38);
 
   let y = 50;
   y = drawSectionHeader(doc, 'The Headline Numbers', 14, y);
@@ -394,7 +403,12 @@ export async function exportPDF(
       ? `Attendance was healthy at ${attendanceRate.toFixed(1)}%, at or above the 80% benchmark.`
       : `Attendance came in at ${attendanceRate.toFixed(1)}%, below the 80% benchmark — worth a closer look.`
   );
-  if (!isSingleTeam && worstDept && bestDept && worstDept.name !== bestDept.name) {
+  if (isTeamScope) {
+    const top = topEmployees[0];
+    const bottom = bottomEmployees[0];
+    if (top) insights.push(`Top performing employee: ${top.name} with ${top.attendanceRate.toFixed(0)}% attendance.`);
+    if (bottom && bottom.name !== top?.name) insights.push(`Most concerning attendance: ${bottom.name} at ${bottom.attendanceRate.toFixed(0)}% attendance.`);
+  } else if (worstDept && bestDept && worstDept.name !== bestDept.name) {
     insights.push(`${bestDept.name} led the way at ${bestDept.rate.toFixed(0)}% attendance, while ${worstDept.name} trailed at ${worstDept.rate.toFixed(0)}%.`);
   }
   if (mostAbsent && mostAbsent.absentDays > 0) {
@@ -485,46 +499,105 @@ export async function exportPDF(
   }
 
   // ══════════════════════════════════════════════════════════════════════
-  // PAGE 2 — Team Performance (skipped when the export is already scoped
-  // to a single team — showing a 1-row "comparison" adds nothing)
+  // PAGE 2 — Team Performance / Team Drilldown
   // ══════════════════════════════════════════════════════════════════════
-  if (!isSingleTeam && deptRows.length > 0) {
+  if (deptRows.length > 0) {
     doc.addPage();
     drawPageBackground(doc, W, H);
-    let cy2 = drawHeaderBand(doc, W, 'Team Performance', `${label}  ·  ${offices}`);
+    const title = isSingleTeam ? 'Team Drilldown' : 'Team Performance';
+    const subtitle = isSingleTeam ? `${scopeName} · ${label}` : `${label}  ·  ${offices}`;
+    let cy2 = drawHeaderBand(doc, W, title, subtitle);
 
-    cy2 = drawSectionHeader(doc, 'How Each Team Is Doing', 14, cy2 + 2, 'Ranked by attendance rate — teams in red need the most support');
-    cy2 += 8;
+    if (isSingleTeam) {
+      cy2 = drawSectionHeader(doc, 'Employee Attendance', 14, cy2 + 2, 'Ranked by attendance rate — focus on lowest performers first');
+      cy2 += 8;
+      drawBarChart(doc, 22, cy2, W - 44, 50, bottomEmployees.map(e => ({ label: truncate(e.name, 18), value: e.attendanceRate })), 100, RED, v => `${v.toFixed(0)}%`);
 
-    const cols = 4;
-    const gap = 6;
-    const cardW2 = (W - 28 - gap * (cols - 1)) / cols;
-    const cardH2 = 30;
-    const ranked = [...deptRows].sort((a, b) => a.rate - b.rate);
-    const avgRate = deptRows.reduce((s, d) => s + d.rate, 0) / deptRows.length;
+      cy2 += 58;
+      cy2 = drawSectionHeader(doc, 'Actionable Team Insights', 14, cy2, 'Employee-level areas to recognize and address');
+      autoTable(doc, {
+        startY: cy2 + 6,
+        margin: { left: 14, right: 14 },
+        head: [['Employee', 'Attendance', 'Avg Hours', 'Late', 'Absent']],
+        body: bottomEmployees.map((e) => [
+          truncate(e.name, 20),
+          `${e.attendanceRate.toFixed(0)}%`,
+          `${e.avgHours.toFixed(1)}h`,
+          `${e.lateCount}`,
+          `${e.absentDays}`,
+        ]),
+        styles: { font: 'helvetica', fontSize: 7.4, cellPadding: 3.4, textColor: INK as unknown as RGB, lineColor: BORDER as unknown as RGB, lineWidth: 0.15, fillColor: WHITE as unknown as RGB },
+        headStyles: { fillColor: RED as unknown as RGB, textColor: WHITE as unknown as RGB, fontStyle: 'bold', fontSize: 8 },
+      });
+      // Full employee summary table for the selected team (one row per employee)
+      const teamDept = scopeName;
+      const teamSummaries = summaries.filter(s => (s.department || 'Unknown') === teamDept);
+      if (teamSummaries.length > 0) {
+        const startYTeam = (doc as any).lastAutoTable ? (doc as any).lastAutoTable.finalY + 8 : cy2 + 20;
+        drawSectionHeader(doc, 'Employee Summary', 14, startYTeam, `One row per employee — averages over the selected period`);
+        autoTable(doc, {
+          startY: startYTeam + 6,
+          margin: { left: 14, right: 14 },
+          head: [['Employee', 'Avg hrs', 'Avg Late (min)', 'Missed', 'Avg Early Exit (min)', 'Latest In-Time', 'Earliest Out-Time', 'Attendance %', 'Present', 'Absent']],
+          body: teamSummaries.map(s => {
+            const n = normalizeEmployee(s);
+            const recs = (s.records || []);
+            const missed = recs.filter(r => isMissedPunchOut(r.status)).length;
+            const avgLate = s.avgLateMinutes ?? 0;
+            const avgEarly = s.avgEarlyExitMinutes ?? 0;
+            const latestIn = s.latestInTime ? `${Math.floor((s.latestInTime/60))}:${(s.latestInTime%60).toString().padStart(2,'0')}` : '—';
+            const earliestOut = s.earliestOutTime ? `${Math.floor((s.earliestOutTime/60))}:${(s.earliestOutTime%60).toString().padStart(2,'0')}` : '—';
+            return [
+              truncate(n.name, 24),
+              `${n.avgHours.toFixed(1)}`,
+              `${avgLate}`,
+              `${missed}`,
+              `${avgEarly}`,
+              latestIn,
+              earliestOut,
+              `${n.attendanceRate.toFixed(0)}%`,
+              `${n.presentDays}`,
+              `${n.absentDays}`,
+            ];
+          }),
+          styles: { font: 'helvetica', fontSize: 7.4, cellPadding: 3.2, textColor: INK as unknown as RGB, lineColor: BORDER as unknown as RGB, lineWidth: 0.12, fillColor: WHITE as unknown as RGB },
+          headStyles: { fillColor: BLUE as unknown as RGB, textColor: WHITE as unknown as RGB, fontStyle: 'bold', fontSize: 8 },
+        });
+      }
+    } else {
+      cy2 = drawSectionHeader(doc, 'How Each Team Is Doing', 14, cy2 + 2, 'Ranked by attendance rate — teams in red need the most support');
+      cy2 += 8;
 
-    ranked.forEach((d, i) => {
-      const col = i % cols;
-      const row = Math.floor(i / cols);
-      const x = 14 + col * (cardW2 + gap);
-      const cardY = cy2 + row * (cardH2 + gap);
-      const diff = d.rate - avgRate;
-      const note = i === 0
-        ? 'Lowest attendance — prioritize follow-up'
-        : i === ranked.length - 1
-          ? 'Highest attendance across all teams'
-          : `${Math.abs(diff).toFixed(0)} pts ${diff >= 0 ? 'above' : 'below'} the company average`;
-      drawTeamCard(doc, x, cardY, cardW2, cardH2, d.name, d.headcount, d.rate, note);
-    });
+      const cols = 4;
+      const gap = 6;
+      const cardW2 = (W - 28 - gap * (cols - 1)) / cols;
+      const cardH2 = 30;
+      const ranked = [...deptRows].sort((a, b) => a.rate - b.rate);
+      const avgRate = deptRows.reduce((s, d) => s + d.rate, 0) / deptRows.length;
 
-    const chartY = cy2 + Math.ceil(ranked.length / cols) * (cardH2 + gap) + 10;
-    if (chartY + 60 < H - 16) {
-      drawSectionHeader(doc, 'Side-by-Side Comparison', 14, chartY - 4);
-      doc.setFillColor(...CARD_BG);
-      doc.setDrawColor(...BORDER);
-      const chartBoxH = H - chartY - 16;
-      doc.roundedRect(14, chartY, W - 28, chartBoxH, 2, 2, 'FD');
-      drawBarChart(doc, 22, chartY + 8, W - 44, chartBoxH - 20, deptRows.slice(0, 10).map(d => ({ label: d.name, value: d.rate })), 100, BLUE, v => `${v.toFixed(0)}%`);
+      ranked.forEach((d, i) => {
+        const col = i % cols;
+        const row = Math.floor(i / cols);
+        const x = 14 + col * (cardW2 + gap);
+        const cardY = cy2 + row * (cardH2 + gap);
+        const diff = d.rate - avgRate;
+        const note = i === 0
+          ? 'Lowest attendance — prioritize follow-up'
+          : i === ranked.length - 1
+            ? 'Highest attendance across all teams'
+            : `${Math.abs(diff).toFixed(0)} pts ${diff >= 0 ? 'above' : 'below'} the company average`;
+        drawTeamCard(doc, x, cardY, cardW2, cardH2, d.name, d.headcount, d.rate, note);
+      });
+
+      const chartY = cy2 + Math.ceil(ranked.length / cols) * (cardH2 + gap) + 10;
+      if (chartY + 60 < H - 16) {
+        drawSectionHeader(doc, 'Side-by-Side Comparison', 14, chartY - 4);
+        doc.setFillColor(...CARD_BG);
+        doc.setDrawColor(...BORDER);
+        const chartBoxH = H - chartY - 16;
+        doc.roundedRect(14, chartY, W - 28, chartBoxH, 2, 2, 'FD');
+        drawBarChart(doc, 22, chartY + 8, W - 44, chartBoxH - 20, deptRows.slice(0, 10).map(d => ({ label: d.name, value: d.rate })), 100, BLUE, v => `${v.toFixed(0)}%`);
+      }
     }
   }
 
@@ -593,6 +666,7 @@ export async function exportPDF(
     doc.setFont('helvetica', 'italic'); doc.setFontSize(9.5); doc.setTextColor(...GREEN);
     doc.text('Nobody currently meets the at-risk criteria — nice work.', 14, cy4 + 12);
   }
+
 
   // ── Footers ──────────────────────────────────────────────────────────
   drawFootersOnAllPages(doc, W, H, label, genDate);
