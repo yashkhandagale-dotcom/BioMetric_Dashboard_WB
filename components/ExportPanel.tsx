@@ -1,7 +1,7 @@
 ﻿'use client';
 import { useState, useRef, useMemo, useEffect } from 'react';
 import { Download, FileSpreadsheet, FileText, FileIcon, ChevronDown, Loader2, X, Calendar, Building2, Users } from 'lucide-react';
-import { UploadedMonth, Thresholds, Holiday, AttendanceRecord, LeaveRecord } from '@/lib/types';
+import { UploadedMonth, Thresholds, Holiday } from '@/lib/types';
 import { getRecords } from '@/lib/storage';
 import { getAllLeaveRecords } from '@/lib/leaveStorage';
 import { getHolidays } from '@/lib/holidays';
@@ -24,7 +24,7 @@ function periodLabel(key: string): string {
   return `${MONTH_NAMES[parseInt(month, 10)] || month} ${year}`;
 }
 
-// FR-11D: dedicated multi-month export dialog ΓÇö From-month / To-month /
+// FR-11D: dedicated multi-month export dialog — From-month / To-month /
 // Office / Department selectors spanning every uploaded month, rather than
 // just exporting whatever happens to be on screen right now.
 export default function ExportPanel({ uploadedMonths, thresholds }: ExportPanelProps) {
@@ -33,7 +33,7 @@ export default function ExportPanel({ uploadedMonths, thresholds }: ExportPanelP
   const [loading, setLoading] = useState<'excel' | 'csv' | 'pdf' | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
-  // ΓöÇΓöÇ Scope selectors ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+  // ── Scope selectors ─────────────────────────────────────────────────────
   const [fromPeriod, setFromPeriod] = useState('');
   const [toPeriod, setToPeriod] = useState('');
   const [office, setOffice] = useState('ALL');
@@ -67,7 +67,7 @@ export default function ExportPanel({ uploadedMonths, thresholds }: ExportPanelP
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
-  // ΓöÇΓöÇ Months within the selected FromΓåÆTo period + office ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
+  // ── Months within the selected From→To period + office ──────────────────
   const scopedMonths = useMemo(() => {
     if (!fromPeriod || !toPeriod) return [];
     const lo = fromPeriod <= toPeriod ? fromPeriod : toPeriod;
@@ -80,47 +80,10 @@ export default function ExportPanel({ uploadedMonths, thresholds }: ExportPanelP
     });
   }, [uploadedMonths, fromPeriod, toPeriod, office]);
 
-  // ΓöÇΓöÇ Scoped data ΓÇö fetched async whenever scopedMonths changes ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
-  // (getRecords / getHolidays / getAllLeaveRecords are all Supabase-backed
-  // and async now, so this can't live in a useMemo ΓÇö it has to be state
-  // populated via useEffect.)
-  const [scopedRecords, setScopedRecords] = useState<AttendanceRecord[]>([]);
-  const [holidays, setHolidays] = useState<Holiday[]>([]);
-  const [leaveRecords, setLeaveRecords] = useState<LeaveRecord[]>([]);
-  const [scopedLoading, setScopedLoading] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    if (scopedMonths.length === 0) {
-      setScopedRecords([]);
-      setHolidays([]);
-      setLeaveRecords([]);
-      return;
-    }
-    setScopedLoading(true);
-    (async () => {
-      const [recs, leaves] = await Promise.all([
-        Promise.all(scopedMonths.map(m => getRecords(m.key))).then(r => r.flat()),
-        getAllLeaveRecords(scopedMonths.map(m => m.key)),
-      ]);
-
-      const seen = new Set<string>();
-      const allHolidays: Holiday[] = [];
-      for (const m of scopedMonths) {
-        const key = `${m.officeCode}_${m.year}`;
-        if (seen.has(key)) continue;
-        seen.add(key);
-        allHolidays.push(...(await getHolidays(m.officeCode, m.year)));
-      }
-
-      if (cancelled) return;
-      setScopedRecords(recs);
-      setLeaveRecords(leaves);
-      setHolidays(allHolidays);
-      setScopedLoading(false);
-    })();
-    return () => { cancelled = true; };
-  }, [scopedMonths]);
+  const scopedRecords = useMemo(
+    () => scopedMonths.flatMap(m => getRecords(m.key)),
+    [scopedMonths]
+  );
 
   const departments = useMemo(() => {
     return Array.from(new Set(scopedRecords.map(r => r.department))).filter(Boolean).sort();
@@ -136,6 +99,23 @@ export default function ExportPanel({ uploadedMonths, thresholds }: ExportPanelP
     if (selectedDepts.length === 0) return scopedRecords;
     return scopedRecords.filter(r => selectedDepts.includes(r.department));
   }, [scopedRecords, selectedDepts]);
+
+  const holidays = useMemo(() => {
+    const seen = new Set<string>();
+    const all: Holiday[] = [];
+    for (const m of scopedMonths) {
+      const key = `${m.officeCode}_${m.year}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      all.push(...getHolidays(m.officeCode, m.year));
+    }
+    return all;
+  }, [scopedMonths]);
+
+  const leaveRecords = useMemo(
+    () => getAllLeaveRecords(scopedMonths.map(m => m.key)),
+    [scopedMonths]
+  );
 
   const { employeeSummaries } = useDashboardData(
     filteredRecords, 'ALL', [], [], holidays, thresholds, leaveRecords
@@ -153,7 +133,7 @@ export default function ExportPanel({ uploadedMonths, thresholds }: ExportPanelP
     setSelectedDepts(prev => prev.includes(d) ? prev.filter(x => x !== d) : [...prev, d]);
   }
 
-  const canExport = scopedMonths.length > 0 && filteredRecords.length > 0 && !scopedLoading;
+  const canExport = scopedMonths.length > 0 && filteredRecords.length > 0;
 
   async function handleExcel() {
     if (!canExport) return;
@@ -176,7 +156,7 @@ export default function ExportPanel({ uploadedMonths, thresholds }: ExportPanelP
     setLoading('pdf');
     await new Promise(r => setTimeout(r, 50));
     const { exportPDF } = await import('@/lib/exportPDF');
-    await exportPDF(filteredRecords, employeeSummaries, label);
+    await exportPDF(filteredRecords, employeeSummaries, label, thresholds, holidays);
     setLoading(null);
   }
 
@@ -202,7 +182,7 @@ export default function ExportPanel({ uploadedMonths, thresholds }: ExportPanelP
             <div className="px-5 py-4 border-b border-slate-800 flex items-start justify-between gap-3">
               <div>
                 <h3 className="text-white font-semibold text-sm">Export Data</h3>
-                <p className="text-slate-400 text-xs mt-1">Choose the months, office and departments to include ΓÇö spans every uploaded month, not just what's on screen.</p>
+                <p className="text-slate-400 text-xs mt-1">Choose the months, office and departments to include — spans every uploaded month, not just what's on screen.</p>
               </div>
               <button onClick={() => setDialogOpen(false)} className="text-slate-500 hover:text-white transition-colors flex-shrink-0">
                 <X className="w-4 h-4" />
@@ -280,16 +260,14 @@ export default function ExportPanel({ uploadedMonths, thresholds }: ExportPanelP
 
               {/* Scope summary */}
               <div className="bg-slate-800/60 border border-slate-700 rounded-lg px-3 py-2 text-xs">
-                {scopedLoading ? (
-                  <p className="text-slate-400 flex items-center gap-1.5"><Loader2 className="w-3 h-3 animate-spin" /> Loading data for this scopeΓÇª</p>
-                ) : canExport ? (
+                {canExport ? (
                   <p className="text-slate-300">
-                    <span className="text-emerald-400 font-medium">{scopedMonths.length}</span> month{scopedMonths.length !== 1 ? 's' : ''} ┬╖{' '}
-                    <span className="text-emerald-400 font-medium">{new Set(filteredRecords.map(r => r.employeeCode)).size}</span> employees ┬╖{' '}
+                    <span className="text-emerald-400 font-medium">{scopedMonths.length}</span> month{scopedMonths.length !== 1 ? 's' : ''} ·{' '}
+                    <span className="text-emerald-400 font-medium">{new Set(filteredRecords.map(r => r.employeeCode)).size}</span> employees ·{' '}
                     <span className="text-emerald-400 font-medium">{filteredRecords.length.toLocaleString()}</span> records
                   </p>
                 ) : (
-                  <p className="text-amber-400">No data matches this selection ΓÇö adjust the range, office, or departments.</p>
+                  <p className="text-amber-400">No data matches this selection — adjust the range, office, or departments.</p>
                 )}
               </div>
             </div>

@@ -1,10 +1,10 @@
 'use client';
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { X, Settings as SettingsIcon, RotateCcw } from 'lucide-react';
 import { ColumnMapping, Thresholds, AttendanceRecord } from '@/lib/types';
 import { getAllMappings } from '@/lib/storage';
 import { DEFAULT_THRESHOLDS } from '@/lib/settings';
-import { getAllKnownDepartments, addDepartment } from '@/lib/departmentStorage';
+import { getAllKnownDepartments, addDepartment, getDeletedEmployees, restoreEmployee } from '@/lib/employeeStore';
 import SharedLinkPanel from './SharedLinkPanel';
 import BackupPanel from './BackupPanel';
 
@@ -13,6 +13,7 @@ interface SettingsPanelProps {
   thresholds: Thresholds;
   onSaveThresholds: (t: Thresholds) => void;
   records: AttendanceRecord[];
+  onDataChanged?: () => void; // called after a restore so the dashboard re-pulls records
 }
 
 const THRESHOLD_FIELDS: { key: keyof Thresholds; label: string; group: string }[] = [
@@ -44,19 +45,22 @@ function hhmmToMins(hhmm: string): number {
   return h * 60 + m;
 }
 
-export default function SettingsPanel({ onClose, thresholds, onSaveThresholds, records }: SettingsPanelProps) {
+export default function SettingsPanel({ onClose, thresholds, onSaveThresholds, records, onDataChanged }: SettingsPanelProps) {
   const [tab, setTab] = useState<'mapping' | 'thresholds' | 'share' | 'backup' | 'departments'>('thresholds');
   const [draft, setDraft] = useState<Thresholds>(thresholds);
   const [dirty, setDirty] = useState(false);
-  const [mappings, setMappings] = useState<Record<string, ColumnMapping>>({});
-
-  useEffect(() => {
-    getAllMappings().then(setMappings);
-  }, []);
+  const mappings = getAllMappings();
 
   const [departments, setDepartments] = useState<string[]>(() => getAllKnownDepartments(records));
   const [newDeptName, setNewDeptName] = useState('');
   const [deptError, setDeptError] = useState<string | null>(null);
+  const [deletedEmployees, setDeletedEmployees] = useState(() => getDeletedEmployees());
+
+  function handleRestoreEmployee(employeeCode: string, officeCode: string) {
+    restoreEmployee(employeeCode, officeCode);
+    setDeletedEmployees(getDeletedEmployees());
+    onDataChanged?.();
+  }
 
   function handleAddDepartment() {
     const trimmed = newDeptName.trim();
@@ -238,6 +242,39 @@ export default function SettingsPanel({ onClose, thresholds, onSaveThresholds, r
                   To move an individual employee into a different department, open their profile from the
                   Employees table and use the department dropdown there.
                 </p>
+              </div>
+
+              <div>
+                <h4 className="text-slate-400 text-xs font-semibold uppercase tracking-wide mb-2">
+                  Deleted Employees ({deletedEmployees.length})
+                </h4>
+                <p className="text-slate-500 text-[11px] mb-2">
+                  Deleted employees are hidden from every chart, table and export — even if a future CSV
+                  re-imports their attendance rows. Restore them here if that was a mistake.
+                </p>
+                {deletedEmployees.length === 0 ? (
+                  <p className="text-slate-500 text-sm">No deleted employees.</p>
+                ) : (
+                  <div className="space-y-1.5">
+                    {deletedEmployees.map((e) => (
+                      <div
+                        key={`${e.employeeCode}__${e.officeCode}`}
+                        className="flex items-center justify-between bg-slate-800/60 border border-slate-700 rounded-lg px-3 py-2"
+                      >
+                        <div>
+                          <span className="text-white text-sm">{e.employeeName}</span>
+                          <span className="text-slate-500 text-xs ml-2">{e.department} · {e.officeCode}</span>
+                        </div>
+                        <button
+                          onClick={() => handleRestoreEmployee(e.employeeCode, e.officeCode)}
+                          className="text-blue-400 hover:text-blue-300 text-xs font-medium transition-colors"
+                        >
+                          Restore
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           )}

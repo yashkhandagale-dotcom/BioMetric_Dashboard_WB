@@ -1,5 +1,5 @@
 import { AttendanceRecord, ColumnMapping, UploadedMonth } from './types';
-import { applyDepartmentOverrides } from './departmentStorage';
+import { applyEmployeeMaster } from './employeeStore';
 
 const KEYS = {
   MAPPINGS: 'office_mappings',
@@ -25,7 +25,7 @@ export function saveMapping(officeCode: string, mapping: ColumnMapping): void {
   localStorage.setItem(KEYS.MAPPINGS, JSON.stringify(all));
 }
 
-export async function getAllMappings(): Promise<Record<string, ColumnMapping>> {
+export function getAllMappings(): Record<string, ColumnMapping> {
   if (typeof window === 'undefined') return {};
   const raw = localStorage.getItem(KEYS.MAPPINGS);
   return raw ? JSON.parse(raw) : {};
@@ -83,10 +83,10 @@ export function saveRecords(
 
 export function getRecords(monthKey: string): AttendanceRecord[] {
   const records = getRawRecords(monthKey);
-  // Overlay any HR-made department reassignments (lib/departmentStorage.ts) —
-  // non-destructive, so the underlying CSV-derived data is never touched and
-  // a future remap/backup still reflects what the machine actually reported.
-  return applyDepartmentOverrides(records);
+  // Overlay the employee master table (lib/employeeStore.ts): authoritative
+  // department reassignments + soft-deleted employees excluded — non-destructive,
+  // raw CSV-derived storage is never touched.
+  return applyEmployeeMaster(records);
 }
 
 export function getAllRecords(): AttendanceRecord[] {
@@ -97,10 +97,10 @@ export function getAllRecords(): AttendanceRecord[] {
 
 // ── B8: pull one employee's records from every uploaded month (same office),
 // sorted oldest → newest, for "compare with own previous month" view. ──────────
-export async function getEmployeeMonthHistory(
+export function getEmployeeMonthHistory(
   employeeCode: string,
   officeCode: string
-): Promise<{ monthKey: string; label: string; year: string; month: string; officeCode: string; records: AttendanceRecord[] }[]> {
+): { monthKey: string; label: string; year: string; month: string; officeCode: string; records: AttendanceRecord[] }[] {
   if (typeof window === 'undefined') return [];
   const months = getUploadedMonths().filter((m) => m.officeCode === officeCode);
   return months
@@ -205,4 +205,4 @@ export function importAllData(backup: BackupFile): { imported: number } {
     imported++;
   }
   return { imported };
-} 
+}

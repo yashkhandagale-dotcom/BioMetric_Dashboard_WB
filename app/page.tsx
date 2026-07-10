@@ -6,9 +6,9 @@ import { AttendanceRecord, ColumnMapping, EmployeeSummary, UploadedMonth, Holida
 import {
   getMapping, saveMapping, getRecords, saveRecords, addUploadedMonth, getUploadedMonths,
 } from '@/lib/storage';
-import { getThresholds, saveThresholds, DEFAULT_THRESHOLDS } from '@/lib/settings';
+import { getThresholds, saveThresholds } from '@/lib/settings';
 import { getLeaveRecords } from '@/lib/leaveStorage';
-import { getAllKnownDepartments } from '@/lib/departmentStorage';
+import { getAllKnownDepartments } from '@/lib/employeeStore';
 import { buildLeaveMap } from '@/lib/useDashboardData';
 import { parseCSVHeaders, parseCSVWithMapping } from '@/lib/parseCSV';
 import { validateFile } from '@/lib/validateFile';
@@ -123,10 +123,9 @@ function HRDashboard() {
   const [showHolidayModal, setShowHolidayModal] = useState(false);
   const [holidays, setHolidays] = useState<Holiday[]>([]);
   const [tableFilter, setTableFilter] = useState<string>('all');
-  const [thresholds, setThresholds] = useState<Thresholds>(DEFAULT_THRESHOLDS);
+  const [thresholds, setThresholds] = useState<Thresholds>(getThresholds());
   const [leaveRecords, setLeaveRecords] = useState<LeaveRecord[]>([]);
   const [allOfficeRecords, setAllOfficeRecords] = useState<AttendanceRecord[]>([]);
-  const [allUploadedRecords, setAllUploadedRecords] = useState<AttendanceRecord[]>([]);
   const [dateFrom, setDateFrom] = useState<string | null>(null);
   const [dateTo, setDateTo] = useState<string | null>(null);
 
@@ -135,43 +134,17 @@ function HRDashboard() {
   const [deptDrillSync, setDeptDrillSync] = useState<string | null>(null);
 
   useEffect(() => {
-    getThresholds().then(setThresholds);
-  }, []);
-
-  useEffect(() => {
     if (!selectedMonthKey) return;
-    let cancelled = false;
     const officeCode = getOfficeFromKey(selectedMonthKey);
     const year = getYearFromKey(selectedMonthKey);
-    (async () => {
-      const [h, l, months] = await Promise.all([
-        getHolidays(officeCode, year),
-        getLeaveRecords(selectedMonthKey),
-        getUploadedMonths(),
-      ]);
-      if (cancelled) return;
-      setHolidays(h);
-      setLeaveRecords(l);
-      const month = selectedMonthKey.split('_')[1];
-      const sameMonth = months.filter(m => m.month === month && m.year === year);
-      const officeRecs = (await Promise.all(sameMonth.map(m => getRecords(m.key)))).flat();
-      if (cancelled) return;
-      setAllOfficeRecords(officeRecs);
-    })();
-    return () => { cancelled = true; };
-  }, [selectedMonthKey]);
+    setHolidays(getHolidays(officeCode, year));
+    setLeaveRecords(getLeaveRecords(selectedMonthKey));
 
-  // All records across every uploaded month — re-fetched whenever the set of
-  // uploaded months changes. This is ALWAYS the source of truth; the month
-  // dropdown only controls which holidays/leaves/office context to load.
-  useEffect(() => {
-    if (uploadedMonths.length === 0) { setAllUploadedRecords([]); return; }
-    let cancelled = false;
-    Promise.all(uploadedMonths.map(m => getRecords(m.key))).then((recs) => {
-      if (!cancelled) setAllUploadedRecords(recs.flat());
-    });
-    return () => { cancelled = true; };
-  }, [uploadedMonths]);
+    const months = getUploadedMonths();
+    const month = selectedMonthKey.split('_')[1];
+    const sameMonth = months.filter(m => m.month === month && m.year === year);
+    setAllOfficeRecords(sameMonth.flatMap(m => getRecords(m.key)));
+  }, [selectedMonthKey]);
 
   useEffect(() => {
     function handler(e: Event) {
@@ -186,20 +159,18 @@ function HRDashboard() {
   }, []);
 
   useEffect(() => {
-    (async () => {
-      const months = await getUploadedMonths();
-      if (months.length === 0) return;
-      setUploadedMonths(months);
-      const monthParam = searchParams.get('month');
-      const officeParam = searchParams.get('office');
-      const deptParam = searchParams.get('dept');
-      const matchMonth = months.find(m => m.key === monthParam) ?? months[months.length - 1];
-      setSelectedMonthKey(matchMonth.key);
-      setAllRecords(await getRecords(matchMonth.key));
-      if (officeParam) setSelectedOffice(officeParam);
-      if (deptParam) setSelectedDepts(deptParam.split(',').filter(Boolean));
-      setAppState('dashboard');
-    })();
+    const months = getUploadedMonths();
+    if (months.length === 0) return;
+    setUploadedMonths(months);
+    const monthParam = searchParams.get('month');
+    const officeParam = searchParams.get('office');
+    const deptParam = searchParams.get('dept');
+    const matchMonth = months.find(m => m.key === monthParam) ?? months[months.length - 1];
+    setSelectedMonthKey(matchMonth.key);
+    setAllRecords(getRecords(matchMonth.key));
+    if (officeParam) setSelectedOffice(officeParam);
+    if (deptParam) setSelectedDepts(deptParam.split(',').filter(Boolean));
+    setAppState('dashboard');
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const syncURL = useCallback((monthKey: string, office: string, depts: string[]) => {
@@ -210,12 +181,6 @@ function HRDashboard() {
     const qs = params.toString();
     router.replace(qs ? `?${qs}` : '/', { scroll: false });
   }, [router]);
-
-  async function handleSignOut() {
-    await fetch('/api/auth/signout', { method: 'POST' });
-    router.replace('/login');
-    router.refresh();
-  }
 
   function showToast(type: Toast['type'], message: string) {
     setToast({ type, message });
@@ -250,7 +215,7 @@ function HRDashboard() {
     for (const pf of valid) {
       if (seen.has(pf.officeCode)) continue;
       seen.add(pf.officeCode);
-      if (!(await getMapping(pf.officeCode))) {
+      if (!getMapping(pf.officeCode)) {
         const headers = await parseCSVHeaders(pf.file);
         queue.push({ officeCode: pf.officeCode, headers });
       }
@@ -268,7 +233,7 @@ function HRDashboard() {
   async function handleMappingSave(mapping: ColumnMapping) {
     const current = mappingQueue[0];
     if (!current) return;
-    await saveMapping(current.officeCode, mapping);
+    saveMapping(current.officeCode, mapping);
 
     const remaining = mappingQueue.slice(1);
     if (remaining.length > 0) {
@@ -290,7 +255,7 @@ function HRDashboard() {
   }
 
   async function proceedToConflictCheck(batch: PendingFile[]) {
-    const months = await getUploadedMonths();
+    const months = getUploadedMonths();
     const conflicts: { key: string; label: string }[] = [];
     for (const pf of batch) {
       const key = `${pf.year}_${pf.month}_${pf.officeCode}`;
@@ -310,24 +275,21 @@ function HRDashboard() {
     let lastMonthKey = '';
 
     for (const pf of batch) {
-      const mapping = await getMapping(pf.officeCode);
+      const mapping = getMapping(pf.officeCode);
       if (!mapping) continue;
       const { records } = await parseCSVWithMapping(pf.file, mapping, pf.officeCode, thresholds.graceMinutes);
       const monthKey = `${pf.year}_${pf.month}_${pf.officeCode}`;
       const monthLabel = `${pf.officeCode} \u2014 ${getMonthName(pf.month)} ${pf.year}`;
-      // NOTE: uploaded_months row must exist BEFORE attendance_records rows,
-      // since attendance_records.month_key has a foreign key referencing
-      // uploaded_months.key. Creating it first avoids a 409/23503 FK violation.
-      await addUploadedMonth({ key: monthKey, label: monthLabel, officeCode: pf.officeCode, month: pf.month, year: pf.year });
-      const { added, updated } = await saveRecords(monthKey, records);
+      const { added, updated } = saveRecords(monthKey, records);
+      addUploadedMonth({ key: monthKey, label: monthLabel, officeCode: pf.officeCode, month: pf.month, year: pf.year });
       lastMonthKey = monthKey;
       results.push(`${pf.officeCode} ${getMonthName(pf.month)} ${pf.year} (${added} new, ${updated} updated)`);
     }
 
-    const months = await getUploadedMonths();
+    const months = getUploadedMonths();
     setUploadedMonths(months);
     if (lastMonthKey) {
-      setAllRecords(await getRecords(lastMonthKey));
+      setAllRecords(getRecords(lastMonthKey));
       setSelectedMonthKey(lastMonthKey);
       syncURL(lastMonthKey, 'ALL', []);
     }
@@ -353,9 +315,9 @@ function HRDashboard() {
     setSkippedFiles([]);
   }
 
-  async function handleMonthChange(key: string) {
+  function handleMonthChange(key: string) {
     setSelectedMonthKey(key);
-    setAllRecords(await getRecords(key));
+    setAllRecords(getRecords(key));
     setSelectedOffice('ALL');
     setSelectedDepts([]);
     setTableFilter('all');
@@ -389,27 +351,26 @@ function HRDashboard() {
     syncURL(selectedMonthKey, selectedOffice, []);
   }
 
-  async function refreshLeaveRecords() {
-    if (selectedMonthKey) setLeaveRecords(await getLeaveRecords(selectedMonthKey));
+  function refreshLeaveRecords() {
+    if (selectedMonthKey) setLeaveRecords(getLeaveRecords(selectedMonthKey));
   }
 
-  async function refreshDepartmentOverrides() {
-    // Reload records to apply any department overrides that were just set
-    const monthKey = selectedMonthKey;
-    if (monthKey) {
-      const records = await getRecords(monthKey);
-      // Find and update the records in allUploadedRecords
-      setAllUploadedRecords(prev => {
-        const map = new Map(prev.map(r => [`${r.employeeCode}__${r.date}__${r.officeCode}`, r]));
-        records.forEach(r => map.set(`${r.employeeCode}__${r.date}__${r.officeCode}`, r));
-        return Array.from(map.values());
-      });
-    }
+  // After HR reassigns an employee's department or deletes/restores an employee
+  // (lib/employeeStore.ts), re-pull records from storage so it's reflected
+  // everywhere: KPI cards, dept charts, employee table, exports — same shape
+  // as the month-load effect above, just triggered on demand instead of on mount.
+  function refreshAfterEmployeeChange() {
+    if (!selectedMonthKey) return;
+    setAllRecords(getRecords(selectedMonthKey));
+    const year = getYearFromKey(selectedMonthKey);
+    const month = selectedMonthKey.split('_')[1];
+    const months = getUploadedMonths();
+    const sameMonth = months.filter(m => m.month === month && m.year === year);
+    setAllOfficeRecords(sameMonth.flatMap(m => getRecords(m.key)));
   }
 
-
-  async function handleSaveThresholds(t: Thresholds) {
-    await saveThresholds(t);
+  function handleSaveThresholds(t: Thresholds) {
+    saveThresholds(t);
     setThresholds(t);
     showToast('success', 'Thresholds updated.');
   }
@@ -419,7 +380,7 @@ function HRDashboard() {
   // The date range (dateFrom/dateTo) windows into this pool.
   // When no date range is set, we default to showing only the selected month's records
   // so the default view still feels "per month" without requiring the user to set dates.
-  // (allUploadedRecords is populated by the useEffect above, keyed off uploadedMonths.)
+  const allUploadedRecords = uploadedMonths.flatMap(m => getRecords(m.key));
 
   // Effective record pool for the dashboard:
   // - If user has set a date range → use all records across all months (cross-month support)
@@ -512,10 +473,6 @@ function HRDashboard() {
             <button onClick={() => setAppState('upload')}
               className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">
               <Upload className="w-4 h-4" /> Upload CSV
-            </button>
-            <button onClick={handleSignOut}
-              className="text-slate-500 hover:text-slate-300 px-2 py-1.5 rounded-lg text-xs transition-colors">
-              Sign out
             </button>
           </div>
         )}
@@ -811,8 +768,8 @@ function HRDashboard() {
         monthKey={selectedMonthKey}
         leaveMap={leaveMap}
         onLeaveChange={refreshLeaveRecords}
-        allDepartments={departments}
-        onDepartmentChange={refreshDepartmentOverrides}
+        allDepartments={getAllKnownDepartments(allUploadedRecords)}
+        onEmployeeDataChange={refreshAfterEmployeeChange}
       />
 
       {showHolidayModal && (
@@ -830,6 +787,7 @@ function HRDashboard() {
           thresholds={thresholds}
           onSaveThresholds={handleSaveThresholds}
           records={filteredRecords}
+          onDataChanged={refreshAfterEmployeeChange}
         />
       )}
 
