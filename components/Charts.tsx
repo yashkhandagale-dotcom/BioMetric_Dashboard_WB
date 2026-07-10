@@ -395,12 +395,12 @@ export function DeptAttendanceChart({ data, allRecords, selectedDepts, highlight
       if (isPresent(r.status) && !r.isShortDay) row.present++;
       else if (isAbsent(r.status)) row.absent++;
     }
-    return Array.from(map.values()).sort((a, b) => {
-      const ra = a.present / (a.present + a.absent || 1);
-      const rb = b.present / (b.present + b.absent || 1);
-      return ra - rb;
-    });
-  }, [drillDept, allRecords]);
+    const rows = Array.from(map.values());
+    const rate = (e: { present: number; absent: number }) => e.present / (e.present + e.absent || 1);
+    if (sortMode === 'az') return rows.sort((a, b) => a.name.localeCompare(b.name));
+    if (sortMode === 'best') return rows.sort((a, b) => rate(b) - rate(a));
+    return rows.sort((a, b) => rate(a) - rate(b)); // 'worst' and default
+  }, [drillDept, allRecords, sortMode]);
 
   function handleDrillIn(dept: string) {
     setManualDrill(dept);

@@ -102,16 +102,24 @@ export default function ExportPanel({ uploadedMonths, thresholds }: ExportPanelP
     return scopedRecords.filter(r => selectedDepts.includes(r.department));
   }, [scopedRecords, selectedDepts]);
 
-  const holidays = useMemo(() => {
+  const [holidays, setHolidays] = useState<Holiday[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
     const seen = new Set<string>();
-    const all: Holiday[] = [];
-    for (const m of scopedMonths) {
+    const uniquePairs = scopedMonths.filter(m => {
       const key = `${m.officeCode}_${m.year}`;
-      if (seen.has(key)) continue;
+      if (seen.has(key)) return false;
       seen.add(key);
-      all.push(...getHolidays(m.officeCode, m.year));
-    }
-    return all;
+      return true;
+    });
+
+    Promise.all(uniquePairs.map(m => getHolidays(m.officeCode, m.year)))
+      .then(results => {
+        if (!cancelled) setHolidays(results.flat());
+      });
+
+    return () => { cancelled = true; };
   }, [scopedMonths]);
 
   const [leaveRecords, setLeaveRecords] = useState<LeaveRecord[]>([]);
