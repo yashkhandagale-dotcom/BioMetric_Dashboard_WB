@@ -395,12 +395,12 @@ export function DeptAttendanceChart({ data, allRecords, selectedDepts, highlight
       if (isPresent(r.status) && !r.isShortDay) row.present++;
       else if (isAbsent(r.status)) row.absent++;
     }
-    return Array.from(map.values()).sort((a, b) => {
-      const ra = a.present / (a.present + a.absent || 1);
-      const rb = b.present / (b.present + b.absent || 1);
-      return ra - rb;
-    });
-  }, [drillDept, allRecords]);
+    const rows = Array.from(map.values());
+    const rate = (e: { present: number; absent: number }) => e.present / (e.present + e.absent || 1);
+    if (sortMode === 'az') return rows.sort((a, b) => a.name.localeCompare(b.name));
+    if (sortMode === 'best') return rows.sort((a, b) => rate(b) - rate(a));
+    return rows.sort((a, b) => rate(a) - rate(b)); // 'worst' and default
+  }, [drillDept, allRecords, sortMode]);
 
   function handleDrillIn(dept: string) {
     setManualDrill(dept);
@@ -423,7 +423,10 @@ export function DeptAttendanceChart({ data, allRecords, selectedDepts, highlight
           </button>
           <h3 className="text-white font-semibold text-sm">{drillDept} — Employee Attendance</h3>
         </div>
-        <p className="text-slate-500 text-xs mb-4">{drillData.length} employees · sorted worst → best</p>
+        <div className="mb-3">
+          <SortToggle mode={sortMode} onChange={setSortMode} />
+        </div>
+        <p className="text-slate-500 text-xs mb-4">{drillData.length} employees</p>
         <ResponsiveContainer width="100%" height={Math.max(280, drillData.length * 36)}>
           <BarChart data={drillData} layout="vertical" margin={{ top: 4, right: 55, left: 4, bottom: 4 }} barCategoryGap="20%">
             <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" horizontal={false} />
@@ -582,7 +585,7 @@ export function OfficeAttendanceChart({ data, onOfficeClick }: {
 
 // ── Productivity Lost by Dept ─────────────────────────────────────────────────
 export function DeptProductivityChart({
-  data, allRecords, selectedDepts, highlightDepts, externalDrillDept, onDrillBack, onDeptDrillChange
+  data, allRecords, selectedDepts, highlightDepts, externalDrillDept, onDrillBack, onDeptDrillChange, onDeptClick
 }: {
   data: DeptAttendance[];
   allRecords?: AttendanceRecord[];
@@ -592,6 +595,7 @@ export function DeptProductivityChart({
   externalDrillDept?: string | null;
   onDrillBack?: () => void;
   onDeptDrillChange?: (dept: string | null) => void;
+  onDeptClick?: (dept: string) => void; // clears selectedDepts on Back
 }) {
   const [internalDrill, setInternalDrill] = useState<string | null>(null);
   const [sortMode, setSortMode] = useState<SortMode>('default');
@@ -629,6 +633,7 @@ export function DeptProductivityChart({
     setInternalDrill(null);
     onDeptDrillChange?.(null);
     onDrillBack?.();
+    if (onDeptClick && selectedDepts?.length === 1) onDeptClick(selectedDepts[0]);
   }
 
   const drillData = useMemo(() => {
@@ -643,14 +648,15 @@ export function DeptProductivityChart({
       const raw = durationToMinutes(r.duration);
       e.effectiveHours += raw > 60 ? (raw - 60) / 60 : 0;
     }
-    return Array.from(map.values())
-      .map(e => ({
-        ...e,
-        daysLost: +(e.lostMins / SHIFT_MINUTES).toFixed(2),
-        avgEffectiveHours: e.presentDays > 0 ? +(e.effectiveHours / e.presentDays).toFixed(2) : 0,
-      }))
-      .sort((a, b) => b.daysLost - a.daysLost || a.name.localeCompare(b.name));
-  }, [drillDept, safeRecords]);
+    const rows = Array.from(map.values()).map(e => ({
+      ...e,
+      daysLost: +(e.lostMins / SHIFT_MINUTES).toFixed(2),
+      avgEffectiveHours: e.presentDays > 0 ? +(e.effectiveHours / e.presentDays).toFixed(2) : 0,
+    }));
+    if (sortMode === 'az') return rows.sort((a, b) => a.name.localeCompare(b.name));
+    if (sortMode === 'best') return rows.sort((a, b) => a.daysLost - b.daysLost || a.name.localeCompare(b.name));
+    return rows.sort((a, b) => b.daysLost - a.daysLost || a.name.localeCompare(b.name)); // 'worst' and default
+  }, [drillDept, safeRecords, sortMode]);
 
   if (drillDept) {
     return (
@@ -664,7 +670,10 @@ export function DeptProductivityChart({
           </button>
           <h3 className="text-white font-semibold text-sm">{drillDept} — Productivity Lost per Employee</h3>
         </div>
-        <p className="text-slate-500 text-xs mb-4">{drillData.length} employees · sorted by productivity lost · based on hours short of 8h effective work</p>
+        <div className="mb-3">
+          <SortToggle mode={sortMode} onChange={setSortMode} />
+        </div>
+        <p className="text-slate-500 text-xs mb-4">{drillData.length} employees · based on hours short of 8h effective work</p>
         {drillData.length === 0
           ? <div className="h-48 flex items-center justify-center text-slate-500 text-sm">No present-day records found for this department</div>
           : (

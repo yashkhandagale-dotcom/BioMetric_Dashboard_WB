@@ -19,16 +19,21 @@ export function isPresent(status: string): boolean {
 
 export function isAbsent(status: string): boolean {
   const s = status.toLowerCase();
-  return s.includes('absent') && !s.includes('missed');
-}
-
-export function isMissedPunchOut(status: string): boolean {
-  const s = status.toLowerCase();
-  return s.includes('missed') && s.includes('punch');
+  return s.includes('absent') || s === 'absent (no outpunch)';
 }
 
 export function isWeeklyOff(status: string): boolean {
   return status.toLowerCase().includes('weeklyoff');
+}
+
+// Flags a day-record where a swipe in or out wasn't captured by the machine
+// (e.g. "Absent (No Outpunch)") — these already count toward isAbsent(), but
+// callers like the PDF export surface them separately as a "worth a manual
+// check before treating as a genuine absence" note rather than silently
+// folding them into the absence count with no explanation.
+export function isMissedPunchOut(status: string): boolean {
+  const s = status.toLowerCase();
+  return s.includes('no outpunch') || s.includes('missed punch') || s.includes('no punch out');
 }
 
 export function colorStatus(rate: number, greenThreshold: number, amberThreshold: number, reverse = false): 'green' | 'amber' | 'red' {
@@ -141,7 +146,6 @@ export function getEffectiveStatus(
     if (leave.leaveType === 'lwp') return 'leave_lwp';
   }
   if (isPresent(r.status)) return 'present';
-  if (isMissedPunchOut(r.status)) return 'missed_punch_out';
   return 'absent';
 }
 

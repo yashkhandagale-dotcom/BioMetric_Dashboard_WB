@@ -8,7 +8,7 @@ import {
 } from '@/lib/storage';
 import { getThresholds, saveThresholds, DEFAULT_THRESHOLDS } from '@/lib/settings';
 import { getLeaveRecords } from '@/lib/leaveStorage';
-import { getAllKnownDepartments } from '@/lib/departmentStorage';
+import { getAllKnownDepartments, loadEmployeeDirectory, useEmployeeDirectorySync } from '@/lib/employeeStore';
 import { buildLeaveMap } from '@/lib/useDashboardData';
 import { parseCSVHeaders, parseCSVWithMapping } from '@/lib/parseCSV';
 import { validateFile } from '@/lib/validateFile';
@@ -137,6 +137,22 @@ function HRDashboard() {
   useEffect(() => {
     getThresholds().then(setThresholds);
   }, []);
+
+  // ── Employee directory (department overrides + deletions) ─────────────────
+  // Loaded once from Supabase into an in-memory cache (lib/employeeStore.ts).
+  // getRecords() applies it synchronously, so every chart/table/export is
+  // already correct — this effect just needs to trigger a re-fetch whenever
+  // the directory changes (initial load, or any reassignment/delete/restore).
+  const directoryVersion = useEmployeeDirectorySync();
+
+  useEffect(() => {
+    loadEmployeeDirectory();
+  }, []);
+
+  useEffect(() => {
+    refreshDepartmentOverrides();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [directoryVersion]);
 
   useEffect(() => {
     if (!selectedMonthKey) return;
@@ -394,17 +410,23 @@ function HRDashboard() {
   }
 
   async function refreshDepartmentOverrides() {
-    // Reload records to apply any department overrides that were just set
-    const monthKey = selectedMonthKey;
-    if (monthKey) {
-      const records = await getRecords(monthKey);
-      // Find and update the records in allUploadedRecords
-      setAllUploadedRecords(prev => {
-        const map = new Map(prev.map(r => [`${r.employeeCode}__${r.date}__${r.officeCode}`, r]));
-        records.forEach(r => map.set(`${r.employeeCode}__${r.date}__${r.officeCode}`, r));
-        return Array.from(map.values());
-      });
-    }
+    // Full re-fetch (not an incremental merge) — necessary because a deleted
+    // employee needs their records actually REMOVED from the pool, which a
+    // merge-by-key update can't do (it only ever adds/updates keys, never
+    // drops ones that no longer come back from getRecords()).
+    const uRecs = (await Promise.all(uploadedMonths.map(m => getRecords(m.key)))).flat();
+    setAllUploadedRecords(uRecs);
+
+    if (!selectedMonthKey) return;
+    setAllRecords(await getRecords(selectedMonthKey));
+
+    const officeCode = getOfficeFromKey(selectedMonthKey);
+    const year = getYearFromKey(selectedMonthKey);
+    const months = await getUploadedMonths();
+    const month = selectedMonthKey.split('_')[1];
+    const sameMonth = months.filter(m => m.month === month && m.year === year);
+    const officeRecs = (await Promise.all(sameMonth.map(m => getRecords(m.key)))).flat();
+    setAllOfficeRecords(officeRecs);
   }
 
 
@@ -746,6 +768,7 @@ function HRDashboard() {
                     externalDrillDept={deptDrillSync}
                     onDrillBack={() => setDeptDrillSync(null)}
                     onDeptDrillChange={(dept) => setDeptDrillSync(dept)}
+                    onDeptClick={(dept) => toggleDept(dept)}
                   />
                 </div>
 
@@ -811,7 +834,7 @@ function HRDashboard() {
         monthKey={selectedMonthKey}
         leaveMap={leaveMap}
         onLeaveChange={refreshLeaveRecords}
-        allDepartments={departments}
+        allDepartments={getAllKnownDepartments(allUploadedRecords)}
         onDepartmentChange={refreshDepartmentOverrides}
       />
 
@@ -888,3 +911,4 @@ export default function Home() {
     </Suspense>
   );
 }
+//page.tsx

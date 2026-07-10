@@ -1,5 +1,5 @@
 import { AttendanceRecord, ColumnMapping, UploadedMonth } from './types';
-import { applyDepartmentOverrides } from './departmentStorage';
+import { applyEmployeeDirectory } from './employeeStore';
 
 const KEYS = {
   MAPPINGS: 'office_mappings',
@@ -83,10 +83,10 @@ export function saveRecords(
 
 export function getRecords(monthKey: string): AttendanceRecord[] {
   const records = getRawRecords(monthKey);
-  // Overlay any HR-made department reassignments (lib/departmentStorage.ts) —
+  // Overlay any HR-made department reassignments / deletions (lib/employeeStore.ts) —
   // non-destructive, so the underlying CSV-derived data is never touched and
   // a future remap/backup still reflects what the machine actually reported.
-  return applyDepartmentOverrides(records);
+  return applyEmployeeDirectory(records);
 }
 
 export function getAllRecords(): AttendanceRecord[] {
@@ -205,4 +205,4 @@ export function importAllData(backup: BackupFile): { imported: number } {
     imported++;
   }
   return { imported };
-} 
+}

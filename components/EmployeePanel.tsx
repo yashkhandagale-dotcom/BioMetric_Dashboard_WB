@@ -1,13 +1,16 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { X, Clock, LogOut, TrendingUp, Zap, AlertTriangle, Info, Tag, Edit2 } from 'lucide-react';
+import { X, Clock, LogOut, TrendingUp, Zap, AlertTriangle, Info, Tag, Edit2, Trash2, RotateCcw } from 'lucide-react';
 import { EmployeeSummary, Holiday, LeaveType, LeaveRecord } from '@/lib/types';
 import { getLateMinutes, getEarlyMinutes } from '@/lib/useDashboardData';
 import { DEFAULT_THRESHOLDS } from '@/lib/settings';
 import { durationToMinutes } from '@/lib/parseCSV';
 import { getHolidayName } from '@/lib/holidays';
 import { upsertLeaveRecord, deleteLeaveRecord } from '@/lib/leaveStorage';
-import { setEmployeeDepartment, clearEmployeeDepartmentOverride, getEmployeeDepartmentOverride } from '@/lib/departmentStorage';
+import {
+  setEmployeeDepartment, clearEmployeeDepartmentOverride, getEmployeeDepartmentOverride,
+  deleteEmployee, restoreEmployee, isEmployeeDeleted,
+} from '@/lib/employeeStore';
 import { PersonalHeatmap } from './Charts';
 
 interface EmployeePanelProps {
@@ -112,10 +115,25 @@ export default function EmployeePanel({
     if (!employee) return;
     setShowDeptEditor(false);
     if (newDept === employee.department) {
-      clearEmployeeDepartmentOverride(employee.employeeCode, employee.officeCode);
+      await clearEmployeeDepartmentOverride(employee.employeeCode, employee.officeCode);
     } else {
-      setEmployeeDepartment(employee.employeeCode, employee.officeCode, newDept);
+      await setEmployeeDepartment(employee.employeeCode, employee.officeCode, newDept, employee.employeeName);
     }
+    onDepartmentChange?.();
+    forceRerender(v => v + 1);
+  }
+
+  async function handleDelete() {
+    if (!employee) return;
+    if (!window.confirm(`Delete ${employee.employeeName}? They'll be hidden from every chart, table, and export — even if they still appear in future CSV uploads. You can restore them from Settings → Employees.`)) return;
+    await deleteEmployee(employee.employeeCode, employee.officeCode, employee.employeeName);
+    onDepartmentChange?.();
+    onClose(); // nothing left to show — they're excluded from every list now
+  }
+
+  async function handleRestore() {
+    if (!employee) return;
+    await restoreEmployee(employee.employeeCode, employee.officeCode);
     onDepartmentChange?.();
     forceRerender(v => v + 1);
   }
@@ -165,9 +183,22 @@ export default function EmployeePanel({
               <span className="bg-blue-600/20 text-blue-400 text-[10px] font-medium px-1.5 py-0.5 rounded">{employee.officeCode}</span>
             </div>
           </div>
-          <button onClick={onClose} className="text-slate-400 hover:text-white transition-colors mt-0.5 flex-shrink-0">
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-1 mt-0.5 flex-shrink-0">
+            {!readOnly && (
+              isEmployeeDeleted(employee.employeeCode) ? (
+                <button onClick={handleRestore} className="text-emerald-400 hover:text-emerald-300 transition-colors p-1" title="Restore employee">
+                  <RotateCcw className="w-4 h-4" />
+                </button>
+              ) : (
+                <button onClick={handleDelete} className="text-red-400/70 hover:text-red-400 transition-colors p-1" title="Delete employee">
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              )
+            )}
+            <button onClick={onClose} className="text-slate-400 hover:text-white transition-colors">
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         <div className="flex-1 overflow-y-auto">
