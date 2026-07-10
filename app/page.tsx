@@ -768,6 +768,7 @@ function HRDashboard() {
                     externalDrillDept={deptDrillSync}
                     onDrillBack={() => setDeptDrillSync(null)}
                     onDeptDrillChange={(dept) => setDeptDrillSync(dept)}
+                    onDeptClick={(dept) => toggleDept(dept)}
                   />
                 </div>
 
@@ -910,3 +911,4 @@ export default function Home() {
     </Suspense>
   );
 }
+//page.tsx
