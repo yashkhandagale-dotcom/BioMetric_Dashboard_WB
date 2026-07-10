@@ -1,12 +1,13 @@
 ﻿'use client';
 import { useState, useRef, useMemo, useEffect } from 'react';
 import { Download, FileSpreadsheet, FileText, FileIcon, ChevronDown, Loader2, X, Calendar, Building2, Users } from 'lucide-react';
-import { UploadedMonth, Thresholds, Holiday } from '@/lib/types';
+import { UploadedMonth, Thresholds, Holiday, LeaveRecord } from '@/lib/types';
 import { getRecords } from '@/lib/storage';
 import { getAllLeaveRecords } from '@/lib/leaveStorage';
 import { getHolidays } from '@/lib/holidays';
 import { useDashboardData } from '@/lib/useDashboardData';
 import { exportExcel, exportCSV } from '@/lib/exportData';
+import { useEmployeeDirectorySync } from '@/lib/employeeStore';
 
 interface ExportPanelProps {
   uploadedMonths: UploadedMonth[];
@@ -28,6 +29,7 @@ function periodLabel(key: string): string {
 // Office / Department selectors spanning every uploaded month, rather than
 // just exporting whatever happens to be on screen right now.
 export default function ExportPanel({ uploadedMonths, thresholds }: ExportPanelProps) {
+  const directoryVersion = useEmployeeDirectorySync();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [loading, setLoading] = useState<'excel' | 'csv' | 'pdf' | null>(null);
@@ -82,7 +84,7 @@ export default function ExportPanel({ uploadedMonths, thresholds }: ExportPanelP
 
   const scopedRecords = useMemo(
     () => scopedMonths.flatMap(m => getRecords(m.key)),
-    [scopedMonths]
+    [scopedMonths, directoryVersion]
   );
 
   const departments = useMemo(() => {
@@ -112,10 +114,15 @@ export default function ExportPanel({ uploadedMonths, thresholds }: ExportPanelP
     return all;
   }, [scopedMonths]);
 
-  const leaveRecords = useMemo(
-    () => getAllLeaveRecords(scopedMonths.map(m => m.key)),
-    [scopedMonths]
-  );
+  const [leaveRecords, setLeaveRecords] = useState<LeaveRecord[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    getAllLeaveRecords(scopedMonths.map(m => m.key)).then(records => {
+      if (!cancelled) setLeaveRecords(records);
+    });
+    return () => { cancelled = true; };
+  }, [scopedMonths]);
 
   const { employeeSummaries } = useDashboardData(
     filteredRecords, 'ALL', [], [], holidays, thresholds, leaveRecords

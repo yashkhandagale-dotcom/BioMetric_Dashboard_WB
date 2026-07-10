@@ -1,10 +1,13 @@
 'use client';
-import { useState } from 'react';
-import { X, Settings as SettingsIcon, RotateCcw } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { X, Settings as SettingsIcon, RotateCcw, Users } from 'lucide-react';
 import { ColumnMapping, Thresholds, AttendanceRecord } from '@/lib/types';
 import { getAllMappings } from '@/lib/storage';
 import { DEFAULT_THRESHOLDS } from '@/lib/settings';
-import { getAllKnownDepartments, addDepartment, getDeletedEmployees, restoreEmployee } from '@/lib/employeeStore';
+import {
+  getAllKnownDepartments, addDepartment,
+  getDeletedEmployees, restoreEmployee, useEmployeeDirectorySync,
+} from '@/lib/employeeStore';
 import SharedLinkPanel from './SharedLinkPanel';
 import BackupPanel from './BackupPanel';
 
@@ -13,7 +16,6 @@ interface SettingsPanelProps {
   thresholds: Thresholds;
   onSaveThresholds: (t: Thresholds) => void;
   records: AttendanceRecord[];
-  onDataChanged?: () => void; // called after a restore so the dashboard re-pulls records
 }
 
 const THRESHOLD_FIELDS: { key: keyof Thresholds; label: string; group: string }[] = [
@@ -45,27 +47,29 @@ function hhmmToMins(hhmm: string): number {
   return h * 60 + m;
 }
 
-export default function SettingsPanel({ onClose, thresholds, onSaveThresholds, records, onDataChanged }: SettingsPanelProps) {
-  const [tab, setTab] = useState<'mapping' | 'thresholds' | 'share' | 'backup' | 'departments'>('thresholds');
+export default function SettingsPanel({ onClose, thresholds, onSaveThresholds, records }: SettingsPanelProps) {
+  const [tab, setTab] = useState<'mapping' | 'thresholds' | 'share' | 'backup' | 'departments' | 'employees'>('thresholds');
   const [draft, setDraft] = useState<Thresholds>(thresholds);
   const [dirty, setDirty] = useState(false);
-  const mappings = getAllMappings();
+  const [mappings, setMappings] = useState<Record<string, ColumnMapping>>({});
+
+  useEffect(() => {
+    getAllMappings().then(setMappings);
+  }, []);
 
   const [departments, setDepartments] = useState<string[]>(() => getAllKnownDepartments(records));
   const [newDeptName, setNewDeptName] = useState('');
   const [deptError, setDeptError] = useState<string | null>(null);
-  const [deletedEmployees, setDeletedEmployees] = useState(() => getDeletedEmployees());
 
-  function handleRestoreEmployee(employeeCode: string, officeCode: string) {
-    restoreEmployee(employeeCode, officeCode);
-    setDeletedEmployees(getDeletedEmployees());
-    onDataChanged?.();
-  }
+  // Re-renders this panel whenever the employee directory changes elsewhere
+  // (e.g. EmployeePanel deletes/restores someone) so the deleted-employees
+  // list below stays live.
+  useEmployeeDirectorySync();
 
-  function handleAddDepartment() {
+  async function handleAddDepartment() {
     const trimmed = newDeptName.trim();
     if (!trimmed) return;
-    const ok = addDepartment(trimmed, departments);
+    const ok = await addDepartment(trimmed, departments);
     if (!ok) {
       setDeptError(`"${trimmed}" already exists.`);
       return;
@@ -108,13 +112,13 @@ export default function SettingsPanel({ onClose, thresholds, onSaveThresholds, r
         </div>
 
         <div className="flex border-b border-slate-800 flex-shrink-0 overflow-x-auto">
-          {(['thresholds', 'mapping', 'departments', 'share', 'backup'] as const).map(t => (
+          {(['thresholds', 'mapping', 'departments', 'employees', 'share', 'backup'] as const).map(t => (
             <button
               key={t}
               onClick={() => setTab(t)}
               className={`flex-1 px-3 py-2.5 text-xs font-medium whitespace-nowrap transition-colors ${tab === t ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-500 hover:text-slate-300'}`}
             >
-              {t === 'thresholds' ? 'Thresholds' : t === 'mapping' ? 'Column Mapping' : t === 'departments' ? 'Departments' : t === 'share' ? 'Shared Link' : 'Backup'}
+              {t === 'thresholds' ? 'Thresholds' : t === 'mapping' ? 'Column Mapping' : t === 'departments' ? 'Departments' : t === 'employees' ? 'Employees' : t === 'share' ? 'Shared Link' : 'Backup'}
             </button>
           ))}
         </div>
@@ -243,31 +247,32 @@ export default function SettingsPanel({ onClose, thresholds, onSaveThresholds, r
                   Employees table and use the department dropdown there.
                 </p>
               </div>
+            </div>
+          )}
 
+          {tab === 'employees' && (
+            <div className="space-y-4">
               <div>
-                <h4 className="text-slate-400 text-xs font-semibold uppercase tracking-wide mb-2">
-                  Deleted Employees ({deletedEmployees.length})
+                <h4 className="text-slate-400 text-xs font-semibold uppercase tracking-wide mb-2 flex items-center gap-1.5">
+                  <Users className="w-3.5 h-3.5" /> Deleted Employees
                 </h4>
                 <p className="text-slate-500 text-[11px] mb-2">
-                  Deleted employees are hidden from every chart, table and export — even if a future CSV
-                  re-imports their attendance rows. Restore them here if that was a mistake.
+                  Deleted employees are hidden from every chart, table, and export — even if they still
+                  appear in a future CSV upload. Restore them here to bring them back.
                 </p>
-                {deletedEmployees.length === 0 ? (
+                {getDeletedEmployees().length === 0 ? (
                   <p className="text-slate-500 text-sm">No deleted employees.</p>
                 ) : (
                   <div className="space-y-1.5">
-                    {deletedEmployees.map((e) => (
-                      <div
-                        key={`${e.employeeCode}__${e.officeCode}`}
-                        className="flex items-center justify-between bg-slate-800/60 border border-slate-700 rounded-lg px-3 py-2"
-                      >
+                    {getDeletedEmployees().map((e) => (
+                      <div key={e.employeeCode} className="flex items-center justify-between bg-slate-800/60 border border-slate-700 rounded-lg px-3 py-2">
                         <div>
-                          <span className="text-white text-sm">{e.employeeName}</span>
-                          <span className="text-slate-500 text-xs ml-2">{e.department} · {e.officeCode}</span>
+                          <p className="text-white text-sm">{e.employeeName || e.employeeCode}</p>
+                          <p className="text-slate-500 text-xs">{e.employeeCode} · {e.officeCode}</p>
                         </div>
                         <button
-                          onClick={() => handleRestoreEmployee(e.employeeCode, e.officeCode)}
-                          className="text-blue-400 hover:text-blue-300 text-xs font-medium transition-colors"
+                          onClick={() => restoreEmployee(e.employeeCode, e.officeCode)}
+                          className="text-emerald-400 hover:text-emerald-300 text-xs font-medium px-2.5 py-1 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 transition-colors"
                         >
                           Restore
                         </button>

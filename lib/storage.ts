@@ -1,5 +1,5 @@
 import { AttendanceRecord, ColumnMapping, UploadedMonth } from './types';
-import { applyEmployeeMaster } from './employeeStore';
+import { applyEmployeeDirectory } from './employeeStore';
 
 const KEYS = {
   MAPPINGS: 'office_mappings',
@@ -25,7 +25,7 @@ export function saveMapping(officeCode: string, mapping: ColumnMapping): void {
   localStorage.setItem(KEYS.MAPPINGS, JSON.stringify(all));
 }
 
-export function getAllMappings(): Record<string, ColumnMapping> {
+export async function getAllMappings(): Promise<Record<string, ColumnMapping>> {
   if (typeof window === 'undefined') return {};
   const raw = localStorage.getItem(KEYS.MAPPINGS);
   return raw ? JSON.parse(raw) : {};
@@ -83,10 +83,10 @@ export function saveRecords(
 
 export function getRecords(monthKey: string): AttendanceRecord[] {
   const records = getRawRecords(monthKey);
-  // Overlay the employee master table (lib/employeeStore.ts): authoritative
-  // department reassignments + soft-deleted employees excluded — non-destructive,
-  // raw CSV-derived storage is never touched.
-  return applyEmployeeMaster(records);
+  // Overlay any HR-made department reassignments / deletions (lib/employeeStore.ts) —
+  // non-destructive, so the underlying CSV-derived data is never touched and
+  // a future remap/backup still reflects what the machine actually reported.
+  return applyEmployeeDirectory(records);
 }
 
 export function getAllRecords(): AttendanceRecord[] {
@@ -97,10 +97,10 @@ export function getAllRecords(): AttendanceRecord[] {
 
 // ── B8: pull one employee's records from every uploaded month (same office),
 // sorted oldest → newest, for "compare with own previous month" view. ──────────
-export function getEmployeeMonthHistory(
+export async function getEmployeeMonthHistory(
   employeeCode: string,
   officeCode: string
-): { monthKey: string; label: string; year: string; month: string; officeCode: string; records: AttendanceRecord[] }[] {
+): Promise<{ monthKey: string; label: string; year: string; month: string; officeCode: string; records: AttendanceRecord[] }[]> {
   if (typeof window === 'undefined') return [];
   const months = getUploadedMonths().filter((m) => m.officeCode === officeCode);
   return months

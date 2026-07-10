@@ -1,172 +1,178 @@
+import { useEffect, useState } from 'react';
 import { AttendanceRecord } from './types';
+import { createClient } from './supabase/client';
 
-// ── Employee Master Table ─────────────────────────────────────────────────
-// This is the single source of truth for two things HR manages independently
-// of whatever a machine's CSV says:
-//
-//   1. Department assignment — once HR sets it, it wins over the CSV's
-//      department for that employee on every future import, forever (until
-//      HR changes it again). Not just "last uploaded CSV wins".
-//   2. Deletion — once HR deletes an employee, they're excluded from every
-//      KPI, chart, table and export, even if a later CSV re-imports rows
-//      for that same employee code.
-//
-// Keyed by `${employeeCode}__${officeCode}` since employee codes are only
-// unique within an office (see lib/storage.ts record key).
-//
-// Applied at read-time only (lib/storage.ts:getRecords) — the raw CSV-derived
-// data in RECORDS_PREFIX storage is never mutated, so a backup/export of raw
-// data always reflects exactly what the biometric machine reported.
+// ── In-memory directory ───────────────────────────────────────────────────────
+// Hydrated once from Supabase, then read synchronously by applyEmployeeDirectory()
+// (called from lib/storage.ts:getRecords()). Writes go to Supabase AND update
+// this cache immediately (optimistic), so every place that reads through
+// getRecords() reflects a change instantly — no extra plumbing needed.
 
-export interface EmployeeMasterEntry {
-  employeeName: string;
-  department: string;
-  deleted: boolean;
-  updatedAt: string; // ISO timestamp of last change (dept edit or delete/restore)
+interface DirectoryEntry {
+  department: string | null; // HR override; null = no override
+  isDeleted: boolean;
+  officeCode: string;
+  employeeName?: string;
 }
 
-const KEYS = {
-  CUSTOM_DEPARTMENTS: 'custom_departments',
-  EMPLOYEE_MASTER: 'employee_master',
-};
+let directory = new Map<string, DirectoryEntry>();
+let customDepartments: string[] = [];
+let loaded = false;
 
-function masterKey(employeeCode: string, officeCode: string): string {
-  return `${employeeCode}__${officeCode}`;
+type Listener = () => void;
+const listeners = new Set<Listener>();
+function notify() { listeners.forEach((l) => l()); }
+
+/** Subscribes to any directory change (load, reassign, delete, restore, new custom dept). */
+export function subscribeEmployeeDirectory(listener: Listener): () => void {
+  listeners.add(listener);
+  return () => listeners.delete(listener);
 }
 
-// ── Departments ───────────────────────────────────────────────────────────
-
-export function getCustomDepartments(): string[] {
-  if (typeof window === 'undefined') return [];
-  const raw = localStorage.getItem(KEYS.CUSTOM_DEPARTMENTS);
-  return raw ? (JSON.parse(raw) as string[]) : [];
+/** React hook — call in any component whose derived data depends on the directory
+ *  (department pills, employee lists) so it re-renders when the directory changes. */
+export function useEmployeeDirectorySync(): number {
+  const [version, setVersion] = useState(0);
+  useEffect(() => subscribeEmployeeDirectory(() => setVersion((v) => v + 1)), []);
+  return version;
 }
 
-/** Returns false if the department already exists (case-insensitive), true if added. */
-export function addDepartment(name: string, existingDepartments: string[]): boolean {
+export function isEmployeeDirectoryLoaded(): boolean {
+  return loaded;
+}
+
+// ── Load once at app start ────────────────────────────────────────────────────
+export async function loadEmployeeDirectory(): Promise<void> {
+  const supabase = createClient();
+  const [{ data: emps }, { data: depts }] = await Promise.all([
+    supabase.from('employees').select('employee_code, office_code, employee_name, department, is_deleted'),
+    supabase.from('custom_departments').select('name'),
+  ]);
+  directory = new Map(
+    (emps ?? []).map((e) => [
+      e.employee_code as string,
+      {
+        department: e.department as string | null,
+        isDeleted: !!e.is_deleted,
+        officeCode: e.office_code as string,
+        employeeName: e.employee_name as string | undefined,
+      },
+    ])
+  );
+  customDepartments = (depts ?? []).map((d) => d.name as string);
+  loaded = true;
+  notify();
+}
+
+// ── Department reassignment ───────────────────────────────────────────────────
+export async function setEmployeeDepartment(
+  employeeCode: string,
+  officeCode: string,
+  department: string,
+  employeeName?: string
+): Promise<void> {
+  const prev = directory.get(employeeCode);
+  directory.set(employeeCode, { department, isDeleted: prev?.isDeleted ?? false, officeCode, employeeName: employeeName ?? prev?.employeeName });
+  notify();
+
+  const supabase = createClient();
+  await supabase.from('employees').upsert(
+    { employee_code: employeeCode, office_code: officeCode, employee_name: employeeName, department, updated_at: new Date().toISOString() },
+    { onConflict: 'employee_code' }
+  );
+}
+
+export function getEmployeeDepartmentOverride(employeeCode: string): string | null {
+  return directory.get(employeeCode)?.department ?? null;
+}
+
+export async function clearEmployeeDepartmentOverride(employeeCode: string, officeCode: string): Promise<void> {
+  const prev = directory.get(employeeCode);
+  directory.set(employeeCode, { department: null, isDeleted: prev?.isDeleted ?? false, officeCode, employeeName: prev?.employeeName });
+  notify();
+
+  const supabase = createClient();
+  await supabase.from('employees').upsert(
+    { employee_code: employeeCode, office_code: officeCode, department: null, updated_at: new Date().toISOString() },
+    { onConflict: 'employee_code' }
+  );
+}
+
+// ── Delete / restore ──────────────────────────────────────────────────────────
+// A deleted employee is dropped from every record pool at read-time (see
+// applyEmployeeDirectory below) — even if a future CSV upload still lists them.
+export async function deleteEmployee(employeeCode: string, officeCode: string, employeeName?: string): Promise<void> {
+  const prev = directory.get(employeeCode);
+  directory.set(employeeCode, { department: prev?.department ?? null, isDeleted: true, officeCode, employeeName: employeeName ?? prev?.employeeName });
+  notify();
+
+  const supabase = createClient();
+  await supabase.from('employees').upsert(
+    { employee_code: employeeCode, office_code: officeCode, employee_name: employeeName, is_deleted: true, deleted_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+    { onConflict: 'employee_code' }
+  );
+}
+
+export async function restoreEmployee(employeeCode: string, officeCode: string): Promise<void> {
+  const prev = directory.get(employeeCode);
+  directory.set(employeeCode, { department: prev?.department ?? null, isDeleted: false, officeCode, employeeName: prev?.employeeName });
+  notify();
+
+  const supabase = createClient();
+  await supabase.from('employees').upsert(
+    { employee_code: employeeCode, office_code: officeCode, is_deleted: false, deleted_at: null, updated_at: new Date().toISOString() },
+    { onConflict: 'employee_code' }
+  );
+}
+
+export function isEmployeeDeleted(employeeCode: string): boolean {
+  return directory.get(employeeCode)?.isDeleted ?? false;
+}
+
+/** For a "Deleted Employees" restore list — sourced from the directory itself,
+ *  since deleted employees are filtered out of every record-derived list. */
+export function getDeletedEmployees(): { employeeCode: string; employeeName?: string; officeCode: string }[] {
+  return Array.from(directory.entries())
+    .filter(([, e]) => e.isDeleted)
+    .map(([employeeCode, e]) => ({ employeeCode, employeeName: e.employeeName, officeCode: e.officeCode }));
+}
+
+// ── Custom (HR-created) departments ───────────────────────────────────────────
+export async function addDepartment(name: string, existingDepartments: string[]): Promise<boolean> {
   const trimmed = name.trim();
   if (!trimmed) return false;
-  const all = [...existingDepartments, ...getCustomDepartments()];
+  const all = [...existingDepartments, ...customDepartments];
   if (all.some((d) => d.toLowerCase() === trimmed.toLowerCase())) return false;
 
-  const custom = getCustomDepartments();
-  custom.push(trimmed);
-  localStorage.setItem(KEYS.CUSTOM_DEPARTMENTS, JSON.stringify(custom));
+  customDepartments = [...customDepartments, trimmed];
+  notify();
+
+  const supabase = createClient();
+  await supabase.from('custom_departments').insert({ name: trimmed });
   return true;
 }
 
-/** Union of departments seen in uploaded records + HR-created ones, sorted, deduped. */
+/** Union of departments seen in uploaded records + HR-created + in-use overrides. */
 export function getAllKnownDepartments(records: AttendanceRecord[]): string[] {
   const set = new Set<string>();
-  for (const r of records) {
-    if (r.department) set.add(r.department);
-  }
-  for (const d of getCustomDepartments()) {
-    set.add(d);
-  }
+  for (const r of records) if (r.department) set.add(r.department);
+  for (const d of customDepartments) set.add(d);
+  for (const e of directory.values()) if (e.department) set.add(e.department);
   return Array.from(set).sort((a, b) => a.localeCompare(b));
 }
 
-// ── Employee master table (read/write) ───────────────────────────────────
-
-export function getEmployeeMaster(): Record<string, EmployeeMasterEntry> {
-  if (typeof window === 'undefined') return {};
-  const raw = localStorage.getItem(KEYS.EMPLOYEE_MASTER);
-  return raw ? (JSON.parse(raw) as Record<string, EmployeeMasterEntry>) : {};
-}
-
-function saveEmployeeMaster(master: Record<string, EmployeeMasterEntry>): void {
-  localStorage.setItem(KEYS.EMPLOYEE_MASTER, JSON.stringify(master));
-}
-
-/** Sets the authoritative department for an employee. Wins over CSV department forever. */
-export function setEmployeeDepartment(
-  employeeCode: string,
-  officeCode: string,
-  employeeName: string,
-  department: string
-): void {
-  const master = getEmployeeMaster();
-  const key = masterKey(employeeCode, officeCode);
-  const existing = master[key];
-  master[key] = {
-    employeeName,
-    department,
-    deleted: existing?.deleted ?? false,
-    updatedAt: new Date().toISOString(),
-  };
-  saveEmployeeMaster(master);
-}
-
-export function getEmployeeDepartmentOverride(employeeCode: string, officeCode: string): string | null {
-  const entry = getEmployeeMaster()[masterKey(employeeCode, officeCode)];
-  return entry && !entry.deleted ? entry.department : null;
-}
-
-/** Soft delete — employee is excluded from every read (getRecords) from now on, restorable. */
-export function deleteEmployee(employeeCode: string, officeCode: string, employeeName: string): void {
-  const master = getEmployeeMaster();
-  const key = masterKey(employeeCode, officeCode);
-  const existing = master[key];
-  master[key] = {
-    employeeName,
-    department: existing?.department ?? '',
-    deleted: true,
-    updatedAt: new Date().toISOString(),
-  };
-  saveEmployeeMaster(master);
-}
-
-export function restoreEmployee(employeeCode: string, officeCode: string): void {
-  const master = getEmployeeMaster();
-  const key = masterKey(employeeCode, officeCode);
-  const existing = master[key];
-  if (!existing) return;
-  master[key] = { ...existing, deleted: false, updatedAt: new Date().toISOString() };
-  saveEmployeeMaster(master);
-}
-
-export function isEmployeeDeleted(employeeCode: string, officeCode: string): boolean {
-  return getEmployeeMaster()[masterKey(employeeCode, officeCode)]?.deleted ?? false;
-}
-
-/** For the Settings → Departments "Deleted Employees" restore list. */
-export function getDeletedEmployees(): Array<{
-  employeeCode: string;
-  officeCode: string;
-  employeeName: string;
-  department: string;
-  updatedAt: string;
-}> {
-  const master = getEmployeeMaster();
-  return Object.entries(master)
-    .filter(([, v]) => v.deleted)
-    .map(([key, v]) => {
-      const [employeeCode, officeCode] = key.split('__');
-      return { employeeCode, officeCode, employeeName: v.employeeName, department: v.department, updatedAt: v.updatedAt };
-    })
-    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-}
-
-/**
- * The single choke point: filters out deleted employees and overlays the
- * authoritative department on top of raw CSV records. Called from
- * lib/storage.ts:getRecords() so every consumer (KPIs, charts, tables,
- * exports, shared links) sees the same, consistent result automatically.
- */
-export function applyEmployeeMaster(records: AttendanceRecord[]): AttendanceRecord[] {
-  const master = getEmployeeMaster();
-  if (Object.keys(master).length === 0) return records;
-
-  const result: AttendanceRecord[] = [];
+// ── Applied at read-time by lib/storage.ts:getRecords() ──────────────────────
+export function applyEmployeeDirectory(records: AttendanceRecord[]): AttendanceRecord[] {
+  if (directory.size === 0) return records;
+  const next: AttendanceRecord[] = [];
   for (const r of records) {
-    const entry = master[masterKey(r.employeeCode, r.officeCode)];
-    if (entry?.deleted) continue; // excluded everywhere, even if a new CSV re-adds them
-    if (entry && entry.department && entry.department !== r.department) {
-      result.push({ ...r, department: entry.department });
+    const entry = directory.get(r.employeeCode);
+    if (entry?.isDeleted) continue; // dropped everywhere — KPIs, charts, tables, exports
+    if (entry?.department && entry.department !== r.department) {
+      next.push({ ...r, department: entry.department });
     } else {
-      result.push(r);
+      next.push(r);
     }
   }
-  return result;
+  return next;
 }
