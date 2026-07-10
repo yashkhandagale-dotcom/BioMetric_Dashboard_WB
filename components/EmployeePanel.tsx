@@ -153,7 +153,7 @@ export default function EmployeePanel({
                     <button
                       onClick={() => {
                         setShowDeptEditor(true);
-                        setSelectedDept(getEmployeeDepartmentOverride(employee.employeeCode, employee.officeCode) || employee.department);
+                        setSelectedDept(getEmployeeDepartmentOverride(employee.employeeCode) || employee.department);
                       }}
                       className="text-slate-500 hover:text-blue-400 transition-colors"
                       title="Change department"
