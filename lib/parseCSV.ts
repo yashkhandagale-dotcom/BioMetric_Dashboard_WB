@@ -4,6 +4,16 @@ import { AttendanceRecord, ColumnMapping } from './types';
 export interface ParseResult {
   records: AttendanceRecord[];
   duplicatesSkipped: number;
+  // Rows dropped because the mapped Employee Code or Date column was blank
+  // for that row. Previously these vanished with zero indication anywhere
+  // in the UI — a wrong column mapping (or a genuinely malformed export)
+  // could silently drop a large fraction of employees with no error shown.
+  missingCodeOrDate: number;
+  // Distinct employee codes actually present in `records`. Callers can
+  // compare this against the number of rows / expected headcount to catch
+  // the case where many different employees collapsed onto a handful of
+  // codes (e.g. the wrong CSV column was mapped to "Employee Code").
+  uniqueEmployeeCodes: number;
   headers: string[];
 }
 
@@ -152,7 +162,9 @@ export function parseCSVWithMapping(
       complete: (results) => {
         const rows = results.data as Record<string, string>[];
         const seen = new Set<string>();
+        const uniqueCodes = new Set<string>();
         let duplicatesSkipped = 0;
+        let missingCodeOrDate = 0;
         const records: AttendanceRecord[] = [];
 
         const mappedHeaders = new Set(Object.values(mapping));
@@ -162,11 +174,12 @@ export function parseCSVWithMapping(
           const empCode = String(row[mapping.employeeCode] || '').trim();
           const date = normalizeDate(String(row[mapping.date] || '').trim());
 
-          if (!empCode || !date) continue;
+          if (!empCode || !date) { missingCodeOrDate++; continue; }
 
           const dedupeKey = `${empCode}_${date}_${officeCode}`;
           if (seen.has(dedupeKey)) { duplicatesSkipped++; continue; }
           seen.add(dedupeKey);
+          uniqueCodes.add(empCode);
 
           const lateByStr = String(row[mapping.lateBy] || '').trim();
           const earlyByStr = String(row[mapping.earlyBy] || '').trim();
@@ -224,7 +237,13 @@ export function parseCSVWithMapping(
           });
         }
 
-        resolve({ records, duplicatesSkipped, headers: results.meta.fields || [] });
+        resolve({
+          records,
+          duplicatesSkipped,
+          missingCodeOrDate,
+          uniqueEmployeeCodes: uniqueCodes.size,
+          headers: results.meta.fields || [],
+        });
       },
       error: reject,
     });

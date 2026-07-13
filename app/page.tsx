@@ -369,7 +369,10 @@ function HRDashboard() {
       const sigKey = `${pf.officeCode}::${pf.headerSignature}`;
       const mapping = batchMappings[sigKey] ?? await getMapping(pf.officeCode);
       if (!mapping) continue;
-      const { records } = await parseCSVWithMapping(pf.file, mapping, pf.officeCode, thresholds.graceMinutes);
+      const { records, duplicatesSkipped, missingCodeOrDate, uniqueEmployeeCodes } =
+        await parseCSVWithMapping(pf.file, mapping, pf.officeCode, thresholds.graceMinutes);
+      const totalRowsSeen = records.length + duplicatesSkipped + missingCodeOrDate;
+
       if (records.length === 0) {
         // A non-empty CSV that parsed to zero rows almost always means the
         // saved column mapping no longer matches this file's headers (or
@@ -377,6 +380,37 @@ function HRDashboard() {
         // loudly instead of silently reporting "0 new, 0 updated" as if
         // nothing was wrong.
         results.push(`${pf.officeCode} ${getMonthName(pf.month)} ${pf.year}: 0 rows parsed — check column mapping in Settings, the file's columns may not match what's expected.`);
+        continue;
+      }
+
+      // Rows silently dropped for a blank mapped Employee Code / Date cell.
+      // If a large share of the file falls into this bucket, the mapping
+      // most likely points at the wrong column for one of those two fields
+      // (rather than the source data genuinely having that many blank rows).
+      const missingRatio = totalRowsSeen > 0 ? missingCodeOrDate / totalRowsSeen : 0;
+      if (missingCodeOrDate > 0 && missingRatio > 0.1) {
+        results.push(
+          `${pf.officeCode} ${getMonthName(pf.month)} ${pf.year}: ${missingCodeOrDate} of ${totalRowsSeen} rows ` +
+          `(${Math.round(missingRatio * 100)}%) were skipped for a blank Employee Code or Date — ` +
+          `check that those fields are mapped to the right columns in Settings. Skipped this file.`
+        );
+        continue;
+      }
+
+      // Many rows collapsing onto the same (employee, date) key almost
+      // always means "Employee Code" is mapped to a low-cardinality column
+      // (e.g. Department/Shift) instead of the real per-person ID — dozens
+      // of distinct employees quietly overwrite each other under a handful
+      // of shared codes, and the dashboard ends up showing far fewer
+      // employees than were actually in the file, with no error shown.
+      const dupeRatio = (records.length + duplicatesSkipped) > 0
+        ? duplicatesSkipped / (records.length + duplicatesSkipped) : 0;
+      if (duplicatesSkipped > 0 && dupeRatio > 0.15) {
+        results.push(
+          `${pf.officeCode} ${getMonthName(pf.month)} ${pf.year}: ${duplicatesSkipped} rows collapsed as duplicates, ` +
+          `leaving only ${uniqueEmployeeCodes} distinct employee code(s) from ${records.length + duplicatesSkipped} attempted rows — ` +
+          `"Employee Code" is likely mapped to the wrong column. Skipped this file; please re-check column mapping in Settings.`
+        );
         continue;
       }
 
@@ -409,7 +443,13 @@ function HRDashboard() {
       await addUploadedMonth({ key: monthKey, label: monthLabel, officeCode: pf.officeCode, month: pf.month, year: pf.year });
       const { added, updated } = await saveRecords(monthKey, records);
       lastMonthKey = monthKey;
-      results.push(`${pf.officeCode} ${getMonthName(pf.month)} ${pf.year} (${added} new, ${updated} updated)`);
+      // Even when below the warning thresholds above, never let skipped
+      // rows go completely unmentioned — a small, genuinely-blank-row count
+      // is normal, but HR should still be able to see it happened.
+      const skippedNote = (missingCodeOrDate > 0 || duplicatesSkipped > 0)
+        ? ` — ${missingCodeOrDate} row(s) skipped (missing code/date), ${duplicatesSkipped} duplicate row(s) skipped`
+        : '';
+      results.push(`${pf.officeCode} ${getMonthName(pf.month)} ${pf.year} (${added} new, ${updated} updated)${skippedNote}`);
     }
 
     const months = await getUploadedMonths();
