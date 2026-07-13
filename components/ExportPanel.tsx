@@ -1,8 +1,7 @@
 ﻿'use client';
 import { useState, useRef, useMemo, useEffect } from 'react';
 import { Download, FileSpreadsheet, FileText, FileIcon, ChevronDown, Loader2, X, Calendar, Building2, Users } from 'lucide-react';
-import { UploadedMonth, Thresholds, Holiday, LeaveRecord } from '@/lib/types';
-import { getRecords } from '@/lib/storage';
+import { UploadedMonth, Thresholds, Holiday, LeaveRecord, AttendanceRecord } from '@/lib/types';import { getRecords } from '@/lib/storage';
 import { getAllLeaveRecords } from '@/lib/leaveStorage';
 import { getHolidays } from '@/lib/holidays';
 import { useDashboardData } from '@/lib/useDashboardData';
@@ -82,10 +81,17 @@ export default function ExportPanel({ uploadedMonths, thresholds }: ExportPanelP
     });
   }, [uploadedMonths, fromPeriod, toPeriod, office]);
 
-  const scopedRecords = useMemo(
-    () => scopedMonths.flatMap(m => getRecords(m.key)),
-    [scopedMonths, directoryVersion]
-  );
+  // after
+const [scopedRecords, setScopedRecords] = useState<AttendanceRecord[]>([]);
+
+useEffect(() => {
+  let cancelled = false;
+  Promise.all(scopedMonths.map(m => getRecords(m.key)))
+    .then(results => {
+      if (!cancelled) setScopedRecords(results.flat());
+    });
+  return () => { cancelled = true; };
+}, [scopedMonths, directoryVersion]);
 
   const departments = useMemo(() => {
     return Array.from(new Set(scopedRecords.map(r => r.department))).filter(Boolean).sort();
