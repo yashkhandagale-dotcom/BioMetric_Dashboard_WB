@@ -18,8 +18,9 @@ interface TeamKPIs {
   productivityLost: number;
 }
 
-function isPresent(s: string) { return s.toLowerCase().includes('present') && !s.toLowerCase().includes('absent'); }
-function isAbsent(s: string) { const l = s.toLowerCase(); return l.includes('absent') || l === 'absent (no outpunch)' || l.includes('missed punch'); }
+function isMissedPunchOut(s: string) { const l = s.toLowerCase(); return l.includes('no outpunch') || l.includes('missed punch') || l.includes('no punch out'); }
+function isPresent(s: string) { if (isMissedPunchOut(s)) return true; return s.toLowerCase().includes('present') && !s.toLowerCase().includes('absent'); }
+function isAbsent(s: string) { if (isMissedPunchOut(s)) return false; const l = s.toLowerCase(); return l.includes('absent') || l === 'absent (no outpunch)'; }
 function isWeeklyOff(s: string) { const l = s.toLowerCase(); return l.includes('weeklyoff') && !l.includes('present'); }
 
 function computeTeamKPIs(records: AttendanceRecord[]): TeamKPIs {
