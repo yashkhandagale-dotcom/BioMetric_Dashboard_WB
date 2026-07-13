@@ -1,6 +1,7 @@
 import { AttendanceRecord, ColumnMapping, UploadedMonth } from './types';
 import { applyEmployeeDirectory } from './employeeStore';
 import { createClient } from './supabase/client';
+import { normalizeDate } from './parseCSV';
 
 // ═══════════════════════════════════════════════════════════════════════════
 // This file used to be pure localStorage. It's now backed by Supabase,
@@ -94,7 +95,7 @@ function toDbRow(monthKey: string, r: AttendanceRecord) {
 
 function fromDbRow(row: Record<string, unknown>): AttendanceRecord {
   return {
-    date: row.date as string,
+    date: normalizeDate((row.date as string) ?? ''),
     employeeCode: row.employee_code as string,
     employeeName: row.employee_name as string,
     department: row.department as string,

@@ -45,15 +45,24 @@ function countPunches(punchRecords?: string): number {
 // picker's max date gets stuck in May and June becomes unselectable.
 // Normalizing once here, at ingestion, fixes every downstream consumer at
 // once instead of patching each sort/comparison site individually.
-function normalizeDate(raw: string): string {
+export function normalizeDate(raw: string): string {
   const s = raw.trim();
   if (!s) return s;
 
   // Already ISO: YYYY-MM-DD — leave as-is.
   if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
 
-  // DD-MM-YYYY or DD/MM/YYYY (most common biometric export format).
-  let m = s.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/);
+  // ISO with a time component tacked on (e.g. "2026-06-01T00:00:00" or
+  // "2026-06-01 00:00:00") — keep just the date part.
+  let m = s.match(/^(\d{4})-(\d{2})-(\d{2})[T ]/);
+  if (m) {
+    const [, y, mo, d] = m;
+    return `${y}-${mo}-${d}`;
+  }
+
+  // DD-MM-YYYY or DD/MM/YYYY, optionally with a trailing time component
+  // (most common biometric export format).
+  m = s.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})(?:[T ].*)?$/);
   if (m) {
     const [, d, mo, y] = m;
     return `${y}-${mo.padStart(2, '0')}-${d.padStart(2, '0')}`;
