@@ -12,18 +12,27 @@ export const SHIFT_MINUTES = 8 * 60;             // 480 effective minutes
 export const SHIFT_START_MINUTES = 9 * 60 + 30;  // 570 — 09:30 AM
 export const SHIFT_END_MINUTES = 18 * 60 + 30;   // 1110 — 18:30
 
+// AFTER
 export function isPresent(status: string): boolean {
   const s = status.toLowerCase();
+  if (isMissedPunchOut(status)) return true;   // punched in, so it's present
   return s.includes('present') && !s.includes('absent');
 }
 
 export function isAbsent(status: string): boolean {
   const s = status.toLowerCase();
+  if (isMissedPunchOut(status)) return false;  // no longer counts as absent
   return s.includes('absent') || s === 'absent (no outpunch)';
 }
 
 export function isWeeklyOff(status: string): boolean {
-  return status.toLowerCase().includes('weeklyoff');
+  const s = status.toLowerCase();
+  // "WeeklyOff Present" means the employee actually came in and worked on
+  // their scheduled day off — that's a present day, not a day off, and
+  // must NOT be treated as weekly-off (this function is used everywhere as
+  // an exclusion filter, so misclassifying it here silently drops a real
+  // worked day from every present/absent/total count for that employee).
+  return s.includes('weeklyoff') && !s.includes('present');
 }
 
 // Flags a day-record where a swipe in or out wasn't captured by the machine
@@ -380,8 +389,9 @@ export function useDashboardData(
       } else if (r.isShortDay) {
         emp.shortDayCount++;
       } else if (isPresent(r.status)) {
-        emp.presentDays++;
-        const mins = durationToMinutes(r.duration);
+  emp.presentDays++;
+  if (isMissedPunchOut(r.status)) emp.missedPunchOutCount = (emp.missedPunchOutCount ?? 0) + 1;
+  const mins = durationToMinutes(r.duration);
         // store effective minutes (subtract lunch)
         const effectiveMins = mins > 60 ? mins - 60 : 0;
         emp.totalMinutes += effectiveMins;

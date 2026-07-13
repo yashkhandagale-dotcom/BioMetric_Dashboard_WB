@@ -102,6 +102,7 @@ export interface EmployeeSummary {
   absentDays: number;
   lateCount: number;
   earlyExitCount: number;
+  missedPunchOutCount?: number;
   avgHoursWorked: string;
   totalMinutes: number;
   worstStatus: 'green' | 'amber' | 'red';
@@ -122,6 +123,7 @@ export interface EmployeeSummary {
   sickLeaveCount: number;
   lwpCount: number;
   halfDayCount: number;
+  
 }
 
 export interface OfficeAttendance {

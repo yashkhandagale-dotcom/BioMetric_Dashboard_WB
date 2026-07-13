@@ -60,6 +60,10 @@ function getStatusBadge(status: string, isShortDay: boolean | undefined, lateMin
   }
   if (isShortDay) return <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-orange-500/20 text-orange-400">Short Day</span>;
   const s = status.toLowerCase();
+  const isMissedPunchOut = s.includes('missed punch') || s.includes('no outpunch') || s.includes('no punch out');
+  if (isMissedPunchOut) {
+    return <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-500/20 text-emerald-400 border border-orange-400/50" title="Punched in, no out-punch recorded — counted as present">Present ⚠</span>;
+  }
   if (s.includes('present') && !s.includes('absent')) {
     if (lateMin > 0 && earlyMin > 0) {
       return <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-500/15 text-amber-400 border-2 border-red-500/60">Late + Early Exit</span>;
@@ -216,12 +220,21 @@ export default function EmployeePanel({
             ))}
           </div>
 
-          {(employee.shortDayCount > 0 || employee.frequentPunchDays > 0 || employee.plannedLeaveCount > 0 || employee.casualLeaveCount > 0 || employee.sickLeaveCount > 0 || employee.lwpCount > 0 || employee.halfDayCount > 0) && (
+          {(employee.shortDayCount > 0 || employee.frequentPunchDays > 0 || (employee.missedPunchOutCount ?? 0) > 0 || employee.plannedLeaveCount > 0 || employee.casualLeaveCount > 0 || employee.sickLeaveCount > 0 || employee.lwpCount > 0 || employee.halfDayCount > 0) && (
             <div className="px-5 pb-3 flex flex-wrap gap-2">
               {employee.shortDayCount > 0 && (
                 <span className="flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-orange-500/15 text-orange-400 border border-orange-500/20">
                   <AlertTriangle className="w-3 h-3" />
                   {employee.shortDayCount} Short Day{employee.shortDayCount > 1 ? 's' : ''}
+                </span>
+              )}
+              {(employee.missedPunchOutCount ?? 0) > 0 && (
+                <span
+                  className="flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-orange-500/15 text-orange-400 border border-orange-500/20"
+                  title="Counted as present — out-punch wasn't captured by the machine, worth a manual check"
+                >
+                  <AlertTriangle className="w-3 h-3" />
+                  {employee.missedPunchOutCount} Missed Punch Out{(employee.missedPunchOutCount ?? 0) > 1 ? 's' : ''}
                 </span>
               )}
               {employee.frequentPunchDays > 0 && (
@@ -304,7 +317,8 @@ export default function EmployeePanel({
                     const holidayName = getHolidayName(r.date, holidays);
                     const lateMin = getLateMinutes(r, graceMinutes);
                     const earlyMin = getEarlyMinutes(r, graceMinutes);
-                    const missingOut = (!r.outTime || r.outTime === '--' || r.outTime === '') && r.status.toLowerCase().includes('present');
+                    const missingOut = (!r.outTime || r.outTime === '--' || r.outTime === '') &&
+                      (r.status.toLowerCase().includes('present') || r.status.toLowerCase().includes('missed punch'));
                     const dur = durationToMinutes(r.duration);
                     const leave = leaveMap?.get(`${r.employeeCode}__${r.date}`);
                     const canMarkLeave = !readOnly && monthKey && (r.isShortDay || r.status.toLowerCase().includes('absent'));

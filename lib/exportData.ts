@@ -66,10 +66,11 @@ function autoColWidths(ws: XLSX.WorkSheet, keys: string[]) {
   ws['!cols'] = keys.map(k => ({ wch: Math.max(k.length + 2, 14) }));
 }
 
-function isPresent(s: string) { return s.toLowerCase().includes('present') && !s.toLowerCase().includes('absent'); }
-function isAbsent(s: string) { return s.toLowerCase().includes('absent') && !s.toLowerCase().includes('missed'); }
+// AFTER
+function isPresent(s: string) { if (isMissedPunchOut(s)) return true; return s.toLowerCase().includes('present') && !s.toLowerCase().includes('absent'); }
+function isAbsent(s: string) { if (isMissedPunchOut(s)) return false; const l = s.toLowerCase(); return l.includes('absent') || l === 'absent (no outpunch)'; }
 function isMissedPunchOut(s: string) { return s.toLowerCase().includes('missed') && s.toLowerCase().includes('punch'); }
-function isWeeklyOff(s: string) { return s.toLowerCase().includes('weeklyoff'); }
+function isWeeklyOff(s: string) { const l = s.toLowerCase(); return l.includes('weeklyoff') && !l.includes('present'); }
 function colorStatus(rate: number): string {
   if (rate >= 80) return 'Green';
   if (rate >= 70) return 'Amber';
