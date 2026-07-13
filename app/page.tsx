@@ -39,8 +39,8 @@ import HRAbsenceChecker from '@/components/HRAbsenceChecker';
 type AppState = 'upload' | 'mapping' | 'dashboard';
 type ViewMode = 'loading' | 'hr' | 'manager' | 'denied';
 interface Toast { type: 'success' | 'error'; message: string; }
-interface PendingFile { file: File; officeCode: string; month: string; year: string; }
-interface MappingQueueItem { officeCode: string; headers: string[]; }
+interface PendingFile { file: File; officeCode: string; month: string; year: string; headerSignature: string; }
+interface MappingQueueItem { officeCode: string; headers: string[]; headerSignature: string; }
 
 function getMonthName(mm: string): string {
   const m = ['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
@@ -112,6 +112,14 @@ function HRDashboard() {
   const [pendingBatch, setPendingBatch] = useState<PendingFile[]>([]);
   const [skippedFiles, setSkippedFiles] = useState<{ name: string; reason: string }[]>([]);
   const [mappingQueue, setMappingQueue] = useState<MappingQueueItem[]>([]);
+  // Resolved column mapping per (officeCode + header-signature) *for this batch only*.
+  // Needed because column_mappings in the DB is keyed by office_code alone — if a
+  // batch mixes two different header layouts for the same office (e.g. an older
+  // month's export next to a reformatted one), saving a mapping for one overwrites
+  // the other in the DB. Caching per-signature here means importBatch() uses the
+  // mapping that was actually confirmed for THAT file's header shape, not whatever
+  // happens to be sitting in the DB by the time import runs.
+  const [batchMappings, setBatchMappings] = useState<Record<string, ColumnMapping>>({});
   const [remapInitial, setRemapInitial] = useState<Partial<ColumnMapping> | undefined>(undefined);
   const [conflictMonths, setConflictMonths] = useState<{ key: string; label: string }[] | null>(null);
 
@@ -193,7 +201,7 @@ function HRDashboard() {
     function handler(e: Event) {
       const detail = (e as CustomEvent).detail as { officeCode: string; headers: string[]; mapping: ColumnMapping };
       setShowSettings(false);
-      setMappingQueue([{ officeCode: detail.officeCode, headers: detail.headers }]);
+      setMappingQueue([{ officeCode: detail.officeCode, headers: detail.headers, headerSignature: detail.headers.join('|') }]);
       setRemapInitial(detail.mapping);
       setAppState('mapping');
     }
@@ -248,7 +256,8 @@ function HRDashboard() {
         skipped.push({ name: file.name, reason: result.error || 'Invalid file' });
         continue;
       }
-      valid.push({ file, officeCode: result.officeCode!, month: result.month!, year: result.year! });
+      const headers = await parseCSVHeaders(file);
+      valid.push({ file, officeCode: result.officeCode!, month: result.month!, year: result.year!, headerSignature: headers.join('|') });
     }
     setSkippedFiles(skipped);
 
@@ -262,30 +271,45 @@ function HRDashboard() {
     setPendingBatch(valid);
 
     const queue: MappingQueueItem[] = [];
-    const seen = new Set<string>();
+    const resolved: Record<string, ColumnMapping> = {};
+    // A batch can contain several files for the same office whose export
+    // format differs between months (e.g. an older layout next to a
+    // reformatted one). column_mappings in the DB is keyed by office_code
+    // alone, so it can only remember ONE mapping per office at a time — it
+    // is not a reliable source of truth for every file in a mixed-format
+    // batch. Check EVERY file's own headers here (not just the first file
+    // seen per office), and cache a resolved mapping per (office +
+    // header-signature) so files sharing the same header layout only need
+    // to be checked/resolved once, while a different layout for the same
+    // office still gets its own check.
+    const seenSignatures = new Set<string>();
     for (const pf of valid) {
-      if (seen.has(pf.officeCode)) continue;
-      seen.add(pf.officeCode);
+      const sigKey = `${pf.officeCode}::${pf.headerSignature}`;
+      if (seenSignatures.has(sigKey)) continue;
+      seenSignatures.add(sigKey);
+
+      const headers = pf.headerSignature.split('|');
       const existingMapping = await getMapping(pf.officeCode);
-      const headers = await parseCSVHeaders(pf.file);
       if (!existingMapping) {
-        queue.push({ officeCode: pf.officeCode, headers });
+        queue.push({ officeCode: pf.officeCode, headers, headerSignature: pf.headerSignature });
         continue;
       }
-      // The office already has a saved mapping, but that mapping points to
-      // specific header names from a PREVIOUS file. If this new file's
-      // export format changed even slightly (renamed/reordered columns,
-      // different machine/software version), every row[mapping.xxx] lookup
-      // below silently returns undefined, so every row fails the
-      // `!empCode || !date` check in parseCSVWithMapping and gets dropped —
-      // resulting in a misleading "0 new, 0 updated" with no error at all.
-      // Catch that here by verifying every mapped header still exists in
-      // this file, and force a remap screen instead of a silent no-op.
+      // The office has a saved mapping, but it may point to header names
+      // from a DIFFERENT file's layout than this one. If this file's
+      // headers don't contain every mapped column, row[mapping.xxx]
+      // lookups return undefined for every row, silently producing
+      // "0 rows parsed" — or worse, garbage if it partially matches.
+      // Force a remap for this header shape instead of a silent no-op.
       const missingHeaders = Object.values(existingMapping).filter(h => h && !headers.includes(h));
       if (missingHeaders.length > 0) {
-        queue.push({ officeCode: pf.officeCode, headers });
+        queue.push({ officeCode: pf.officeCode, headers, headerSignature: pf.headerSignature });
+      } else {
+        // This file's headers already match the saved mapping exactly —
+        // reuse it for this signature without prompting the user again.
+        resolved[sigKey] = existingMapping;
       }
     }
+    if (Object.keys(resolved).length > 0) setBatchMappings((prev) => ({ ...prev, ...resolved }));
 
     if (queue.length > 0) {
       setMappingQueue(queue);
@@ -300,6 +324,7 @@ function HRDashboard() {
     const current = mappingQueue[0];
     if (!current) return;
     await saveMapping(current.officeCode, mapping);
+    setBatchMappings((prev) => ({ ...prev, [`${current.officeCode}::${current.headerSignature}`]: mapping }));
 
     const remaining = mappingQueue.slice(1);
     if (remaining.length > 0) {
@@ -341,7 +366,8 @@ function HRDashboard() {
     let lastMonthKey = '';
 
     for (const pf of batch) {
-      const mapping = await getMapping(pf.officeCode);
+      const sigKey = `${pf.officeCode}::${pf.headerSignature}`;
+      const mapping = batchMappings[sigKey] ?? await getMapping(pf.officeCode);
       if (!mapping) continue;
       const { records } = await parseCSVWithMapping(pf.file, mapping, pf.officeCode, thresholds.graceMinutes);
       if (records.length === 0) {
@@ -351,6 +377,28 @@ function HRDashboard() {
         // loudly instead of silently reporting "0 new, 0 updated" as if
         // nothing was wrong.
         results.push(`${pf.officeCode} ${getMonthName(pf.month)} ${pf.year}: 0 rows parsed — check column mapping in Settings, the file's columns may not match what's expected.`);
+        continue;
+      }
+
+      // A wrong-but-not-empty column mapping (e.g. the saved mapping's raw
+      // header strings don't quite match this file's headers — different
+      // whitespace, a renamed column, a reordered export) can still parse
+      // a non-zero row count while silently pulling data from the wrong
+      // columns: blank employee names, department collapsing to 'Unknown'
+      // for most rows, or every row getting stuck on one status. That's
+      // corrupted data with no error shown, which is worse than 0 rows.
+      // Catch the common patterns here and force a remap instead of
+      // quietly writing garbage into attendance_records.
+      const blankNameCount = records.filter(r => !r.employeeName).length;
+      const unknownDeptCount = records.filter(r => r.department === 'Unknown').length;
+      const blankNameRatio = blankNameCount / records.length;
+      const unknownDeptRatio = unknownDeptCount / records.length;
+      if (blankNameRatio > 0.2 || unknownDeptRatio > 0.2) {
+        results.push(
+          `${pf.officeCode} ${getMonthName(pf.month)} ${pf.year}: parsed ${records.length} rows but ` +
+          `${Math.round(blankNameRatio * 100)}% have a blank employee name and ${Math.round(unknownDeptRatio * 100)}% have an unrecognized department — ` +
+          `this file's columns likely don't match the saved mapping. Skipped; please re-check column mapping in Settings.`
+        );
         continue;
       }
       const monthKey = `${pf.year}_${pf.month}_${pf.officeCode}`;
@@ -385,6 +433,7 @@ function HRDashboard() {
     setDeptDrillSync(null);
     setAppState('dashboard');
     setPendingBatch([]);
+    setBatchMappings({});
 
     const skipNote = skippedFiles.length > 0
       ? ` ${skippedFiles.length} file skipped: ${skippedFiles.map(s => `'${s.name}' (${s.reason.split('\n')[0]})`).join(', ')}.`
@@ -557,7 +606,6 @@ function HRDashboard() {
             >
               <SettingsIcon className="w-3.5 h-3.5" /> Settings
             </button>
-            console.log("HRDashboard uploadedMonths:", uploadedMonths);
             <ExportPanel uploadedMonths={uploadedMonths} thresholds={thresholds} />
             <button onClick={() => setAppState('upload')}
               className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">

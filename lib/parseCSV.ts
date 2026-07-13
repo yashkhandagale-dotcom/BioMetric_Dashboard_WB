@@ -28,7 +28,7 @@ function timeToMinutes(timeStr: string): number {
 }
 
 function countPunches(punchRecords?: string): number {
-  if (!punchRecords || punchRecords.trim() === '') return 1;
+  if (!punchRecords || punchRecords.trim() === '') return 0;
   // Count comma-separated entries, pairs of in/out = punchCount
   const parts = punchRecords.split(',').map(p => p.trim()).filter(Boolean);
   return Math.max(1, Math.ceil(parts.length / 2));

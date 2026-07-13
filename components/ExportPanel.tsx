@@ -28,7 +28,7 @@ function periodLabel(key: string): string {
 // FR-11D: dedicated multi-month export dialog — From-month / To-month /
 // Office / Department selectors spanning every uploaded month, rather than
 // just exporting whatever happens to be on screen right now.
-export default function ExportPanel({ uploadedMonths, thresholds }: ExportPanelProps) {
+export default function ExportPanel({ uploadedMonths = [], thresholds }: ExportPanelProps) {
   const directoryVersion = useEmployeeDirectorySync();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -41,23 +41,15 @@ export default function ExportPanel({ uploadedMonths, thresholds }: ExportPanelP
   const [office, setOffice] = useState('ALL');
   const [selectedDepts, setSelectedDepts] = useState<string[]>([]);
 
-  console.log("ExportPanel uploadedMonths:", uploadedMonths);
-console.log("Is array:", Array.isArray(uploadedMonths));
-
-const periods = useMemo(() => {
-  console.log("periods useMemo:", uploadedMonths);
-
-  if (!Array.isArray(uploadedMonths)) {
-    console.error("uploadedMonths is not an array!", uploadedMonths);
-    return [];
-  }
-
-  const set = new Set<string>();
-  uploadedMonths.forEach(m => set.add(periodKey(m)));
-  return Array.from(set).sort();
-}, [uploadedMonths]);
+  const periods = useMemo(() => {
+    if (!Array.isArray(uploadedMonths)) return [];
+    const set = new Set<string>();
+    uploadedMonths.forEach(m => set.add(periodKey(m)));
+    return Array.from(set).sort();
+  }, [uploadedMonths]);
 
   const offices = useMemo(() => {
+    if (!Array.isArray(uploadedMonths)) return [];
     return Array.from(new Set(uploadedMonths.map(m => m.officeCode))).sort();
   }, [uploadedMonths]);
 
@@ -81,7 +73,7 @@ const periods = useMemo(() => {
 
   // ── Months within the selected From→To period + office ──────────────────
   const scopedMonths = useMemo(() => {
-    if (!fromPeriod || !toPeriod) return [];
+    if (!fromPeriod || !toPeriod || !Array.isArray(uploadedMonths)) return [];
     const lo = fromPeriod <= toPeriod ? fromPeriod : toPeriod;
     const hi = fromPeriod <= toPeriod ? toPeriod : fromPeriod;
     return uploadedMonths.filter(m => {
