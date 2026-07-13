@@ -153,7 +153,7 @@ export default function EmployeePanel({
                     <button
                       onClick={() => {
                         setShowDeptEditor(true);
-                        setSelectedDept(getEmployeeDepartmentOverride(employee.employeeCode) || employee.department);
+                        setSelectedDept(getEmployeeDepartmentOverride(employee.employeeCode, employee.officeCode) || employee.department);
                       }}
                       className="text-slate-500 hover:text-blue-400 transition-colors"
                       title="Change department"
@@ -185,7 +185,7 @@ export default function EmployeePanel({
           </div>
           <div className="flex items-center gap-1 mt-0.5 flex-shrink-0">
             {!readOnly && (
-              isEmployeeDeleted(employee.employeeCode) ? (
+              isEmployeeDeleted(employee.employeeCode, employee.officeCode) ? (
                 <button onClick={handleRestore} className="text-emerald-400 hover:text-emerald-300 transition-colors p-1" title="Restore employee">
                   <RotateCcw className="w-4 h-4" />
                 </button>

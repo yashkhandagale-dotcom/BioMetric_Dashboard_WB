@@ -393,7 +393,7 @@ export function DeptAttendanceChart({ data, allRecords, selectedDepts, highlight
       if (!map.has(r.employeeCode)) map.set(r.employeeCode, { name: r.employeeName || r.employeeCode, code: r.employeeCode, present: 0, absent: 0 });
       const row = map.get(r.employeeCode)!;
       if (isPresent(r.status)) row.present++;
-else if (isAbsent(r.status)) row.absent++;
+      else if (isAbsent(r.status)) row.absent++;
     }
     const rows = Array.from(map.values());
     const rate = (e: { present: number; absent: number }) => e.present / (e.present + e.absent || 1);

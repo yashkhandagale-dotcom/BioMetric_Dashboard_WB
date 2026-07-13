@@ -19,6 +19,16 @@ let directory = new Map<string, DirectoryEntry>();
 let customDepartments: string[] = [];
 let loaded = false;
 
+// Employee codes are only unique WITHIN an office — this workspace holds
+// multiple offices in one shared DB, and small sequential codes (e.g. 257,
+// 270) are easily reused by a different office. Keying the directory by
+// employee_code alone let one office's delete/reassign action silently hit
+// another office's employee sharing the same code. Always key/lookup by
+// office too.
+function directoryKey(employeeCode: string, officeCode: string): string {
+  return `${officeCode}::${employeeCode}`;
+}
+
 type Listener = () => void;
 const listeners = new Set<Listener>();
 function notify() { listeners.forEach((l) => l()); }
@@ -50,7 +60,7 @@ export async function loadEmployeeDirectory(): Promise<void> {
   ]);
   directory = new Map(
     (emps ?? []).map((e) => [
-      e.employee_code as string,
+      directoryKey(e.employee_code as string, e.office_code as string),
       {
         department: e.department as string | null,
         isDeleted: !!e.is_deleted,
@@ -71,30 +81,32 @@ export async function setEmployeeDepartment(
   department: string,
   employeeName?: string
 ): Promise<void> {
-  const prev = directory.get(employeeCode);
-  directory.set(employeeCode, { department, isDeleted: prev?.isDeleted ?? false, officeCode, employeeName: employeeName ?? prev?.employeeName });
+  const key = directoryKey(employeeCode, officeCode);
+  const prev = directory.get(key);
+  directory.set(key, { department, isDeleted: prev?.isDeleted ?? false, officeCode, employeeName: employeeName ?? prev?.employeeName });
   notify();
 
   const supabase = createClient();
   await supabase.from('employees').upsert(
     { employee_code: employeeCode, office_code: officeCode, employee_name: employeeName, department, updated_at: new Date().toISOString() },
-    { onConflict: 'employee_code' }
+    { onConflict: 'employee_code,office_code' }
   );
 }
 
-export function getEmployeeDepartmentOverride(employeeCode: string): string | null {
-  return directory.get(employeeCode)?.department ?? null;
+export function getEmployeeDepartmentOverride(employeeCode: string, officeCode: string): string | null {
+  return directory.get(directoryKey(employeeCode, officeCode))?.department ?? null;
 }
 
 export async function clearEmployeeDepartmentOverride(employeeCode: string, officeCode: string): Promise<void> {
-  const prev = directory.get(employeeCode);
-  directory.set(employeeCode, { department: null, isDeleted: prev?.isDeleted ?? false, officeCode, employeeName: prev?.employeeName });
+  const key = directoryKey(employeeCode, officeCode);
+  const prev = directory.get(key);
+  directory.set(key, { department: null, isDeleted: prev?.isDeleted ?? false, officeCode, employeeName: prev?.employeeName });
   notify();
 
   const supabase = createClient();
   await supabase.from('employees').upsert(
     { employee_code: employeeCode, office_code: officeCode, department: null, updated_at: new Date().toISOString() },
-    { onConflict: 'employee_code' }
+    { onConflict: 'employee_code,office_code' }
   );
 }
 
@@ -102,31 +114,33 @@ export async function clearEmployeeDepartmentOverride(employeeCode: string, offi
 // A deleted employee is dropped from every record pool at read-time (see
 // applyEmployeeDirectory below) — even if a future CSV upload still lists them.
 export async function deleteEmployee(employeeCode: string, officeCode: string, employeeName?: string): Promise<void> {
-  const prev = directory.get(employeeCode);
-  directory.set(employeeCode, { department: prev?.department ?? null, isDeleted: true, officeCode, employeeName: employeeName ?? prev?.employeeName });
+  const key = directoryKey(employeeCode, officeCode);
+  const prev = directory.get(key);
+  directory.set(key, { department: prev?.department ?? null, isDeleted: true, officeCode, employeeName: employeeName ?? prev?.employeeName });
   notify();
 
   const supabase = createClient();
   await supabase.from('employees').upsert(
     { employee_code: employeeCode, office_code: officeCode, employee_name: employeeName, is_deleted: true, deleted_at: new Date().toISOString(), updated_at: new Date().toISOString() },
-    { onConflict: 'employee_code' }
+    { onConflict: 'employee_code,office_code' }
   );
 }
 
 export async function restoreEmployee(employeeCode: string, officeCode: string): Promise<void> {
-  const prev = directory.get(employeeCode);
-  directory.set(employeeCode, { department: prev?.department ?? null, isDeleted: false, officeCode, employeeName: prev?.employeeName });
+  const key = directoryKey(employeeCode, officeCode);
+  const prev = directory.get(key);
+  directory.set(key, { department: prev?.department ?? null, isDeleted: false, officeCode, employeeName: prev?.employeeName });
   notify();
 
   const supabase = createClient();
   await supabase.from('employees').upsert(
     { employee_code: employeeCode, office_code: officeCode, is_deleted: false, deleted_at: null, updated_at: new Date().toISOString() },
-    { onConflict: 'employee_code' }
+    { onConflict: 'employee_code,office_code' }
   );
 }
 
-export function isEmployeeDeleted(employeeCode: string): boolean {
-  return directory.get(employeeCode)?.isDeleted ?? false;
+export function isEmployeeDeleted(employeeCode: string, officeCode: string): boolean {
+  return directory.get(directoryKey(employeeCode, officeCode))?.isDeleted ?? false;
 }
 
 /** For a "Deleted Employees" restore list — sourced from the directory itself,
@@ -166,7 +180,7 @@ export function applyEmployeeDirectory(records: AttendanceRecord[]): AttendanceR
   if (directory.size === 0) return records;
   const next: AttendanceRecord[] = [];
   for (const r of records) {
-    const entry = directory.get(r.employeeCode);
+    const entry = directory.get(directoryKey(r.employeeCode, r.officeCode));
     if (entry?.isDeleted) continue; // dropped everywhere — KPIs, charts, tables, exports
     if (entry?.department && entry.department !== r.department) {
       next.push({ ...r, department: entry.department });

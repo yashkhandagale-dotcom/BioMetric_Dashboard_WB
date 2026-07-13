@@ -148,3 +148,21 @@ values (1, '{
   "shiftStartMinutes": 570, "shiftEndMinutes": 1110
 }'::jsonb)
 on conflict (id) do nothing;
+
+-- ═══════════════════════════════════════════════════════════════════════════
+-- Migration: scope employee identity per office, not globally.
+-- Employee codes (e.g. 257, 270) are only unique WITHIN an office in this
+-- shared multi-office workspace. If the `employees` table's unique
+-- constraint / upsert conflict target is on employee_code alone, a delete
+-- or department reassignment in one office can silently apply to a
+-- different employee in another office who happens to share the same code.
+-- Run this once against your existing `employees` table.
+-- ═══════════════════════════════════════════════════════════════════════════
+
+-- Drop the old employee_code-only uniqueness (name may differ — check with
+-- \d employees in psql, or the Supabase Table Editor's "Indexes" tab, and
+-- adjust the constraint name below before running).
+-- alter table employees drop constraint employees_employee_code_key;
+
+alter table employees
+  add constraint employees_code_office_unique unique (employee_code, office_code);
