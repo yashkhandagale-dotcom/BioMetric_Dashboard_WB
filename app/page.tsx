@@ -266,8 +266,23 @@ function HRDashboard() {
     for (const pf of valid) {
       if (seen.has(pf.officeCode)) continue;
       seen.add(pf.officeCode);
-      if (!(await getMapping(pf.officeCode))) {
-        const headers = await parseCSVHeaders(pf.file);
+      const existingMapping = await getMapping(pf.officeCode);
+      const headers = await parseCSVHeaders(pf.file);
+      if (!existingMapping) {
+        queue.push({ officeCode: pf.officeCode, headers });
+        continue;
+      }
+      // The office already has a saved mapping, but that mapping points to
+      // specific header names from a PREVIOUS file. If this new file's
+      // export format changed even slightly (renamed/reordered columns,
+      // different machine/software version), every row[mapping.xxx] lookup
+      // below silently returns undefined, so every row fails the
+      // `!empCode || !date` check in parseCSVWithMapping and gets dropped —
+      // resulting in a misleading "0 new, 0 updated" with no error at all.
+      // Catch that here by verifying every mapped header still exists in
+      // this file, and force a remap screen instead of a silent no-op.
+      const missingHeaders = Object.values(existingMapping).filter(h => h && !headers.includes(h));
+      if (missingHeaders.length > 0) {
         queue.push({ officeCode: pf.officeCode, headers });
       }
     }
@@ -329,6 +344,15 @@ function HRDashboard() {
       const mapping = await getMapping(pf.officeCode);
       if (!mapping) continue;
       const { records } = await parseCSVWithMapping(pf.file, mapping, pf.officeCode, thresholds.graceMinutes);
+      if (records.length === 0) {
+        // A non-empty CSV that parsed to zero rows almost always means the
+        // saved column mapping no longer matches this file's headers (or
+        // every row is missing an employee code / date). Surface this
+        // loudly instead of silently reporting "0 new, 0 updated" as if
+        // nothing was wrong.
+        results.push(`${pf.officeCode} ${getMonthName(pf.month)} ${pf.year}: 0 rows parsed — check column mapping in Settings, the file's columns may not match what's expected.`);
+        continue;
+      }
       const monthKey = `${pf.year}_${pf.month}_${pf.officeCode}`;
       const monthLabel = `${pf.officeCode} \u2014 ${getMonthName(pf.month)} ${pf.year}`;
       // NOTE: uploaded_months row must exist BEFORE attendance_records rows,
@@ -474,11 +498,14 @@ function HRDashboard() {
     : tableFilter === 'frequentpunch' ? employeeSummaries.filter(e => e.frequentPunchDays > 0)
     : employeeSummaries;
 
-  // All dates across ALL uploaded months (for cross-month date range)
+  // All dates across ALL uploaded months (for cross-month date range).
+  // Sorted chronologically (by actual Date value), not lexically as strings —
+  // a plain string sort breaks across month boundaries whenever a date isn't
+  // strict ISO "YYYY-MM-DD" (e.g. "31-05-2026" would out-sort "30-06-2026").
   const allAvailableDates = (() => {
     const set = new Set<string>();
     allUploadedRecords.forEach(r => set.add(r.date));
-    return Array.from(set).sort();
+    return Array.from(set).sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
   })();
   const minAvailableDate = allAvailableDates[0];
   const maxAvailableDate = allAvailableDates[allAvailableDates.length - 1];
@@ -737,8 +764,6 @@ function HRDashboard() {
                     <DailyTrendChart
                       data={dailyTrend}
                       selectedDepts={selectedDepts}
-                      selectedDate={dateFrom === dateTo ? dateFrom : null}
-                      onDateClick={(d) => { setDateFrom(d); setDateTo(d); }}
                     />
                   )}
                   <HoursDistributionChart

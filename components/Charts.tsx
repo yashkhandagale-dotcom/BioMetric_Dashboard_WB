@@ -182,7 +182,7 @@ export function DailyTrendChart({ data, selectedDepts, onDateClick, selectedDate
             <h3 className="text-white font-semibold text-sm">Daily Attendance Trend</h3>
             <ChartSubtitle selectedDepts={selectedDepts} />
           </div>
-          <InfoTooltip title="Daily Attendance Trend" description="Daily attendance rate = present employees ÷ scheduled employees for that day. Holidays excluded. Click a date point to drill into that day's data. Click '+N more' in tooltip to see all absentees." formula="Present ÷ (Scheduled - WeeklyOff - Holidays) × 100" />
+          <InfoTooltip title="Daily Attendance Trend" description="Daily attendance rate = present employees ÷ scheduled employees for that day. Holidays excluded. Double-click a date point to see the full absentee list for that day." formula="Present ÷ (Scheduled - WeeklyOff - Holidays) × 100" />
         </div>
         {data.length === 0
           ? <div className="h-48 flex items-center justify-center text-slate-500 text-sm">No data</div>
@@ -194,7 +194,7 @@ export function DailyTrendChart({ data, selectedDepts, onDateClick, selectedDate
                   Showing: {selectedDate.slice(5)} · click another point to switch, click same to clear
                 </p>
               )}
-              <p className="text-slate-600 text-[10px] mb-1">Hover a point to see absentees · click to drill into that day · double-click to see the full absentee list</p>
+              <p className="text-slate-600 text-[10px] mb-1">Hover a point to see absentees · double-click to see the full absentee list</p>
               <ResponsiveContainer width="100%" height={200}>
                 <LineChart
                   data={data}

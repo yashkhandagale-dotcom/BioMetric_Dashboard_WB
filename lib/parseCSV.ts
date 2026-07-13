@@ -34,6 +34,53 @@ function countPunches(punchRecords?: string): number {
   return Math.max(1, Math.ceil(parts.length / 2));
 }
 
+// Row dates come straight from the biometric export's CSV column with no
+// guaranteed format. Everything downstream (page.tsx's date-range picker,
+// useDashboardData's `r.date < dateFrom` filtering, various `.sort()` calls,
+// and the HTML <input type="date"> values themselves) assumes strict ISO
+// "YYYY-MM-DD" strings, because that's the only format where lexical string
+// order == chronological order. If the raw export uses DD-MM-YYYY (common
+// for Indian biometric machines) this assumption silently breaks: e.g.
+// "31-05-2026" (May 31) string-sorts AFTER "30-06-2026" (June 30), so the
+// picker's max date gets stuck in May and June becomes unselectable.
+// Normalizing once here, at ingestion, fixes every downstream consumer at
+// once instead of patching each sort/comparison site individually.
+export function normalizeDate(raw: string): string {
+  const s = raw.trim();
+  if (!s) return s;
+
+  // Already ISO: YYYY-MM-DD — leave as-is.
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+
+  // ISO with a time component tacked on (e.g. "2026-06-01T00:00:00" or
+  // "2026-06-01 00:00:00") — keep just the date part.
+  let m = s.match(/^(\d{4})-(\d{2})-(\d{2})[T ]/);
+  if (m) {
+    const [, y, mo, d] = m;
+    return `${y}-${mo}-${d}`;
+  }
+
+  // DD-MM-YYYY or DD/MM/YYYY, optionally with a trailing time component
+  // (most common biometric export format).
+  m = s.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})(?:[T ].*)?$/);
+  if (m) {
+    const [, d, mo, y] = m;
+    return `${y}-${mo.padStart(2, '0')}-${d.padStart(2, '0')}`;
+  }
+
+  // YYYY/MM/DD or YYYY-M-D variants.
+  m = s.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/);
+  if (m) {
+    const [, y, mo, d] = m;
+    return `${y}-${mo.padStart(2, '0')}-${d.padStart(2, '0')}`;
+  }
+
+  // Unrecognized format — don't silently mangle it, but warn loudly so this
+  // shows up in the console instead of causing a mystery date-picker bug.
+  console.warn(`[parseCSV] Unrecognized date format "${raw}" — left as-is; this may break date sorting/filtering.`);
+  return s;
+}
+
 function isPunchTimeValid(timeStr: string): boolean {
   if (!timeStr) return false;
   const normalized = timeStr.trim();
@@ -113,7 +160,7 @@ export function parseCSVWithMapping(
 
         for (const row of rows) {
           const empCode = String(row[mapping.employeeCode] || '').trim();
-          const date = String(row[mapping.date] || '').trim();
+          const date = normalizeDate(String(row[mapping.date] || '').trim());
 
           if (!empCode || !date) continue;
 
