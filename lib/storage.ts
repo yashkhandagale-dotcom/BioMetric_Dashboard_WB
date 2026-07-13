@@ -18,6 +18,33 @@ import { normalizeDate } from './parseCSV';
 // ═══════════════════════════════════════════════════════════════════════════
 
 const UPSERT_BATCH_SIZE = 500; // keep upsert payloads reasonably sized
+const SELECT_PAGE_SIZE = 1000; // Supabase/PostgREST's default max rows per request
+
+// Supabase caps a single .select() response at 1000 rows unless you paginate
+// with .range(). attendance_records can easily exceed that for one office/
+// month (employees * days-in-month), so any unbounded select('*') on it
+// silently truncates — e.g. 82 employees * ~30 days = ~2460 rows, only the
+// first 1000 come back, showing roughly the first ~33 employees and quietly
+// dropping the rest with no error. Page through with .range() instead.
+async function selectAllRows<T>(
+  buildQuery: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: unknown }>
+): Promise<T[]> {
+  const all: T[] = [];
+  let from = 0;
+  for (;;) {
+    const to = from + SELECT_PAGE_SIZE - 1;
+    const { data, error } = await buildQuery(from, to);
+    if (error) {
+      console.error('selectAllRows failed:', error);
+      break;
+    }
+    const page = data ?? [];
+    all.push(...page);
+    if (page.length < SELECT_PAGE_SIZE) break; // last page
+    from += SELECT_PAGE_SIZE;
+  }
+  return all;
+}
 
 // ── Column Mappings (table: column_mappings) ─────────────────────────────────
 
@@ -159,15 +186,14 @@ export async function saveRecords(
 
 export async function getRecords(monthKey: string): Promise<AttendanceRecord[]> {
   const supabase = createClient();
-  const { data, error } = await supabase
-    .from('attendance_records')
-    .select('*')
-    .eq('month_key', monthKey);
-  if (error) {
-    console.error('getRecords failed:', error);
-    return [];
-  }
-  const records = (data ?? []).map(fromDbRow);
+  const data = await selectAllRows<Record<string, unknown>>((from, to) =>
+    supabase
+      .from('attendance_records')
+      .select('*')
+      .eq('month_key', monthKey)
+      .range(from, to)
+  );
+  const records = data.map(fromDbRow);
   // Overlay any HR-made department reassignments / deletions — non-destructive,
   // the underlying DB rows are never touched by this.
   return applyEmployeeDirectory(records);
@@ -175,12 +201,10 @@ export async function getRecords(monthKey: string): Promise<AttendanceRecord[]> 
 
 export async function getAllRecords(): Promise<AttendanceRecord[]> {
   const supabase = createClient();
-  const { data, error } = await supabase.from('attendance_records').select('*');
-  if (error) {
-    console.error('getAllRecords failed:', error);
-    return [];
-  }
-  return applyEmployeeDirectory((data ?? []).map(fromDbRow));
+  const data = await selectAllRows<Record<string, unknown>>((from, to) =>
+    supabase.from('attendance_records').select('*').range(from, to)
+  );
+  return applyEmployeeDirectory(data.map(fromDbRow));
 }
 
 // One employee's records from every uploaded month (same office), sorted
@@ -277,13 +301,17 @@ export interface BackupFile {
 
 export async function exportAllData(): Promise<BackupFile> {
   const supabase = createClient();
-  const results = await Promise.all(BACKUP_TABLES.map((t) => supabase.from(t).select('*')));
+  const results = await Promise.all(
+    BACKUP_TABLES.map((t) =>
+      selectAllRows<Record<string, unknown>>((from, to) =>
+        supabase.from(t).select('*').range(from, to)
+      )
+    )
+  );
 
   const data = {} as Record<BackupTable, Record<string, unknown>[]>;
   BACKUP_TABLES.forEach((table, i) => {
-    const { data: rows, error } = results[i];
-    if (error) console.error(`exportAllData: failed to read "${table}":`, error);
-    data[table] = rows ?? [];
+    data[table] = results[i];
   });
 
   return {
