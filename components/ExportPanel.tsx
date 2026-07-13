@@ -1,7 +1,7 @@
 ﻿'use client';
 import { useState, useRef, useMemo, useEffect } from 'react';
 import { Download, FileSpreadsheet, FileText, FileIcon, ChevronDown, Loader2, X, Calendar, Building2, Users } from 'lucide-react';
-import { UploadedMonth, Thresholds, Holiday, LeaveRecord } from '@/lib/types';
+import { UploadedMonth, Thresholds, Holiday, LeaveRecord, AttendanceRecord } from '@/lib/types';
 import { getRecords } from '@/lib/storage';
 import { getAllLeaveRecords } from '@/lib/leaveStorage';
 import { getHolidays } from '@/lib/holidays';
@@ -41,11 +41,21 @@ export default function ExportPanel({ uploadedMonths, thresholds }: ExportPanelP
   const [office, setOffice] = useState('ALL');
   const [selectedDepts, setSelectedDepts] = useState<string[]>([]);
 
-  const periods = useMemo(() => {
-    const set = new Set<string>();
-    uploadedMonths.forEach(m => set.add(periodKey(m)));
-    return Array.from(set).sort();
-  }, [uploadedMonths]);
+  console.log("ExportPanel uploadedMonths:", uploadedMonths);
+console.log("Is array:", Array.isArray(uploadedMonths));
+
+const periods = useMemo(() => {
+  console.log("periods useMemo:", uploadedMonths);
+
+  if (!Array.isArray(uploadedMonths)) {
+    console.error("uploadedMonths is not an array!", uploadedMonths);
+    return [];
+  }
+
+  const set = new Set<string>();
+  uploadedMonths.forEach(m => set.add(periodKey(m)));
+  return Array.from(set).sort();
+}, [uploadedMonths]);
 
   const offices = useMemo(() => {
     return Array.from(new Set(uploadedMonths.map(m => m.officeCode))).sort();
@@ -82,10 +92,15 @@ export default function ExportPanel({ uploadedMonths, thresholds }: ExportPanelP
     });
   }, [uploadedMonths, fromPeriod, toPeriod, office]);
 
-  const scopedRecords = useMemo(
-    () => scopedMonths.flatMap(m => getRecords(m.key)),
-    [scopedMonths, directoryVersion]
-  );
+  const [scopedRecords, setScopedRecords] = useState<AttendanceRecord[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    Promise.all(scopedMonths.map(m => getRecords(m.key))).then(results => {
+      if (!cancelled) setScopedRecords(results.flat());
+    });
+    return () => { cancelled = true; };
+  }, [scopedMonths, directoryVersion]);
 
   const departments = useMemo(() => {
     return Array.from(new Set(scopedRecords.map(r => r.department))).filter(Boolean).sort();

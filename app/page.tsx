@@ -557,6 +557,7 @@ function HRDashboard() {
             >
               <SettingsIcon className="w-3.5 h-3.5" /> Settings
             </button>
+            console.log("HRDashboard uploadedMonths:", uploadedMonths);
             <ExportPanel uploadedMonths={uploadedMonths} thresholds={thresholds} />
             <button onClick={() => setAppState('upload')}
               className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">

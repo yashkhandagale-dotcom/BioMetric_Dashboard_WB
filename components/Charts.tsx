@@ -933,7 +933,7 @@ export const STATUS_COLORS_CELL: Record<string, string> = {
 
 export function getCellStatus(r: AttendanceRecord): string {
   if (r.isShortDay) return 'shortday';
-  const s = r.status.toLowerCase();
+  const s = (r.status ?? '').toLowerCase();
   if (s.includes('weeklyoff')) return 'weeklyoff';
   if (s.includes('absent')) return 'absent';
   if (s.includes('present')) {

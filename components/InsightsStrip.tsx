@@ -41,10 +41,10 @@ export default function InsightsStrip({ summaries, dailyTrend, deptAttendance, r
 
       // 4. Missing out-punches
       const missingOut = records.filter(r => {
-        const s = r.status.toLowerCase();
+        const s = (r.status ?? '').toLowerCase();
         return s.includes('present') && !s.includes('absent') && (!r.outTime || r.outTime === '--');
       }).length;
-      const presentTotal = records.filter(r => r.status.toLowerCase().includes('present') && !r.status.toLowerCase().includes('absent')).length;
+      const presentTotal = records.filter(r => (r.status ?? '').toLowerCase().includes('present') && !(r.status ?? '').toLowerCase().includes('absent')).length;
       if (presentTotal > 0 && missingOut / presentTotal > 0.05) {
         result.push({ icon: '⚠', text: `${missingOut} employees have missing out-punch records this month. Durations for these records are unreliable.`, type: 'warn' });
       }

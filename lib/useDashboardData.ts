@@ -13,17 +13,17 @@ export const SHIFT_START_MINUTES = 9 * 60 + 30;  // 570 — 09:30 AM
 export const SHIFT_END_MINUTES = 18 * 60 + 30;   // 1110 — 18:30
 
 export function isPresent(status: string): boolean {
-  const s = status.toLowerCase();
+  const s = (status ?? '').toLowerCase();
   return s.includes('present') && !s.includes('absent');
 }
 
 export function isAbsent(status: string): boolean {
-  const s = status.toLowerCase();
+  const s = (status ?? '').toLowerCase();
   return s.includes('absent') || s === 'absent (no outpunch)';
 }
 
 export function isWeeklyOff(status: string): boolean {
-  return status.toLowerCase().includes('weeklyoff');
+  return (status ?? '').toLowerCase().includes('weeklyoff');
 }
 
 // Flags a day-record where a swipe in or out wasn't captured by the machine
@@ -32,7 +32,7 @@ export function isWeeklyOff(status: string): boolean {
 // check before treating as a genuine absence" note rather than silently
 // folding them into the absence count with no explanation.
 export function isMissedPunchOut(status: string): boolean {
-  const s = status.toLowerCase();
+  const s = (status ?? '').toLowerCase();
   return s.includes('no outpunch') || s.includes('missed punch') || s.includes('no punch out');
 }
 
