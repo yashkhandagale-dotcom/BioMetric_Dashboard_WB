@@ -474,11 +474,14 @@ function HRDashboard() {
     : tableFilter === 'frequentpunch' ? employeeSummaries.filter(e => e.frequentPunchDays > 0)
     : employeeSummaries;
 
-  // All dates across ALL uploaded months (for cross-month date range)
+  // All dates across ALL uploaded months (for cross-month date range).
+  // Sorted chronologically (by actual Date value), not lexically as strings —
+  // a plain string sort breaks across month boundaries whenever a date isn't
+  // strict ISO "YYYY-MM-DD" (e.g. "31-05-2026" would out-sort "30-06-2026").
   const allAvailableDates = (() => {
     const set = new Set<string>();
     allUploadedRecords.forEach(r => set.add(r.date));
-    return Array.from(set).sort();
+    return Array.from(set).sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
   })();
   const minAvailableDate = allAvailableDates[0];
   const maxAvailableDate = allAvailableDates[allAvailableDates.length - 1];
