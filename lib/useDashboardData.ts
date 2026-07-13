@@ -19,11 +19,22 @@ export function isPresent(status: string): boolean {
 
 export function isAbsent(status: string): boolean {
   const s = status.toLowerCase();
-  return s.includes('absent') || s === 'absent (no outpunch)';
+  // "Missed Punch Out" is what normalizeStatus() (lib/parseCSV.ts) rewrites
+  // any in-but-no-out record to, regardless of what the machine's original
+  // status said. It must count as an absence (pending manual review) here,
+  // or it silently disappears from every present/absent/total count — it
+  // doesn't contain "absent" as a substring, so the check below is required.
+  return s.includes('absent') || s === 'absent (no outpunch)' || s.includes('missed punch');
 }
 
 export function isWeeklyOff(status: string): boolean {
-  return status.toLowerCase().includes('weeklyoff');
+  const s = status.toLowerCase();
+  // "WeeklyOff Present" means the employee actually came in and worked on
+  // their scheduled day off — that's a present day, not a day off, and
+  // must NOT be treated as weekly-off (this function is used everywhere as
+  // an exclusion filter, so misclassifying it here silently drops a real
+  // worked day from every present/absent/total count for that employee).
+  return s.includes('weeklyoff') && !s.includes('present');
 }
 
 // Flags a day-record where a swipe in or out wasn't captured by the machine

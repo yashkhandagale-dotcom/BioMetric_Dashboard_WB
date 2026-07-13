@@ -67,9 +67,9 @@ function autoColWidths(ws: XLSX.WorkSheet, keys: string[]) {
 }
 
 function isPresent(s: string) { return s.toLowerCase().includes('present') && !s.toLowerCase().includes('absent'); }
-function isAbsent(s: string) { return s.toLowerCase().includes('absent') && !s.toLowerCase().includes('missed'); }
+function isAbsent(s: string) { const l = s.toLowerCase(); return l.includes('absent') || l === 'absent (no outpunch)' || l.includes('missed punch'); }
 function isMissedPunchOut(s: string) { return s.toLowerCase().includes('missed') && s.toLowerCase().includes('punch'); }
-function isWeeklyOff(s: string) { return s.toLowerCase().includes('weeklyoff'); }
+function isWeeklyOff(s: string) { const l = s.toLowerCase(); return l.includes('weeklyoff') && !l.includes('present'); }
 function colorStatus(rate: number): string {
   if (rate >= 80) return 'Green';
   if (rate >= 70) return 'Amber';
