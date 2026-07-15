@@ -1,7 +1,9 @@
 import * as XLSX from 'xlsx';
 import Papa from 'papaparse';
-import { AttendanceRecord, EmployeeSummary, LeaveRecord, LeaveType } from './types';
+import { AttendanceRecord, EmployeeSummary, LeaveRecord, LeaveType, Thresholds } from './types';
 import { durationToMinutes } from './parseCSV';
+import { getLateMinutes, getEarlyMinutes, computeProductivityLostMinutes, targetShiftMinutes } from './useDashboardData';
+import { DEFAULT_THRESHOLDS } from './settings';
 
 const LEAVE_LABELS: Record<LeaveType, string> = {
   planned: 'Planned Leave', casual: 'Casual Leave', sick: 'Sick Leave', lwp: 'LWP', half_day: 'Half Day',
@@ -12,40 +14,34 @@ function buildLeaveLookup(leaveRecords: LeaveRecord[] = []): Map<string, LeaveRe
   return m;
 }
 
-const SHIFT_MINUTES = 480; // 8 effective hours (9h shift minus 1h lunch)             // 9h shift
-const SHIFT_START_MINUTES = 9 * 60 + 30; // 09:30
-const SHIFT_END_MINUTES = 18 * 60 + 30;  // 18:30
-
-// We compute late/early from raw inTime/outTime rather than trusting the
-// CSV's lateBy/earlyBy columns — the biometric system may use 9:00 as shift
-// start and will under-report lateness for a 9:30 policy.
-function timeStringToMinutes(t: string): number {
-  if (!t || t === '--' || t === '') return -1;
-  const p = t.split(':');
-  if (p.length < 2) return -1;
-  const h = parseInt(p[0], 10), m = parseInt(p[1], 10);
-  return isNaN(h) || isNaN(m) ? -1 : h * 60 + m;
+// Spec v1 §1 (Global Rule): Late/Early/Productivity are always derived from
+// raw punch times compared against the configured Shift Start/End + Grace —
+// never the CSV's own lateBy/earlyBy columns, and never a hardcoded 10-min
+// grace or hardcoded 09:30–18:30 window. This file previously kept its own
+// private copy of this math (computeLate/computeEarly/lateMinsFor/
+// earlyMinsFor) that both hardcoded the shift window AND trusted CSV
+// lateBy/earlyBy — that's exactly the kind of duplicated, inconsistent
+// implementation the spec requires removing. Every late/early/productivity
+// number in this export now comes from the same shared functions the live
+// dashboard uses (lib/useDashboardData.ts), threaded with the real
+// Thresholds instead of silent defaults.
+function lateMinsFor(r: AttendanceRecord, t: Thresholds): number {
+  return getLateMinutes(r, t.graceMinutes, t.shiftStartMinutes);
 }
-function computeLate(inTime: string, graceMinutes = 10): number {
-  const m = timeStringToMinutes(inTime);
-  return m < 0 ? 0 : Math.max(0, m - SHIFT_START_MINUTES - graceMinutes);
-}
-function computeEarly(outTime: string, graceMinutes = 10): number {
-  const m = timeStringToMinutes(outTime);
-  return m <= 0 ? 0 : Math.max(0, SHIFT_END_MINUTES - graceMinutes - m);
-}
-// A5: prefer CSV lateBy/earlyBy when present & valid
-function lateMinsFor(r: AttendanceRecord, graceMinutes = 10): number {
-  if (!r.lateIsEstimated && r.lateBy) { const m = durationToMinutes(r.lateBy); if (m >= 0) return m; }
-  return computeLate(r.inTime, graceMinutes);
-}
-function earlyMinsFor(r: AttendanceRecord, graceMinutes = 10): number {
-  if (!r.earlyIsEstimated && r.earlyBy) { const m = durationToMinutes(r.earlyBy); if (m >= 0) return m; }
-  return computeEarly(r.outTime, graceMinutes);
+function earlyMinsFor(r: AttendanceRecord, t: Thresholds): number {
+  return getEarlyMinutes(r, t.graceMinutes, t.shiftEndMinutes);
 }
 function minsToHHMM(mins: number): string {
   if (mins <= 0) return '0:00';
   return `${Math.floor(mins / 60)}:${(mins % 60).toString().padStart(2, '0')}`;
+}
+function minsToTimeStr(minsFromMidnight: number): string {
+  if (minsFromMidnight < 0) return '—';
+  const h = Math.floor(minsFromMidnight / 60);
+  const m = minsFromMidnight % 60;
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  const h12 = h % 12 || 12;
+  return `${h12}:${m.toString().padStart(2, '0')} ${ampm}`;
 }
 
 const HEADER_STYLE = {
@@ -81,7 +77,8 @@ export function exportExcel(
   records: AttendanceRecord[],
   summaries: EmployeeSummary[],
   label: string,
-  leaveRecords: LeaveRecord[] = []
+  leaveRecords: LeaveRecord[] = [],
+  thresholds: Thresholds = DEFAULT_THRESHOLDS
 ): void {
   const leaveLookup = buildLeaveLookup(leaveRecords);
   const wb = XLSX.utils.book_new();
@@ -92,14 +89,25 @@ export function exportExcel(
   const presentCount = presentRecords.length;
   const absentCount = absentRecords.length;
 
-  const lateRecords = presentRecords.filter(r => lateMinsFor(r) > 0);
-  const earlyRecords = presentRecords.filter(r => earlyMinsFor(r) > 0);
-  const totalLostMins = presentRecords.reduce((sum, r) => sum + lateMinsFor(r) + earlyMinsFor(r), 0);
-  const totalShiftMins = presentCount * SHIFT_MINUTES;
+  const lateRecords = presentRecords.filter(r => lateMinsFor(r, thresholds) > 0);
+  const earlyRecords = presentRecords.filter(r => earlyMinsFor(r, thresholds) > 0);
+  // Spec v1 §3: Productivity Lost = Σ max(0, target - effective) ÷ (present × target).
+  // This previously summed late+early minutes instead — a different, incorrect
+  // quantity (someone who came in late but stayed to compensate would be
+  // flagged as "productivity lost" even though computeProductivityLostMinutes
+  // — the shared formula every other view uses — says 0).
+  const totalLostMins = presentRecords.reduce(
+    (sum, r) => sum + computeProductivityLostMinutes(r, thresholds.shiftStartMinutes, thresholds.shiftEndMinutes), 0
+  );
+  const target = targetShiftMinutes(thresholds.shiftStartMinutes, thresholds.shiftEndMinutes);
+  const totalShiftMins = presentCount * target;
   const productivityLost = totalShiftMins > 0 ? (totalLostMins / totalShiftMins) * 100 : 0;
 
-  const presentWithDuration = presentRecords.filter(r => durationToMinutes(r.duration) > 0);
-  const totalMins = presentWithDuration.reduce((sum, r) => sum + durationToMinutes(r.duration), 0);
+  // Spec v1 §3: Avg Effective Hours = Σ(duration − 60min lunch) ÷ count of
+  // days with duration > 60min — was previously using raw duration with no
+  // lunch subtraction, which doesn't match the dashboard's KPI card.
+  const presentWithDuration = presentRecords.filter(r => durationToMinutes(r.duration) > 60);
+  const totalMins = presentWithDuration.reduce((sum, r) => sum + (durationToMinutes(r.duration) - 60), 0);
   const avgWorkingHours = presentWithDuration.length > 0 ? totalMins / presentWithDuration.length / 60 : 0;
 
   const offices = [...new Set(records.map(r => r.officeCode))].filter(Boolean).join(', ');
@@ -117,7 +125,7 @@ export function exportExcel(
     { Metric: 'Late Arrival Rate', Value: presentCount > 0 ? `${((lateRecords.length / presentCount) * 100).toFixed(1)}%` : '—' },
     { Metric: 'Early Exit Rate', Value: presentCount > 0 ? `${((earlyRecords.length / presentCount) * 100).toFixed(1)}%` : '—' },
     { Metric: 'Productivity Lost %', Value: `${productivityLost.toFixed(1)}%` },
-    { Metric: 'Shift Timing', Value: '09:30 – 18:30 (480 effective mins, excl. 1h lunch)' },
+    { Metric: 'Shift Timing', Value: `${minsToTimeStr(thresholds.shiftStartMinutes)} – ${minsToTimeStr(thresholds.shiftEndMinutes)} (${target} effective mins, excl. 1h lunch, ${thresholds.graceMinutes}min grace)` },
     { Metric: 'Total Late Arrivals', Value: lateRecords.length },
     { Metric: 'Total Early Exits', Value: earlyRecords.length },
     { Metric: 'Total Absent Days', Value: absentCount },
@@ -132,8 +140,8 @@ export function exportExcel(
   for (const emp of summaries) {
     // Recompute counts from raw records so they match our shift policy
     const empPresentRecs = (emp.records || []).filter(r => isPresent(r.status));
-    const lateCount = empPresentRecs.filter(r => lateMinsFor(r) > 0).length;
-    const earlyCount = empPresentRecs.filter(r => earlyMinsFor(r) > 0).length;
+    const lateCount = empPresentRecs.filter(r => lateMinsFor(r, thresholds) > 0).length;
+    const earlyCount = empPresentRecs.filter(r => earlyMinsFor(r, thresholds) > 0).length;
     const absentDays = emp.absentDays;
 
     const flags: string[] = [];
@@ -173,8 +181,8 @@ export function exportExcel(
       dept.present++;
       const mins = durationToMinutes(r.duration);
       if (mins > 0) { dept.totalMins += mins; dept.presentCount++; }
-      if (lateMinsFor(r) > 0) dept.lateCount++;
-      if (earlyMinsFor(r) > 0) dept.earlyCount++;
+      if (lateMinsFor(r, thresholds) > 0) dept.lateCount++;
+      if (earlyMinsFor(r, thresholds) > 0) dept.earlyCount++;
     } else if (isAbsent(r.status)) {
       dept.absent++;
     }
@@ -229,8 +237,8 @@ export function exportExcel(
 
   // ── Sheet 5: Day-wise Detail with Flags ───────────────────────────────────
   const detailRows = records.map(r => {
-    const lateMin = lateMinsFor(r);
-    const earlyMin = earlyMinsFor(r);
+    const lateMin = lateMinsFor(r, thresholds);
+    const earlyMin = earlyMinsFor(r, thresholds);
     const flags: string[] = [];
     if (isAbsent(r.status)) flags.push('Absent');
     if (lateMin > 0) flags.push('Late Arrival');
@@ -268,11 +276,16 @@ export function exportExcel(
   XLSX.writeFile(wb, filename);
 }
 
-export function exportCSV(records: AttendanceRecord[], label: string, leaveRecords: LeaveRecord[] = []): void {
+export function exportCSV(
+  records: AttendanceRecord[],
+  label: string,
+  leaveRecords: LeaveRecord[] = [],
+  thresholds: Thresholds = DEFAULT_THRESHOLDS
+): void {
   const leaveLookup = buildLeaveLookup(leaveRecords);
   const rows = records.map(r => {
-    const lateMin = lateMinsFor(r);
-    const earlyMin = earlyMinsFor(r);
+    const lateMin = lateMinsFor(r, thresholds);
+    const earlyMin = earlyMinsFor(r, thresholds);
     const flags: string[] = [];
     if (lateMin > 0) flags.push('Late Arrival');
     if (earlyMin > 0) flags.push('Early Exit');

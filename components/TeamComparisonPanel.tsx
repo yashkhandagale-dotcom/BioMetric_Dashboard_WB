@@ -1,57 +1,25 @@
 'use client';
 import { useState, useMemo } from 'react';
-import { AttendanceRecord } from '@/lib/types';
-import { computeLateMinutes, computeEarlyMinutes, SHIFT_MINUTES } from '@/lib/useDashboardData';
-import { durationToMinutes } from '@/lib/parseCSV';
+import { AttendanceRecord, Holiday, LeaveRecord } from '@/lib/types';
+import { computeEmployeeKPIs, buildLeaveMap, ComparisonKPIs } from '@/lib/useDashboardData';
 
 interface TeamComparisonPanelProps {
   allRecords: AttendanceRecord[];
   departments: string[];
+  // Same inputs every other KPI consumer uses — no private defaults here.
+  holidays?: Holiday[];
+  leaveRecords?: LeaveRecord[];
+  graceMinutes: number;
+  shiftStartMinutes: number;
+  shiftEndMinutes: number;
 }
 
-interface TeamKPIs {
-  attendanceRate: number;
-  absenteeismRate: number;
-  avgHoursPerDay: number;
-  lateArrivalRate: number;
-  earlyExitRate: number;
-  productivityLost: number;
-}
-
-function isMissedPunchOut(s: string) { const l = s.toLowerCase(); return l.includes('no outpunch') || l.includes('missed punch') || l.includes('no punch out'); }
-function isPresent(s: string) { if (isMissedPunchOut(s)) return true; return s.toLowerCase().includes('present') && !s.toLowerCase().includes('absent'); }
-function isAbsent(s: string) { if (isMissedPunchOut(s)) return false; const l = s.toLowerCase(); return l.includes('absent') || l === 'absent (no outpunch)'; }
-function isWeeklyOff(s: string) { const l = s.toLowerCase(); return l.includes('weeklyoff') && !l.includes('present'); }
-
-function computeTeamKPIs(records: AttendanceRecord[]): TeamKPIs {
-  const workRecords = records.filter(r => !isWeeklyOff(r.status));
-  const presentRecords = workRecords.filter(r => isPresent(r.status));
-  const absentRecords = workRecords.filter(r => isAbsent(r.status));
-
-  const scheduled = workRecords.length;
-  const presentCount = presentRecords.length;
-  const absentCount = absentRecords.length;
-
-  const attendanceRate = scheduled > 0 ? (presentCount / scheduled) * 100 : 0;
-  const absenteeismRate = scheduled > 0 ? (absentCount / scheduled) * 100 : 0;
-
-  const presentWithDur = presentRecords.filter(r => durationToMinutes(r.duration) > 0);
-  const totalMins = presentWithDur.reduce((s, r) => s + durationToMinutes(r.duration), 0);
-  const avgHoursPerDay = presentWithDur.length > 0 ? totalMins / presentWithDur.length / 60 : 0;
-
-  const lateCount = presentRecords.filter(r => computeLateMinutes(r.inTime) > 0).length;
-  const earlyCount = presentRecords.filter(r => computeEarlyMinutes(r.outTime) > 0).length;
-  const lateArrivalRate = presentCount > 0 ? (lateCount / presentCount) * 100 : 0;
-  const earlyExitRate = presentCount > 0 ? (earlyCount / presentCount) * 100 : 0;
-
-  const totalLostMins = presentRecords.reduce(
-    (s, r) => s + computeLateMinutes(r.inTime) + computeEarlyMinutes(r.outTime), 0
-  );
-  const totalShiftMins = presentCount * SHIFT_MINUTES;
-  const productivityLost = totalShiftMins > 0 ? (totalLostMins / totalShiftMins) * 100 : 0;
-
-  return { attendanceRate, absenteeismRate, avgHoursPerDay, lateArrivalRate, earlyExitRate, productivityLost };
-}
+// TeamKPIs is just the subset of ComparisonKPIs this panel displays — the
+// underlying formulas (attendance/absenteeism/late/early/productivity) now
+// come from the single shared engine (computeEmployeeKPIs) instead of a
+// private copy that ignored leave, holidays, and configured shift/grace.
+type TeamKPIs = Pick<ComparisonKPIs,
+  'attendanceRate' | 'absenteeismRate' | 'avgHoursPerDay' | 'lateArrivalRate' | 'earlyExitRate' | 'productivityLost'>;
 
 // Returns true if left value is "better" for this metric
 function leftWins(metric: string, left: number, right: number): boolean {
@@ -83,9 +51,13 @@ function formatValue(metric: string, value: number): string {
   return `${value.toFixed(1)}%`;
 }
 
-export default function TeamComparisonPanel({ allRecords, departments }: TeamComparisonPanelProps) {
+export default function TeamComparisonPanel({
+  allRecords, departments, holidays = [], leaveRecords = [],
+  graceMinutes, shiftStartMinutes, shiftEndMinutes,
+}: TeamComparisonPanelProps) {
   const [leftTeam, setLeftTeam] = useState(departments[0] || '');
   const [rightTeam, setRightTeam] = useState(departments[1] || '');
+  const leaveMap = useMemo(() => buildLeaveMap(leaveRecords), [leaveRecords]);
 
   // Keep rightTeam valid when leftTeam changes
   function handleLeftChange(val: string) {
@@ -107,15 +79,21 @@ export default function TeamComparisonPanel({ allRecords, departments }: TeamCom
   const leftOptions = departments.filter(d => d !== rightTeam);
   const rightOptions = departments.filter(d => d !== leftTeam);
 
-  const leftKPIs = useMemo(() => {
+  const leftKPIs: TeamKPIs | null = useMemo(() => {
     if (!leftTeam) return null;
-    return computeTeamKPIs(allRecords.filter(r => r.department === leftTeam));
-  }, [allRecords, leftTeam]);
+    return computeEmployeeKPIs(
+      allRecords.filter(r => r.department === leftTeam),
+      leaveMap, holidays, graceMinutes, shiftStartMinutes, shiftEndMinutes
+    );
+  }, [allRecords, leftTeam, leaveMap, holidays, graceMinutes, shiftStartMinutes, shiftEndMinutes]);
 
-  const rightKPIs = useMemo(() => {
+  const rightKPIs: TeamKPIs | null = useMemo(() => {
     if (!rightTeam) return null;
-    return computeTeamKPIs(allRecords.filter(r => r.department === rightTeam));
-  }, [allRecords, rightTeam]);
+    return computeEmployeeKPIs(
+      allRecords.filter(r => r.department === rightTeam),
+      leaveMap, holidays, graceMinutes, shiftStartMinutes, shiftEndMinutes
+    );
+  }, [allRecords, rightTeam, leaveMap, holidays, graceMinutes, shiftStartMinutes, shiftEndMinutes]);
 
   const safeMetrics: { label: string; leftVal: number; rightVal: number }[] = useMemo(() => {
     if (!leftKPIs || !rightKPIs) return [];

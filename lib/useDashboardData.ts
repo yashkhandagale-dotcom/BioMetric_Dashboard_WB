@@ -87,15 +87,18 @@ export function computeEarlyMinutes(
   return Math.max(0, shiftEnd - graceMinutes - outMins);
 }
 
+// Spec v1 §1 (Global Rule): Late/Early are ALWAYS derived from the raw punch
+// time (inTime/outTime) compared against Shift Start/End + Grace. The CSV's
+// own lateBy/earlyBy columns are never used for calculation, anywhere, for
+// any card or chart — the biometric system's own shift-start assumption may
+// not match the configured policy, so trusting it silently under-reports
+// lateness. r.lateBy/r.earlyBy are display-only (e.g. in exports' "as
+// reported by device" column) and must never feed a calculation.
 export function getLateMinutes(
   r: AttendanceRecord,
   graceMinutes: number,
   shiftStart: number = SHIFT_START_MINUTES
 ): number {
-  if (!r.lateIsEstimated && r.lateBy) {
-    const m = durationToMinutes(r.lateBy);
-    if (m >= 0) return m;
-  }
   return computeLateMinutes(r.inTime, graceMinutes, shiftStart);
 }
 
@@ -104,40 +107,53 @@ export function getEarlyMinutes(
   graceMinutes: number,
   shiftEnd: number = SHIFT_END_MINUTES
 ): number {
-  if (!r.earlyIsEstimated && r.earlyBy) {
-    const m = durationToMinutes(r.earlyBy);
-    if (m >= 0) return m;
-  }
   return computeEarlyMinutes(r.outTime, graceMinutes, shiftEnd);
 }
 
 /**
- * Productivity Lost (minutes) for a record — the NEW correct logic:
+ * Target effective minutes for a shift window: (shiftEnd - shiftStart) - 60min
+ * lunch. Defaults to the default 09:30–18:30 window (480 effective minutes)
+ * when no shift window is supplied, matching SHIFT_MINUTES.
+ */
+export function targetShiftMinutes(
+  shiftStart: number = SHIFT_START_MINUTES,
+  shiftEnd: number = SHIFT_END_MINUTES
+): number {
+  return Math.max(0, (shiftEnd - shiftStart) - 60);
+}
+
+/**
+ * Productivity Lost (minutes) for a record:
  *
- * Productivity lost = how many minutes short of SHIFT_MINUTES (8h) the
+ * Productivity lost = how many minutes short of the configured shift's
+ * target effective time (Shift End - Shift Start - 60min lunch) the
  * employee actually worked, clamped to ≥ 0.
  *
- * Examples (all with 10-min grace):
+ * Examples (default 09:30–18:30 shift, 480 target, all with 10-min grace):
  *   In 10:00 Out 18:30 → duration ≈ 8h30m → 8h30 - 8h = 0 (no loss, though late)
  *   In 09:30 Out 17:00 → duration ≈ 7h30m → 8h - 7h30 = 30 min lost
  *   In 10:00 Out 18:00 → duration ≈ 8h    → 8h - 8h = 0 lost (came late but stayed)
  *   In 09:45 Out 17:30 → duration ≈ 7h45m → 8h - 7h45 = 15 min lost
  *
  * We use the CSV duration (in/out difference) directly. If absent / no duration, 0.
+ * shiftStart/shiftEnd MUST come from the same Thresholds object as every
+ * other consumer — never a hardcoded default sitting silently in a caller.
  */
 export function computeProductivityLostMinutes(
-  r: AttendanceRecord
+  r: AttendanceRecord,
+  shiftStart: number = SHIFT_START_MINUTES,
+  shiftEnd: number = SHIFT_END_MINUTES
 ): number {
   if (!isPresent(r.status) || r.isShortDay) return 0;
   const worked = durationToMinutes(r.duration);
   if (worked <= 0) return 0;
-  // subtract 60 min lunch if duration > 60 (shift duration from punch includes lunch)
-  // Actually the CSV "duration" from in/out punch already includes lunch time in total hours.
-  // So: effective = worked - 60 (lunch), then compare against SHIFT_MINUTES (480).
-  // But if worked ≤ 60 that means they barely punched in - no lunch subtraction.
+  // The CSV "duration" from in/out punch already includes lunch time in total
+  // hours, so: effective = worked - 60 (lunch), then compare against the
+  // shift's target effective minutes. If worked ≤ 60 that means they barely
+  // punched in - no lunch subtraction.
   const lunchMinutes = worked > 60 ? 60 : 0;
   const effective = worked - lunchMinutes;
-  return Math.max(0, SHIFT_MINUTES - effective);
+  return Math.max(0, targetShiftMinutes(shiftStart, shiftEnd) - effective);
 }
 
 export function getEffectiveStatus(
@@ -240,9 +256,10 @@ export function computeEmployeeKPIs(
   const lateArrivalRate = presentRecords.length > 0 ? (lateRecords.length / presentRecords.length) * 100 : 0;
   const earlyExitRate = presentRecords.length > 0 ? (earlyRecords.length / presentRecords.length) * 100 : 0;
 
-  // Productivity lost = total minutes short of 8h effective work
-  const totalLostMins = presentRecords.reduce((sum, r) => sum + computeProductivityLostMinutes(r), 0);
-  const totalShiftMins = presentRecords.length * SHIFT_MINUTES;
+  // Productivity lost = total minutes short of the configured shift's target
+  // effective work, tracking Shift Start/End rather than a frozen 480.
+  const totalLostMins = presentRecords.reduce((sum, r) => sum + computeProductivityLostMinutes(r, shiftStart, shiftEnd), 0);
+  const totalShiftMins = presentRecords.length * targetShiftMinutes(shiftStart, shiftEnd);
   const productivityLost = totalShiftMins > 0 ? (totalLostMins / totalShiftMins) * 100 : 0;
 
   return {
@@ -272,6 +289,8 @@ export function useDashboardData(
     : 'monthly';
 
   const grace = thresholds.graceMinutes;
+  const shiftStart = thresholds.shiftStartMinutes;
+  const shiftEnd = thresholds.shiftEndMinutes;
   const leaveMap = useMemo(() => buildLeaveMap(leaveRecords), [leaveRecords]);
 
   const filtered = useMemo(() => {
@@ -324,14 +343,14 @@ export function useDashboardData(
     const totalEffectiveMins = presentWithDuration.reduce((sum, r) => sum + (durationToMinutes(r.duration) - 60), 0);
     const avgWorkingHours = presentWithDuration.length > 0 ? totalEffectiveMins / presentWithDuration.length / 60 : 0;
 
-    const lateRecords = presentRecords.filter((r) => getLateMinutes(r, grace) > 0);
-    const earlyRecords = presentRecords.filter((r) => getEarlyMinutes(r, grace) > 0);
+    const lateRecords = presentRecords.filter((r) => getLateMinutes(r, grace, shiftStart) > 0);
+    const earlyRecords = presentRecords.filter((r) => getEarlyMinutes(r, grace, shiftEnd) > 0);
     const lateArrivalRate = presentRecords.length > 0 ? (lateRecords.length / presentRecords.length) * 100 : 0;
     const earlyExitRate = presentRecords.length > 0 ? (earlyRecords.length / presentRecords.length) * 100 : 0;
 
-    // Productivity lost = minutes short of 8h effective work
-    const totalLostMins = presentRecords.reduce((sum, r) => sum + computeProductivityLostMinutes(r), 0);
-    const totalShiftMins = presentRecords.length * SHIFT_MINUTES;
+    // Productivity lost = minutes short of the configured shift's target effective work
+    const totalLostMins = presentRecords.reduce((sum, r) => sum + computeProductivityLostMinutes(r, shiftStart, shiftEnd), 0);
+    const totalShiftMins = presentRecords.length * targetShiftMinutes(shiftStart, shiftEnd);
     const productivityLost = totalShiftMins > 0 ? (totalLostMins / totalShiftMins) * 100 : 0;
 
     const empPunchMap = new Map<string, number>();
@@ -351,7 +370,7 @@ export function useDashboardData(
       unexplainedAbsentCount, plannedLeaveCount, casualLeaveCount, sickLeaveCount, lwpCount, halfDayCount,
       productivityLostHours: totalLostMins / 60,
     };
-  }, [filtered, holidays, grace, thresholds.frequentPunchCount, leaveMap]);
+  }, [filtered, holidays, grace, shiftStart, shiftEnd, thresholds.frequentPunchCount, leaveMap]);
 
   const employeeSummaries: EmployeeSummary[] = useMemo(() => {
     const map = new Map<string, EmployeeSummary>();
@@ -395,8 +414,8 @@ export function useDashboardData(
         // store effective minutes (subtract lunch)
         const effectiveMins = mins > 60 ? mins - 60 : 0;
         emp.totalMinutes += effectiveMins;
-        if (getLateMinutes(r, grace) > 0) emp.lateCount++;
-        if (getEarlyMinutes(r, grace) > 0) emp.earlyExitCount++;
+        if (getLateMinutes(r, grace, shiftStart) > 0) emp.lateCount++;
+        if (getEarlyMinutes(r, grace, shiftEnd) > 0) emp.earlyExitCount++;
       } else if (isAbsent(r.status)) {
         if (leave?.leaveType === 'planned') emp.plannedLeaveCount++;
         else if (leave?.leaveType === 'casual') emp.casualLeaveCount++;
@@ -420,11 +439,11 @@ export function useDashboardData(
 
       const presentRecs = (emp.records || []).filter(r => isPresent(r.status) && !r.isShortDay);
 
-      const lateMinsArr = presentRecs.map(r => getLateMinutes(r, grace)).filter(m => m > 0);
+      const lateMinsArr = presentRecs.map(r => getLateMinutes(r, grace, shiftStart)).filter(m => m > 0);
       emp.avgLateMinutes = lateMinsArr.length > 0
         ? Math.round(lateMinsArr.reduce((a, b) => a + b, 0) / lateMinsArr.length) : 0;
 
-      const earlyMinsArr = presentRecs.map(r => getEarlyMinutes(r, grace)).filter(m => m > 0);
+      const earlyMinsArr = presentRecs.map(r => getEarlyMinutes(r, grace, shiftEnd)).filter(m => m > 0);
       emp.avgEarlyExitMinutes = earlyMinsArr.length > 0
         ? Math.round(earlyMinsArr.reduce((a, b) => a + b, 0) / earlyMinsArr.length) : 0;
 
@@ -438,15 +457,15 @@ export function useDashboardData(
           date: r.date,
           inTime: r.inTime,
           outTime: r.outTime,
-          lateMinutes: getLateMinutes(r, grace),
-          earlyMinutes: getEarlyMinutes(r, grace),
+          lateMinutes: getLateMinutes(r, grace, shiftStart),
+          earlyMinutes: getEarlyMinutes(r, grace, shiftEnd),
         }))
         .filter(d => d.lateMinutes > 0 || d.earlyMinutes > 0)
         .sort((a, b) => a.date.localeCompare(b.date));
 
       return emp;
     });
-  }, [filtered, grace, thresholds.frequentPunchCount, thresholds.attendanceRateGreen, thresholds.attendanceRateAmber, leaveMap]);
+  }, [filtered, grace, shiftStart, shiftEnd, thresholds.frequentPunchCount, thresholds.attendanceRateGreen, thresholds.attendanceRateAmber, leaveMap]);
 
   const dailyTrend: DailyTrend[] = useMemo(() => {
     const byDate = new Map<string, {
@@ -459,14 +478,17 @@ export function useDashboardData(
       if (isHoliday(r.date, holidays) && !isPresent(r.status)) continue;
       if (!byDate.has(r.date)) byDate.set(r.date, { present: 0, total: 0, absentees: [], late: 0, earlyExit: 0, lostMins: 0, shortDay: 0 });
       const d = byDate.get(r.date)!;
-      d.total++;
+      // Short-days are excluded from the denominator, same as the department
+      // bar chart and department trend comparison chart (§4/§7 — this was
+      // previously inconsistent: total was incremented unconditionally here).
+      if (!r.isShortDay) d.total++;
       if (r.isShortDay) {
         d.shortDay++;
       } else if (isPresent(r.status)) {
         d.present++;
-        if (getLateMinutes(r, grace) > 0) d.late++;
-        if (getEarlyMinutes(r, grace) > 0) d.earlyExit++;
-        d.lostMins += computeProductivityLostMinutes(r);
+        if (getLateMinutes(r, grace, shiftStart) > 0) d.late++;
+        if (getEarlyMinutes(r, grace, shiftEnd) > 0) d.earlyExit++;
+        d.lostMins += computeProductivityLostMinutes(r, shiftStart, shiftEnd);
       } else if (isAbsent(r.status)) {
         d.absentees.push(r.employeeName || r.employeeCode);
       }
@@ -486,7 +508,7 @@ export function useDashboardData(
         hoursLost: lostMins / 60,
         shortDayCount: shortDay,
       }));
-  }, [filtered, holidays, grace]);
+  }, [filtered, holidays, grace, shiftStart, shiftEnd]);
 
   const deptAttendance: DeptAttendance[] = useMemo(() => {
     const byDept = new Map<string, { present: number; total: number; lostMins: number }>();
@@ -499,7 +521,7 @@ export function useDashboardData(
       if (!r.isShortDay) d.total++;
       if (isPresent(r.status) && !r.isShortDay) {
         d.present++;
-        d.lostMins += computeProductivityLostMinutes(r);
+        d.lostMins += computeProductivityLostMinutes(r, shiftStart, shiftEnd);
       }
     }
 
@@ -510,11 +532,11 @@ export function useDashboardData(
           department: dept,
           rate,
           status: colorStatus(rate, thresholds.attendanceRateGreen, thresholds.attendanceRateAmber),
-          productivityLostDays: lostMins / SHIFT_MINUTES,
+          productivityLostDays: lostMins / targetShiftMinutes(shiftStart, shiftEnd),
         };
       })
       .sort((a, b) => a.rate - b.rate);
-  }, [filtered, holidays, grace, thresholds.attendanceRateGreen, thresholds.attendanceRateAmber]);
+  }, [filtered, holidays, grace, shiftStart, shiftEnd, thresholds.attendanceRateGreen, thresholds.attendanceRateAmber]);
 
   const officeAttendance: OfficeAttendance[] = useMemo(() => {
     const source = allOfficeRecords.length > 0 ? allOfficeRecords : records;
@@ -577,9 +599,9 @@ export function useDashboardData(
       d.total++;
       if (isPresent(r.status) && !r.isShortDay) {
         d.present++;
-        if (getLateMinutes(r, grace) > 0) d.late++;
-        if (getEarlyMinutes(r, grace) > 0) d.early++;
-        d.lostMins += computeProductivityLostMinutes(r);
+        if (getLateMinutes(r, grace, shiftStart) > 0) d.late++;
+        if (getEarlyMinutes(r, grace, shiftEnd) > 0) d.early++;
+        d.lostMins += computeProductivityLostMinutes(r, shiftStart, shiftEnd);
       } else if (isAbsent(r.status)) {
         d.absent++;
       }
@@ -591,7 +613,7 @@ export function useDashboardData(
         hoursLost: lostMins / 60, scheduledCount: total,
       }))
       .sort((a, b) => b.presentCount - a.presentCount);
-  }, [filtered, isSingleDay, grace]);
+  }, [filtered, isSingleDay, grace, shiftStart, shiftEnd]);
 
   const availableDates = useMemo(() => {
     const base = records.filter((r) => {
@@ -607,5 +629,9 @@ export function useDashboardData(
     kpi, employeeSummaries, dailyTrend, deptAttendance, hoursDistribution, officeAttendance,
     departments, offices, filteredCount: filtered.length, filteredRecords: filtered,
     availableDates, viewMode, dayDeptSnapshots,
+    // Resolved from thresholds once, here — pass these straight through to
+    // any chart/panel/export that needs late/early/productivity math so
+    // every consumer uses the exact same grace/shift window.
+    grace, shiftStart, shiftEnd,
   };
 }

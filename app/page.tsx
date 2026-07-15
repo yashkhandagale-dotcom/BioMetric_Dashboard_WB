@@ -59,8 +59,20 @@ function getOfficeFromKey(key: string): string {
 // ── Manager read-only view ────────────────────────────────────────────────────
 function ManagerView({ records }: { records: AttendanceRecord[] }) {
   const [selectedEmp, setSelectedEmp] = useState<EmployeeSummary | null>(null);
+  // Spec v1 §6/§8 open item: the shared-link view previously always used
+  // DEFAULT_THRESHOLDS because it never fetched the real saved thresholds
+  // row from Supabase — so a manager viewing via share link would silently
+  // see Late/Early/Productivity computed against the wrong shift window if
+  // the HR admin had configured something other than the 09:30–18:30
+  // default. Fetch the same single shared thresholds row every other view
+  // reads from.
+  const [thresholds, setThresholds] = useState<Thresholds>(DEFAULT_THRESHOLDS);
+  useEffect(() => {
+    getThresholds().then(setThresholds);
+  }, []);
+
   const { kpi, employeeSummaries, dailyTrend, deptAttendance, hoursDistribution } =
-    useDashboardData(records, 'ALL', []);
+    useDashboardData(records, 'ALL', [], [], [], thresholds);
 
   return (
     <div className="min-h-screen bg-slate-900 text-white">
@@ -94,7 +106,14 @@ function ManagerView({ records }: { records: AttendanceRecord[] }) {
           <EmployeeTable summaries={employeeSummaries} onEmployeeClick={setSelectedEmp} />
         </div>
       </main>
-      <EmployeePanel employee={selectedEmp} onClose={() => setSelectedEmp(null)} readOnly />
+      <EmployeePanel
+        employee={selectedEmp}
+        onClose={() => setSelectedEmp(null)}
+        readOnly
+        graceMinutes={thresholds.graceMinutes}
+        shiftStartMinutes={thresholds.shiftStartMinutes}
+        shiftEndMinutes={thresholds.shiftEndMinutes}
+      />
     </div>
   );
 }
@@ -716,16 +735,24 @@ function HRDashboard() {
                     data={dayDeptSnapshots}
                     onDeptClick={(dept) => focusDept(dept)}
                     allRecords={filteredRecords}
+                    graceMinutes={thresholds.graceMinutes}
+                    shiftStartMinutes={thresholds.shiftStartMinutes}
+                    shiftEndMinutes={thresholds.shiftEndMinutes}
                   />
                   <DayDeptLateChart
                     data={dayDeptSnapshots}
                     onDeptClick={(dept) => focusDept(dept)}
                     allRecords={filteredRecords}
+                    graceMinutes={thresholds.graceMinutes}
+                    shiftStartMinutes={thresholds.shiftStartMinutes}
+                    shiftEndMinutes={thresholds.shiftEndMinutes}
                   />
                   <DayDeptProductivityChart
                     data={dayDeptSnapshots}
                     onDeptClick={(dept) => focusDept(dept)}
                     allRecords={filteredRecords}
+                    shiftStartMinutes={thresholds.shiftStartMinutes}
+                    shiftEndMinutes={thresholds.shiftEndMinutes}
                   />
                 </div>
                 <div className="bg-slate-800/30 rounded-xl border border-slate-700 p-4">
@@ -794,6 +821,8 @@ function HRDashboard() {
                     onDrillBack={() => setDeptDrillSync(null)}
                     onDeptDrillChange={(dept) => setDeptDrillSync(dept)}
                     onDeptClick={(dept) => toggleDept(dept)}
+                    shiftStartMinutes={thresholds.shiftStartMinutes}
+                    shiftEndMinutes={thresholds.shiftEndMinutes}
                   />
                 </div>
 
@@ -813,11 +842,22 @@ function HRDashboard() {
                       const emp = employeeSummaries.find(e => e.employeeCode === empCode);
                       if (emp) setSelectedEmp(emp);
                     }}
+                    graceMinutes={thresholds.graceMinutes}
+                    shiftStartMinutes={thresholds.shiftStartMinutes}
+                    shiftEndMinutes={thresholds.shiftEndMinutes}
                   />
                 )}
 
                 {isComparison && departments.length >= 2 && (
-                  <TeamComparisonPanel allRecords={filteredRecords} departments={departments} />
+                  <TeamComparisonPanel
+                    allRecords={filteredRecords}
+                    departments={departments}
+                    holidays={holidays}
+                    leaveRecords={leaveRecords}
+                    graceMinutes={thresholds.graceMinutes}
+                    shiftStartMinutes={thresholds.shiftStartMinutes}
+                    shiftEndMinutes={thresholds.shiftEndMinutes}
+                  />
                 )}
 
                 <EmployeeComparisonPanel
@@ -856,6 +896,8 @@ function HRDashboard() {
         onClose={() => setSelectedEmp(null)}
         holidays={holidays}
         graceMinutes={thresholds.graceMinutes}
+        shiftStartMinutes={thresholds.shiftStartMinutes}
+        shiftEndMinutes={thresholds.shiftEndMinutes}
         monthKey={selectedMonthKey}
         leaveMap={leaveMap}
         onLeaveChange={refreshLeaveRecords}

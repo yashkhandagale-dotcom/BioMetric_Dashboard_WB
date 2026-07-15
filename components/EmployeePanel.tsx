@@ -19,6 +19,8 @@ interface EmployeePanelProps {
   readOnly?: boolean;
   holidays?: Holiday[];
   graceMinutes?: number;
+  shiftStartMinutes?: number;
+  shiftEndMinutes?: number;
   monthKey?: string; // needed to persist leave marks (B7.2)
   leaveMap?: Map<string, LeaveRecord>; // employeeCode__date -> LeaveRecord
   onLeaveChange?: () => void;
