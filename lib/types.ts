@@ -112,6 +112,11 @@ export interface EmployeeSummary {
   avgEarlyExitMinutes?: number;
   latestInTime?: number;
   earliestOutTime?: number;
+  // v6 additions: punctuality consistency (mean punch time +/- how spread out it is)
+  avgInTime?: number;    // mean in-punch, minutes from midnight
+  avgOutTime?: number;   // mean out-punch, minutes from midnight
+  inTimeDeviation?: number;  // stddev of in-punch minutes, undefined if <2 samples
+  outTimeDeviation?: number; // stddev of out-punch minutes, undefined if <2 samples
   dayWiseLateEarly?: DayWiseLateEarly[];
   // v4 additions
   shortDayCount: number;

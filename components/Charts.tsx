@@ -15,7 +15,7 @@ import {
 } from 'lucide-react';
 import { DailyTrend, DeptAttendance, HoursDistribution, AttendanceRecord, DayDeptSnapshot, Holiday, OfficeAttendance } from '@/lib/types';
 import { durationToMinutes, minutesToHHMM } from '@/lib/parseCSV';
-import { isPresent, isAbsent, isWeeklyOff, SHIFT_MINUTES, computeLateMinutes, computeEarlyMinutes, getLateMinutes, getEarlyMinutes, computeProductivityLostMinutes } from '@/lib/useDashboardData';
+import { isPresent, isAbsent, isWeeklyOff, SHIFT_MINUTES, computeLateMinutes, computeEarlyMinutes, getLateMinutes, getEarlyMinutes, computeProductivityLostMinutes, targetShiftMinutes } from '@/lib/useDashboardData';
 import { isHoliday } from '@/lib/holidays';
 import InfoTooltip from './InfoTooltip';
 
@@ -585,7 +585,8 @@ export function OfficeAttendanceChart({ data, onOfficeClick }: {
 
 // ── Productivity Lost by Dept ─────────────────────────────────────────────────
 export function DeptProductivityChart({
-  data, allRecords, selectedDepts, highlightDepts, externalDrillDept, onDrillBack, onDeptDrillChange, onDeptClick
+  data, allRecords, selectedDepts, highlightDepts, externalDrillDept, onDrillBack, onDeptDrillChange, onDeptClick,
+  shiftStartMinutes, shiftEndMinutes,
 }: {
   data: DeptAttendance[];
   allRecords?: AttendanceRecord[];
@@ -596,6 +597,8 @@ export function DeptProductivityChart({
   onDrillBack?: () => void;
   onDeptDrillChange?: (dept: string | null) => void;
   onDeptClick?: (dept: string) => void; // clears selectedDepts on Back
+  shiftStartMinutes?: number;
+  shiftEndMinutes?: number;
 }) {
   const [internalDrill, setInternalDrill] = useState<string | null>(null);
   const [sortMode, setSortMode] = useState<SortMode>('default');
@@ -638,25 +641,39 @@ export function DeptProductivityChart({
 
   const drillData = useMemo(() => {
     if (!drillDept || safeRecords.length === 0) return [];
-    const map = new Map<string, { name: string; code: string; lostMins: number; presentDays: number; effectiveHours: number }>();
+    const map = new Map<string, { name: string; code: string; lostMins: number; presentDays: number; daysWithDuration: number; effectiveHours: number }>();
     for (const r of safeRecords) {
       if (r.department !== drillDept || isWeeklyOff(r.status) || !isPresent(r.status) || r.isShortDay) continue;
-      if (!map.has(r.employeeCode)) map.set(r.employeeCode, { name: r.employeeName || r.employeeCode, code: r.employeeCode, lostMins: 0, presentDays: 0, effectiveHours: 0 });
+      if (!map.has(r.employeeCode)) map.set(r.employeeCode, { name: r.employeeName || r.employeeCode, code: r.employeeCode, lostMins: 0, presentDays: 0, daysWithDuration: 0, effectiveHours: 0 });
       const e = map.get(r.employeeCode)!;
       e.presentDays++;
-      e.lostMins += computeProductivityLostMinutes(r);
+      e.lostMins += computeProductivityLostMinutes(r, shiftStartMinutes, shiftEndMinutes);
       const raw = durationToMinutes(r.duration);
-      e.effectiveHours += raw > 60 ? (raw - 60) / 60 : 0;
+      // Bug fix: a present-but-no-outpunch day (raw duration 0) was still
+      // counted in the presentDays denominator below, so it diluted the
+      // average as if the employee worked 0h that day instead of being
+      // excluded as "no valid duration to measure" — same issue already
+      // fixed for the Employee Table's Avg Hours and matching how the
+      // Working Hours Distribution chart already averages. Track days with
+      // an actual measured duration separately so "Present Days" (still all
+      // present days, for that stat) and "Avg Effective Hrs" (only days we
+      // can actually measure) don't share a denominator that means two
+      // different things.
+      if (raw > 60) {
+        e.daysWithDuration++;
+        e.effectiveHours += (raw - 60) / 60;
+      }
     }
+    const target = targetShiftMinutes(shiftStartMinutes, shiftEndMinutes);
     const rows = Array.from(map.values()).map(e => ({
       ...e,
-      daysLost: +(e.lostMins / SHIFT_MINUTES).toFixed(2),
-      avgEffectiveHours: e.presentDays > 0 ? +(e.effectiveHours / e.presentDays).toFixed(2) : 0,
+      daysLost: +(e.lostMins / target).toFixed(2),
+      avgEffectiveHours: e.daysWithDuration > 0 ? +(e.effectiveHours / e.daysWithDuration).toFixed(2) : 0,
     }));
     if (sortMode === 'az') return rows.sort((a, b) => a.name.localeCompare(b.name));
     if (sortMode === 'best') return rows.sort((a, b) => a.daysLost - b.daysLost || a.name.localeCompare(b.name));
     return rows.sort((a, b) => b.daysLost - a.daysLost || a.name.localeCompare(b.name)); // 'worst' and default
-  }, [drillDept, safeRecords, sortMode]);
+  }, [drillDept, safeRecords, sortMode, shiftStartMinutes, shiftEndMinutes]);
 
   if (drillDept) {
     return (
@@ -759,6 +776,34 @@ export function HoursDistributionChart({ data, allRecords, selectedDepts }: {
 }) {
   const [drillBin, setDrillBin] = useState<string | null>(null);
 
+  // Bug fix: this used to bin every individual present day-record
+  // independently, so an employee present 20 days with varying daily hours
+  // would land in several different bars at once (and show up in more than
+  // one bar's drill-down list). Aggregate to one avg-hours number PER
+  // EMPLOYEE first — for the currently selected period/filters — then bin
+  // employees (not day-records). Every employee now falls into exactly one
+  // bar, and this same aggregation feeds both the chart and the drill-down
+  // below so the two can never disagree.
+  const employeeAverages = useMemo(() => {
+    const map = new Map<string, { name: string; code: string; dept: string; effectiveMins: number; days: number }>();
+    for (const r of allRecords) {
+      if (!isPresent(r.status) || r.isShortDay) continue;
+      const raw = durationToMinutes(r.duration);
+      if (raw <= 60) continue;
+      const effective = raw - 60; // subtract lunch
+      if (effective <= 0 || effective > 720) continue;
+      if (!map.has(r.employeeCode)) {
+        map.set(r.employeeCode, { name: r.employeeName || r.employeeCode, code: r.employeeCode, dept: r.department || 'Unknown', effectiveMins: 0, days: 0 });
+      }
+      const e = map.get(r.employeeCode)!;
+      e.effectiveMins += effective;
+      e.days++;
+    }
+    return Array.from(map.values())
+      .filter(e => e.days > 0)
+      .map(e => ({ ...e, avgMins: e.effectiveMins / e.days, avgHours: +(e.effectiveMins / e.days / 60).toFixed(2) }));
+  }, [allRecords]);
+
   const bins = useMemo(() => {
     const binMap = new Map<string, number>();
     for (let h = 0; h <= 12; h++) {
@@ -767,44 +812,28 @@ export function HoursDistributionChart({ data, allRecords, selectedDepts }: {
         binMap.set(label, 0);
       }
     }
-    for (const r of allRecords) {
-      if (!isPresent(r.status) || r.isShortDay) continue;
-      const raw = durationToMinutes(r.duration);
-      if (raw <= 60) continue;
-      const effective = raw - 60; // subtract lunch
-      if (effective <= 0 || effective > 720) continue;
-      const binH = Math.floor(effective / 30) * 30;
+    for (const e of employeeAverages) {
+      const binH = Math.floor(e.avgMins / 30) * 30;
       const label = `${Math.floor(binH / 60)}:${binH % 60 === 0 ? '00' : '30'}`;
       binMap.set(label, (binMap.get(label) || 0) + 1);
     }
     return Array.from(binMap.entries())
       .map(([bin, count]) => ({ bin, count }))
       .filter(b => b.count > 0);
-  }, [allRecords]);
+  }, [employeeAverages]);
 
-  // Drill: employees in the clicked bin
+  // Drill: employees whose AVERAGE falls in the clicked bin (same employeeAverages
+  // used to build the chart above, so the count on the bar and the list here always match).
   const drillEmployees = useMemo(() => {
     if (!drillBin) return [];
     const [hStr, mStr] = drillBin.split(':');
     const binStart = parseInt(hStr) * 60 + parseInt(mStr);
     const binEnd = binStart + 30;
 
-    const map = new Map<string, { name: string; code: string; dept: string; effectiveMins: number; records: number }>();
-    for (const r of allRecords) {
-      if (!isPresent(r.status) || r.isShortDay) continue;
-      const raw = durationToMinutes(r.duration);
-      if (raw <= 60) continue;
-      const effective = raw - 60;
-      if (effective < binStart || effective >= binEnd) continue;
-      if (!map.has(r.employeeCode)) map.set(r.employeeCode, { name: r.employeeName || r.employeeCode, code: r.employeeCode, dept: r.department || 'Unknown', effectiveMins: 0, records: 0 });
-      const e = map.get(r.employeeCode)!;
-      e.effectiveMins += effective;
-      e.records++;
-    }
-    return Array.from(map.values())
-      .map(e => ({ ...e, avgHours: e.records > 0 ? +(e.effectiveMins / e.records / 60).toFixed(2) : 0 }))
+    return employeeAverages
+      .filter(e => e.avgMins >= binStart && e.avgMins < binEnd)
       .sort((a, b) => a.avgHours - b.avgHours);
-  }, [drillBin, allRecords]);
+  }, [drillBin, employeeAverages]);
 
   if (drillBin) {
     return (
@@ -813,9 +842,9 @@ export function HoursDistributionChart({ data, allRecords, selectedDepts }: {
           <button onClick={() => setDrillBin(null)} className="flex items-center gap-1.5 text-blue-400 hover:text-blue-300 text-xs font-medium transition-colors shrink-0">
             <ArrowLeft className="w-3.5 h-3.5" /> Back
           </button>
-          <h3 className="text-white font-semibold text-sm">Employees: {drillBin}h–{drillBin.split(':')[0]}:{ parseInt(drillBin.split(':')[1]) === 0 ? '30' : '00'} effective work</h3>
+          <h3 className="text-white font-semibold text-sm">Employees: {drillBin}h–{drillBin.split(':')[0]}:{ parseInt(drillBin.split(':')[1]) === 0 ? '30' : '00'} avg effective work</h3>
         </div>
-        <p className="text-slate-500 text-xs mb-4">{drillEmployees.length} employees in this range</p>
+        <p className="text-slate-500 text-xs mb-4">{drillEmployees.length} employees average in this range</p>
         {drillEmployees.length === 0
           ? <div className="h-40 flex items-center justify-center text-slate-500 text-sm">No data</div>
           : (
@@ -842,7 +871,7 @@ export function HoursDistributionChart({ data, allRecords, selectedDepts }: {
           <h3 className="text-white font-semibold text-sm">Working Hours Distribution</h3>
           <ChartSubtitle selectedDepts={selectedDepts} />
         </div>
-        <InfoTooltip title="Hours Distribution" description="Distribution of daily effective working hours (total duration − 1h lunch) across all present employees. Click a bar to see which employees fall in that range." formula="Effective = Duration − 60 min lunch · Bin = 30 minutes" />
+        <InfoTooltip title="Hours Distribution" description="Each employee's own average effective working hours (total duration − 1h lunch, averaged across their present days in the selected period) — every employee falls into exactly one bar. Click a bar to see which employees fall in that range." formula="Effective = Duration − 60 min lunch, averaged per employee · Bin = 30 minutes" />
       </div>
       {bins.length === 0
         ? <div className="h-48 flex items-center justify-center text-slate-500 text-sm">No data</div>
@@ -857,8 +886,8 @@ export function HoursDistributionChart({ data, allRecords, selectedDepts }: {
                 if (!active || !payload?.length) return null;
                 return (
                   <div className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs shadow-xl">
-                    <p className="text-slate-300 font-medium">{label}h effective range</p>
-                    <p className="text-blue-400">Count: <strong>{payload[0]?.value} employee-days</strong></p>
+                    <p className="text-slate-300 font-medium">{label}h avg effective range</p>
+                    <p className="text-blue-400">Count: <strong>{payload[0]?.value} employees</strong></p>
                     <p className="text-slate-500 text-[10px] mt-1">Click to see employees</p>
                   </div>
                 );
@@ -874,7 +903,14 @@ export function HoursDistributionChart({ data, allRecords, selectedDepts }: {
 }
 
 // ── Per-Employee Heatmap ──────────────────────────────────────────────────────
-export function PersonalHeatmap({ records }: { records: AttendanceRecord[] }) {
+export function PersonalHeatmap({
+  records, graceMinutes = 10, shiftStartMinutes, shiftEndMinutes,
+}: {
+  records: AttendanceRecord[];
+  graceMinutes?: number;
+  shiftStartMinutes?: number;
+  shiftEndMinutes?: number;
+}) {
   const [tooltip, setTooltip] = useState<{ r: AttendanceRecord; x: number; y: number } | null>(null);
   const sorted = useMemo(() => [...records].sort((a, b) => a.date.localeCompare(b.date)), [records]);
 
@@ -884,7 +920,7 @@ export function PersonalHeatmap({ records }: { records: AttendanceRecord[] }) {
     <div>
       <div className="flex flex-wrap gap-0.5">
         {sorted.map((r) => {
-          const status = getCellStatus(r);
+          const status = getCellStatus(r, graceMinutes, shiftStartMinutes, shiftEndMinutes);
           const color = STATUS_COLORS_CELL[status] || '#334155';
           return (
             <div
@@ -931,22 +967,32 @@ export const STATUS_COLORS_CELL: Record<string, string> = {
   holiday: '#a78bfa',
 };
 
-export function getCellStatus(r: AttendanceRecord): string {
+export function getCellStatus(
+  r: AttendanceRecord,
+  graceMinutes: number = 10,
+  shiftStartMinutes?: number,
+  shiftEndMinutes?: number
+): string {
   if (r.isShortDay) return 'shortday';
   const s = r.status.toLowerCase();
   if (s.includes('weeklyoff')) return 'weeklyoff';
   if (s.includes('absent')) return 'absent';
   if (s.includes('present')) {
-    if (computeLateMinutes(r.inTime) > 0) return 'late';
-    if (computeEarlyMinutes(r.outTime) > 0) return 'earlyexit';
+    if (computeLateMinutes(r.inTime, graceMinutes, shiftStartMinutes) > 0) return 'late';
+    if (computeEarlyMinutes(r.outTime, graceMinutes, shiftEndMinutes) > 0) return 'earlyexit';
     return 'present';
   }
   return 'absent';
 }
 
-export function AttendanceHeatmap({ records, onCellClick }: {
+export function AttendanceHeatmap({
+  records, onCellClick, graceMinutes = 10, shiftStartMinutes, shiftEndMinutes,
+}: {
   records: AttendanceRecord[];
   onCellClick?: (emp: string, date: string) => void;
+  graceMinutes?: number;
+  shiftStartMinutes?: number;
+  shiftEndMinutes?: number;
 }) {
   const [tooltip, setTooltip] = useState<{ r: AttendanceRecord; x: number; y: number } | null>(null);
   const [expandedHeatmap, setExpandedHeatmap] = useState(false);
@@ -967,18 +1013,69 @@ export function AttendanceHeatmap({ records, onCellClick }: {
     return { employees, dates, cellMap };
   }, [records]);
 
+  // Group the (already date-range-filtered) dates by calendar month. When the
+  // selected range spans more than one month, rendering every date in a
+  // single row gets unreadable and previously got silently truncated to the
+  // first 31 entries — so instead we split into per-month chunks and let the
+  // user pick which month to look at via a dropdown.
+  const monthGroups = useMemo(() => {
+    const map = new Map<string, string[]>();
+    for (const d of dates) {
+      const key = d.slice(0, 7); // "YYYY-MM"
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(d);
+    }
+    return Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+  }, [dates]);
+
+  const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
+
+  // Keep the selected month valid as the underlying date range changes
+  // (e.g. user picks a new From/To range) — default to the most recent month.
+  useEffect(() => {
+    if (monthGroups.length === 0) return;
+    if (!selectedMonth || !monthGroups.some(([key]) => key === selectedMonth)) {
+      setSelectedMonth(monthGroups[monthGroups.length - 1][0]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [monthGroups]);
+
   if (records.length === 0) return null;
 
-  const visibleDates = dates.slice(0, 31);
+  const isMultiMonth = monthGroups.length > 1;
+  const visibleDates = isMultiMonth
+    ? (monthGroups.find(([key]) => key === selectedMonth)?.[1] ?? monthGroups[monthGroups.length - 1][1])
+    : dates;
+
+  const monthLabel = (key: string) =>
+    new Date(`${key}-01T00:00:00`).toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
 
   return (
     <div className="bg-slate-800 rounded-xl border border-slate-700 p-4">
-      <div className="flex items-start justify-between mb-3">
+      <div className="flex items-start justify-between mb-3 gap-3 flex-wrap">
         <div>
           <h3 className="text-white font-semibold text-sm">Attendance Heatmap</h3>
-          <p className="text-slate-500 text-xs mt-0.5">{employees.length} employees · {visibleDates.length} days — click any cell for details</p>
+          <p className="text-slate-500 text-xs mt-0.5">
+            {employees.length} employees · {visibleDates.length} days
+            {isMultiMonth && selectedMonth ? ` in ${monthLabel(selectedMonth)}` : ''}
+            {' '}— click any cell for details
+          </p>
         </div>
-        <InfoTooltip title="Attendance Heatmap" description="Each cell = one employee on one day. Colors show attendance status. Click any cell to see details." />
+        <div className="flex items-center gap-2">
+          {isMultiMonth && (
+            <select
+              value={selectedMonth ?? ''}
+              onChange={e => setSelectedMonth(e.target.value)}
+              className="bg-slate-900 border border-slate-700 rounded-lg text-xs text-white px-2 py-1.5 focus:outline-none focus:border-blue-500"
+              title="Selected range spans multiple months — pick one to view"
+            >
+              {monthGroups.map(([key]) => (
+                <option key={key} value={key}>{monthLabel(key)}</option>
+              ))}
+            </select>
+          )}
+          <InfoTooltip title="Attendance Heatmap" description="Each cell = one employee on one day. Colors show attendance status. Click any cell to see details. When your selected range spans more than one month, use the month dropdown to switch between them." />
+        </div>
       </div>
 
       <div className="overflow-x-auto">
@@ -995,7 +1092,7 @@ export function AttendanceHeatmap({ records, onCellClick }: {
               </div>
               {visibleDates.map(date => {
                 const r = cellMap.get(`${emp.code}_${date}`);
-                const status = r ? getCellStatus(r) : 'absent';
+                const status = r ? getCellStatus(r, graceMinutes, shiftStartMinutes, shiftEndMinutes) : 'absent';
                 const color = STATUS_COLORS_CELL[status] || '#334155';
                 return (
                   <div
@@ -1061,50 +1158,18 @@ export function AttendanceHeatmap({ records, onCellClick }: {
 
 // ── SINGLE DAY VIEW CHARTS ────────────────────────────────────────────────────
 
-// Shared drill view for day dept charts — shows all employees in that dept for that day
-function DayDeptEmployeeDrill({
-  dept, records, onBack
-}: { dept: string; records: AttendanceRecord[]; onBack: () => void }) {
-  const deptRecords = records.filter(r => r.department === dept);
-  const present = deptRecords.filter(r => isPresent(r.status) && !r.isShortDay);
-  const absent = deptRecords.filter(r => !isPresent(r.status) && !isWeeklyOff(r.status));
-
-  return (
-    <div>
-      <div className="flex items-center flex-wrap gap-2 mb-3">
-        <button onClick={onBack} className="flex items-center gap-1.5 text-blue-400 hover:text-blue-300 text-xs font-medium">
-          <ArrowLeft className="w-3.5 h-3.5" /> Back
-        </button>
-        <h3 className="text-white font-semibold text-sm">{dept} · All Employees</h3>
-      </div>
-      <div className="space-y-1 max-h-60 overflow-y-auto">
-        {present.map(r => (
-          <div key={r.employeeCode} className="flex items-center justify-between flex-wrap gap-1 py-1.5 px-3 rounded bg-emerald-500/10">
-            <span className="text-white text-xs truncate max-w-[140px]">{r.employeeName || r.employeeCode}</span>
-            <div className="flex items-center gap-2 text-xs flex-wrap">
-              <span className="text-slate-400">{r.inTime} → {r.outTime}</span>
-              {getLateMinutes(r, 10) > 0 && <span className="text-amber-400">Late {getLateMinutes(r, 10)}m</span>}
-              {getEarlyMinutes(r, 10) > 0 && <span className="text-blue-400">Early {getEarlyMinutes(r, 10)}m</span>}
-              {computeProductivityLostMinutes(r) > 0 && <span className="text-red-400">-{(computeProductivityLostMinutes(r)/60).toFixed(1)}h</span>}
-            </div>
-          </div>
-        ))}
-        {absent.map(r => (
-          <div key={r.employeeCode} className="flex items-center justify-between py-1.5 px-3 rounded bg-red-500/10">
-            <span className="text-white text-xs">{r.employeeName || r.employeeCode}</span>
-            <span className="text-red-400 text-xs">Absent</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 // ── Employee row used inside single-day team drill ───────────────────────────
-function EmployeeAttendanceRow({ r }: { r: AttendanceRecord }) {
-  const lateM = getLateMinutes(r, 10);
-  const earlyM = getEarlyMinutes(r, 10);
-  const lostM = computeProductivityLostMinutes(r);
+function EmployeeAttendanceRow({
+  r, graceMinutes = 10, shiftStartMinutes, shiftEndMinutes,
+}: {
+  r: AttendanceRecord;
+  graceMinutes?: number;
+  shiftStartMinutes?: number;
+  shiftEndMinutes?: number;
+}) {
+  const lateM = getLateMinutes(r, graceMinutes, shiftStartMinutes);
+  const earlyM = getEarlyMinutes(r, graceMinutes, shiftEndMinutes);
+  const lostM = computeProductivityLostMinutes(r, shiftStartMinutes, shiftEndMinutes);
   return (
     <div className="flex items-center justify-between py-2 px-3 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/15 transition-colors">
       <span className="text-white text-xs font-medium truncate max-w-[140px]">{r.employeeName || r.employeeCode}</span>
@@ -1119,10 +1184,15 @@ function EmployeeAttendanceRow({ r }: { r: AttendanceRecord }) {
 }
 
 // ── Attendance Today ──────────────────────────────────────────────────────────
-export function DayDeptAttendanceChart({ data, onDeptClick, allRecords }: {
+export function DayDeptAttendanceChart({
+  data, onDeptClick, allRecords, graceMinutes = 10, shiftStartMinutes, shiftEndMinutes,
+}: {
   data: DayDeptSnapshot[];
   onDeptClick?: (dept: string) => void;
   allRecords?: AttendanceRecord[];
+  graceMinutes?: number;
+  shiftStartMinutes?: number;
+  shiftEndMinutes?: number;
 }) {
   const [drillDept, setDrillDept] = useState<string | null>(null);
 
@@ -1147,7 +1217,12 @@ export function DayDeptAttendanceChart({ data, onDeptClick, allRecords }: {
           <span className="text-slate-500 text-xs ml-auto">{present.length} present · {absent.length} absent</span>
         </div>
         <div className="space-y-1 max-h-[240px] overflow-y-auto">
-          {present.map(r => <EmployeeAttendanceRow key={r.employeeCode} r={r} />)}
+          {present.map(r => (
+            <EmployeeAttendanceRow
+              key={r.employeeCode} r={r}
+              graceMinutes={graceMinutes} shiftStartMinutes={shiftStartMinutes} shiftEndMinutes={shiftEndMinutes}
+            />
+          ))}
           {absent.map(r => (
             <div key={r.employeeCode} className="flex items-center justify-between py-2 px-3 rounded-lg bg-red-500/10">
               <span className="text-white text-xs font-medium">{r.employeeName || r.employeeCode}</span>
@@ -1211,10 +1286,15 @@ export function DayDeptAttendanceChart({ data, onDeptClick, allRecords }: {
 }
 
 // ── Late Arrivals Today ───────────────────────────────────────────────────────
-export function DayDeptLateChart({ data, onDeptClick, allRecords }: {
+export function DayDeptLateChart({
+  data, onDeptClick, allRecords, graceMinutes = 10, shiftStartMinutes, shiftEndMinutes,
+}: {
   data: DayDeptSnapshot[];
   onDeptClick?: (dept: string) => void;
   allRecords?: AttendanceRecord[];
+  graceMinutes?: number;
+  shiftStartMinutes?: number;
+  shiftEndMinutes?: number;
 }) {
   const [drillDept, setDrillDept] = useState<string | null>(null);
 
@@ -1223,7 +1303,7 @@ export function DayDeptLateChart({ data, onDeptClick, allRecords }: {
 
   if (activeDept && allRecords) {
     const lateRecords = allRecords.filter(r =>
-      r.department === activeDept && isPresent(r.status) && !r.isShortDay && getLateMinutes(r, 10) > 0
+      r.department === activeDept && isPresent(r.status) && !r.isShortDay && getLateMinutes(r, graceMinutes, shiftStartMinutes) > 0
     );
     return (
       <div className="bg-slate-800 rounded-xl border border-slate-700 p-4 min-h-[260px]">
@@ -1240,12 +1320,12 @@ export function DayDeptLateChart({ data, onDeptClick, allRecords }: {
           ? <div className="h-40 flex items-center justify-center text-slate-500 text-sm">No late arrivals in this team today 🎉</div>
           : (
             <div className="space-y-1 max-h-[240px] overflow-y-auto">
-              {[...lateRecords].sort((a, b) => getLateMinutes(b, 10) - getLateMinutes(a, 10)).map(r => (
+              {[...lateRecords].sort((a, b) => getLateMinutes(b, graceMinutes, shiftStartMinutes) - getLateMinutes(a, graceMinutes, shiftStartMinutes)).map(r => (
                 <div key={r.employeeCode} className="flex items-center justify-between py-2 px-3 rounded-lg bg-amber-500/10">
                   <span className="text-white text-xs font-medium truncate max-w-[140px]">{r.employeeName || r.employeeCode}</span>
                   <div className="flex items-center gap-2 text-xs">
                     <span className="text-slate-400 font-mono">{r.inTime}</span>
-                    <span className="bg-amber-500/20 text-amber-300 px-1.5 py-0.5 rounded text-[10px]">+{getLateMinutes(r, 10)}m late</span>
+                    <span className="bg-amber-500/20 text-amber-300 px-1.5 py-0.5 rounded text-[10px]">+{getLateMinutes(r, graceMinutes, shiftStartMinutes)}m late</span>
                   </div>
                 </div>
               ))}
@@ -1299,10 +1379,14 @@ export function DayDeptLateChart({ data, onDeptClick, allRecords }: {
 }
 
 // ── Productivity Lost Today ───────────────────────────────────────────────────
-export function DayDeptProductivityChart({ data, onDeptClick, allRecords }: {
+export function DayDeptProductivityChart({
+  data, onDeptClick, allRecords, shiftStartMinutes, shiftEndMinutes,
+}: {
   data: DayDeptSnapshot[];
   onDeptClick?: (dept: string) => void;
   allRecords?: AttendanceRecord[];
+  shiftStartMinutes?: number;
+  shiftEndMinutes?: number;
 }) {
   const [drillDept, setDrillDept] = useState<string | null>(null);
 
@@ -1312,7 +1396,7 @@ export function DayDeptProductivityChart({ data, onDeptClick, allRecords }: {
   if (activeDept && allRecords) {
     const empData = allRecords
       .filter(r => r.department === activeDept && isPresent(r.status) && !r.isShortDay)
-      .map(r => ({ r, lostM: computeProductivityLostMinutes(r) }))
+      .map(r => ({ r, lostM: computeProductivityLostMinutes(r, shiftStartMinutes, shiftEndMinutes) }))
       .sort((a, b) => b.lostM - a.lostM);
 
     return (

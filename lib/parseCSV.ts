@@ -143,7 +143,8 @@ export function parseCSVWithMapping(
   file: File,
   mapping: ColumnMapping,
   officeCode: string,
-  graceMinutes: number = 10
+  graceMinutes: number = 10,
+  shortDayMinutes: number = 5
 ): Promise<ParseResult> {
   return new Promise((resolve, reject) => {
     Papa.parse(file, {
@@ -184,10 +185,13 @@ export function parseCSVWithMapping(
           // - If no punches at all → "Absent"
           statusStr = normalizeStatus(statusStr, inTimeStr, outTimeStr, date, punchCount);
 
-          // Short day: present but duration ≤ 5 minutes
+          // Short day: present but duration <= configured Short Day threshold
+          // (Settings -> Other Thresholds -> Short Day threshold). Previously
+          // hardcoded to 5 minutes regardless of that setting, so changing
+          // the threshold in Settings had no effect on classification.
           const durationMins = durationToMinutes(durationStr);
           const presCheck = statusStr.toLowerCase().includes('present') && !statusStr.toLowerCase().includes('absent');
-          const isShortDay = presCheck && durationMins <= 5 && durationMins > 0;
+          const isShortDay = presCheck && durationMins <= shortDayMinutes && durationMins > 0;
 
           // A5: prefer CSV's lateBy/earlyBy when present & parseable; fall back to
           // computing from raw in/out punches (with grace period) otherwise.

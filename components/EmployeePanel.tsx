@@ -1,6 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
-import { X, Clock, LogOut, TrendingUp, Zap, AlertTriangle, Info, Tag, Edit2, Trash2, RotateCcw } from 'lucide-react';
+import { X, Clock, LogOut, LogIn, TrendingUp, Zap, AlertTriangle, Info, Tag, Edit2, Trash2, RotateCcw } from 'lucide-react';
 import { EmployeeSummary, Holiday, LeaveType, LeaveRecord } from '@/lib/types';
 import { getLateMinutes, getEarlyMinutes } from '@/lib/useDashboardData';
 import { DEFAULT_THRESHOLDS } from '@/lib/settings';
@@ -19,6 +19,8 @@ interface EmployeePanelProps {
   readOnly?: boolean;
   holidays?: Holiday[];
   graceMinutes?: number;
+  shiftStartMinutes?: number;
+  shiftEndMinutes?: number;
   monthKey?: string; // needed to persist leave marks (B7.2)
   leaveMap?: Map<string, LeaveRecord>; // employeeCode__date -> LeaveRecord
   onLeaveChange?: () => void;
@@ -266,7 +268,7 @@ export default function EmployeePanel({
           </div>
 
           <div className="px-5 pb-4">
-            <div className="bg-slate-800/50 rounded-xl border border-slate-700/50 p-3 grid grid-cols-2 gap-3">
+            <div className="bg-slate-800/50 rounded-xl border border-slate-700/50 p-3 grid grid-cols-2 sm:grid-cols-3 gap-3">
               <div className="flex items-start gap-2">
                 <Clock className="w-3.5 h-3.5 text-amber-400 mt-0.5 flex-shrink-0" />
                 <div>
@@ -293,6 +295,30 @@ export default function EmployeePanel({
                 <div>
                   <p className="text-slate-500 text-[10px]">Earliest Out</p>
                   <p className="text-white text-xs font-medium">{minsToTimeStr(employee.earliestOutTime ?? -1)}</p>
+                </div>
+              </div>
+              <div className="flex items-start gap-2">
+                <LogIn className="w-3.5 h-3.5 text-emerald-400 mt-0.5 flex-shrink-0" />
+                <div>
+                  <p className="text-slate-500 text-[10px]">Avg In-Time</p>
+                  <p className="text-white text-xs font-medium">
+                    {employee.avgInTime !== undefined ? minsToTimeStr(employee.avgInTime) : '—'}
+                    {employee.inTimeDeviation !== undefined && (
+                      <span className="text-slate-500 font-normal"> ± {Math.round(employee.inTimeDeviation)}m</span>
+                    )}
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-start gap-2">
+                <LogOut className="w-3.5 h-3.5 text-cyan-400 mt-0.5 flex-shrink-0" />
+                <div>
+                  <p className="text-slate-500 text-[10px]">Avg Out-Time</p>
+                  <p className="text-white text-xs font-medium">
+                    {employee.avgOutTime !== undefined ? minsToTimeStr(employee.avgOutTime) : '—'}
+                    {employee.outTimeDeviation !== undefined && (
+                      <span className="text-slate-500 font-normal"> ± {Math.round(employee.outTimeDeviation)}m</span>
+                    )}
+                  </p>
                 </div>
               </div>
             </div>

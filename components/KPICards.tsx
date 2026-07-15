@@ -1,6 +1,7 @@
 'use client';
 import { KPIData, Thresholds, ViewMode } from '@/lib/types';
 import { DEFAULT_THRESHOLDS } from '@/lib/settings';
+import { targetShiftMinutes } from '@/lib/useDashboardData';
 import InfoTooltip from './InfoTooltip';
 
 interface KPICardsProps {
@@ -24,6 +25,16 @@ function getStatus(value: number, greenThresh: number, amberThresh: number, reve
   }
 }
 
+// e.g. 570 -> "9:30 AM" — used to make card copy reflect the actual
+// configured Shift Start/End instead of a hardcoded "09:30 AM"/"18:30".
+function minsToClockStr(mins: number): string {
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  const h12 = h % 12 || 12;
+  return `${h12}:${m.toString().padStart(2, '0')} ${ampm}`;
+}
+
 const STATUS_COLORS: Record<Status, { dot: string; text: string; bg: string; border: string }> = {
   green:   { dot: 'bg-emerald-400', text: 'text-emerald-400', bg: 'bg-emerald-500/5',  border: 'border-emerald-500/20' },
   amber:   { dot: 'bg-amber-400',   text: 'text-amber-400',   bg: 'bg-amber-500/5',    border: 'border-amber-500/20' },
@@ -44,6 +55,22 @@ interface CardDef {
 export default function KPICards({ kpi, thresholds = DEFAULT_THRESHOLDS, viewMode = 'monthly', onCardClick }: KPICardsProps) {
   const t = thresholds;
   const isDay = viewMode === 'single_day';
+
+  // Bug fix: this component previously hardcoded a 9-hour shift (both in the
+  // status-color math AND in the "vs 9h shift"/"09:30 AM"/"18:30" copy),
+  // ignoring the configured Shift Start/End entirely — every other
+  // late/early/productivity calculation in the app (useDashboardData's own
+  // `kpi`, exportData.ts, exportPDF.ts, DeptProductivityChart) already reads
+  // the real Shift Start/End and compares against the *effective* target
+  // (shift span minus 60min lunch — 8h by default, not the raw 9h span).
+  // Comparing an already lunch-adjusted avgWorkingHours against the raw 9h
+  // span made these two cards read harsher than every other view of the
+  // same data, and they never moved when Shift Start/End was changed in
+  // Settings. targetHours below is what every other consumer already uses.
+  const targetMinutes = targetShiftMinutes(t.shiftStartMinutes, t.shiftEndMinutes);
+  const targetHours = targetMinutes / 60;
+  const shiftStartStr = minsToClockStr(t.shiftStartMinutes);
+  const shiftEndStr = minsToClockStr(t.shiftEndMinutes);
 
   // SRS §12.6.1: in daily view KPIs show raw headcounts except Avg Hours and Productivity Lost
   const cards: CardDef[] = isDay ? [
@@ -83,7 +110,7 @@ export default function KPICards({ kpi, thresholds = DEFAULT_THRESHOLDS, viewMod
       filter: 'late',
       info: {
         title: 'Late Arrivals Today',
-        description: `Employees who checked in after ${t.graceMinutes}min grace past 09:30 AM today.`,
+        description: `Employees who checked in after ${t.graceMinutes}min grace past ${shiftStartStr} today.`,
         formula: 'Count of employees with in-time > shift start + grace period',
         example: '5 late arrivals today',
       },
@@ -96,7 +123,7 @@ export default function KPICards({ kpi, thresholds = DEFAULT_THRESHOLDS, viewMod
       filter: 'earlyexit',
       info: {
         title: 'Early Exits Today',
-        description: `Employees who checked out before 18:30 minus grace period today.`,
+        description: `Employees who checked out before ${shiftEndStr} minus grace period today.`,
         formula: 'Count of employees with out-time < shift end − grace period',
         example: '59 early exits — total hours lost shown in subtitle',
       },
@@ -104,21 +131,21 @@ export default function KPICards({ kpi, thresholds = DEFAULT_THRESHOLDS, viewMod
     {
       label: 'Avg Working Hours',
       value: `${kpi.avgWorkingHours.toFixed(1)}h`,
-      sub: `vs 9h shift duration`,
-      status: getStatus((kpi.avgWorkingHours / 9) * 100, t.avgHoursPctGreen, t.avgHoursPctAmber),
+      sub: `vs ${targetHours.toFixed(1)}h effective shift target`,
+      status: getStatus((kpi.avgWorkingHours / targetHours) * 100, t.avgHoursPctGreen, t.avgHoursPctAmber),
       filter: 'present',
       info: {
         title: 'Avg Working Hours Today',
-        description: 'Mean of (out-punch − in-punch) for all present employees today.',
+        description: `Mean of (out-punch − in-punch) for all present employees today, compared against the ${targetHours.toFixed(1)}h effective target (shift span minus 1h lunch).`,
         formula: 'Mean duration of present employees today',
-        example: '8h 12m avg vs 9h shift',
+        example: `8h 12m avg vs ${targetHours.toFixed(1)}h target`,
       },
     },
     {
       label: 'Productivity Lost',
       value: `${kpi.productivityLostHours.toFixed(1)}h`,
       sub: `hours lost today to late/early`,
-      status: getStatus((kpi.productivityLostHours / (kpi.presentCount * 9 || 1)) * 100, t.productivityLostGreen, t.productivityLostAmber, true),
+      status: getStatus((kpi.productivityLostHours / (kpi.presentCount * targetHours || 1)) * 100, t.productivityLostGreen, t.productivityLostAmber, true),
       filter: 'present',
       info: {
         title: 'Productivity Lost Today',
@@ -160,13 +187,13 @@ export default function KPICards({ kpi, thresholds = DEFAULT_THRESHOLDS, viewMod
       label: 'Avg Effective Hours',
       value: `${kpi.avgWorkingHours.toFixed(1)}h`,
       sub: 'Mean hours per present day',
-      status: getStatus((kpi.avgWorkingHours / 9) * 100, t.avgHoursPctGreen, t.avgHoursPctAmber),
+      status: getStatus((kpi.avgWorkingHours / targetHours) * 100, t.avgHoursPctGreen, t.avgHoursPctAmber),
       filter: 'present',
       info: {
         title: 'Average Effective Hours',
-        description: 'Average hours worked per present employee per day. Compared against 9h shift.',
+        description: `Average hours worked per present employee per day. Compared against the ${targetHours.toFixed(1)}h effective shift target (shift span minus 1h lunch).`,
         formula: 'Σ(duration) ÷ present days',
-        example: '>7h 39m (85% of 9h) = green.',
+        example: `>${(targetHours * 0.85).toFixed(1)}h (85% of ${targetHours.toFixed(1)}h) = green.`,
       },
     },
     {
@@ -177,7 +204,7 @@ export default function KPICards({ kpi, thresholds = DEFAULT_THRESHOLDS, viewMod
       filter: 'late',
       info: {
         title: 'Late Arrival Rate',
-        description: `% of present days where in-punch was after 09:30 AM beyond the ${t.graceMinutes}-min grace period.`,
+        description: `% of present days where in-punch was after ${shiftStartStr} beyond the ${t.graceMinutes}-min grace period.`,
         formula: '(Late days ÷ Present days) × 100%',
         example: '10 late of 80 present = 12.5% (amber).',
       },
@@ -190,7 +217,7 @@ export default function KPICards({ kpi, thresholds = DEFAULT_THRESHOLDS, viewMod
       filter: 'earlyexit',
       info: {
         title: 'Early Exit Rate',
-        description: `% of present days with out-punch before 18:30 minus grace. >40% signals a structural policy issue.`,
+        description: `% of present days with out-punch before ${shiftEndStr} minus grace. >40% signals a structural policy issue.`,
         formula: '(Early exits ÷ Present days) × 100%',
         example: '<15% green · 15–40% amber · >40% red.',
       },
@@ -203,8 +230,8 @@ export default function KPICards({ kpi, thresholds = DEFAULT_THRESHOLDS, viewMod
       filter: 'present',
       info: {
         title: 'Productivity Lost',
-        description: 'Person-capacity lost to late/early. Denominator = present days × 9h shift.',
-        formula: 'Σ(late+early mins) ÷ (present days × 540) × 100%',
+        description: `Person-capacity lost to late/early. Denominator = present days × ${targetHours.toFixed(1)}h effective shift target.`,
+        formula: `Σ(late+early mins) ÷ (present days × ${targetMinutes}) × 100%`,
         example: '30 min late + 15 min early = 45 min lost ÷ 540 = 8.3%.',
       },
     },

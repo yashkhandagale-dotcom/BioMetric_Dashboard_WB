@@ -2,7 +2,7 @@ import { AttendanceRecord, EmployeeSummary, Thresholds, Holiday } from './types'
 import { durationToMinutes } from './parseCSV';
 import {
   isWeeklyOff, isAbsent, isPresent, isMissedPunchOut,
-  getLateMinutes, getEarlyMinutes, computeProductivityLostMinutes, SHIFT_MINUTES,
+  getLateMinutes, getEarlyMinutes, computeProductivityLostMinutes, targetShiftMinutes,
 } from './useDashboardData';
 import { isHoliday } from './holidays';
 
@@ -16,7 +16,10 @@ const COMPANY_NAME = 'WonderBiz Technologies';
 // names that don't exist on EmployeeSummary and always fell back to 0.00h.
 // Every calculation below now reuses the exact same shared functions the
 // dashboard uses (imported from useDashboardData.ts) so a manager never sees
-// a number in the PDF that disagrees with what's on their screen.
+// a number in the PDF that disagrees with what's on their screen. Grace was
+// fixed first; Shift Start/End is now threaded too (see `shiftStart`/
+// `shiftEnd` below) instead of silently falling back to the 09:30–18:30
+// default when an office has configured a different shift window.
 // ────────────────────────────────────────────────────────────────────────────
 
 function hhmmToHours(hhmm: string | undefined): number {
@@ -281,6 +284,11 @@ export async function exportPDF(
   const genDate = new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
   const offices = [...new Set(records.map(r => r.officeCode))].filter(Boolean).join(', ') || '—';
   const grace = thresholds?.graceMinutes ?? 10;
+  // Spec v1: this file previously hardcoded 09:30–18:30 here (see the header
+  // comment above) instead of reading Shift Start/End from Settings — the
+  // one remaining place that policy was ignored even after Grace was fixed.
+  const shiftStart = thresholds?.shiftStartMinutes;
+  const shiftEnd = thresholds?.shiftEndMinutes;
 
   const employees: NormalizedEmployee[] = summaries.map(normalizeEmployee);
   const totalEmployees = employees.length > 0 ? employees.length : new Set(records.map(r => r.employeeCode)).size;
@@ -309,13 +317,13 @@ export async function exportPDF(
   const attendanceRate = scheduled > 0 ? (presentCount / scheduled) * 100 : 0;
   const absenteeismRate = scheduled > 0 ? (absentCount / scheduled) * 100 : 0;
 
-  const lateCount = presentRecs.filter(r => getLateMinutes(r, grace) > 0).length;
-  const earlyCount = presentRecs.filter(r => getEarlyMinutes(r, grace) > 0).length;
+  const lateCount = presentRecs.filter(r => getLateMinutes(r, grace, shiftStart) > 0).length;
+  const earlyCount = presentRecs.filter(r => getEarlyMinutes(r, grace, shiftEnd) > 0).length;
   const lateRate = presentCount > 0 ? (lateCount / presentCount) * 100 : 0;
   const earlyRate = presentCount > 0 ? (earlyCount / presentCount) * 100 : 0;
 
-  const totalLostMins = presentRecs.reduce((s, r) => s + computeProductivityLostMinutes(r), 0);
-  const totalShiftMins = presentRecs.length * SHIFT_MINUTES;
+  const totalLostMins = presentRecs.reduce((s, r) => s + computeProductivityLostMinutes(r, shiftStart, shiftEnd), 0);
+  const totalShiftMins = presentRecs.length * targetShiftMinutes(shiftStart, shiftEnd);
   const productivityLost = totalShiftMins > 0 ? (totalLostMins / totalShiftMins) * 100 : 0;
 
   const presentWithDur = presentRecs.filter(r => durationToMinutes(r.duration) > 60);

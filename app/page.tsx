@@ -59,8 +59,20 @@ function getOfficeFromKey(key: string): string {
 // ── Manager read-only view ────────────────────────────────────────────────────
 function ManagerView({ records }: { records: AttendanceRecord[] }) {
   const [selectedEmp, setSelectedEmp] = useState<EmployeeSummary | null>(null);
+  // Spec v1 §6/§8 open item: the shared-link view previously always used
+  // DEFAULT_THRESHOLDS because it never fetched the real saved thresholds
+  // row from Supabase — so a manager viewing via share link would silently
+  // see Late/Early/Productivity computed against the wrong shift window if
+  // the HR admin had configured something other than the 09:30–18:30
+  // default. Fetch the same single shared thresholds row every other view
+  // reads from.
+  const [thresholds, setThresholds] = useState<Thresholds>(DEFAULT_THRESHOLDS);
+  useEffect(() => {
+    getThresholds().then(setThresholds);
+  }, []);
+
   const { kpi, employeeSummaries, dailyTrend, deptAttendance, hoursDistribution } =
-    useDashboardData(records, 'ALL', []);
+    useDashboardData(records, 'ALL', [], [], [], thresholds);
 
   return (
     <div className="min-h-screen bg-slate-900 text-white">
@@ -83,7 +95,7 @@ function ManagerView({ records }: { records: AttendanceRecord[] }) {
         <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl px-4 py-3 text-sm text-blue-300">
           Read-only view — upload, export and settings are not available here.
         </div>
-        <KPICards kpi={kpi} />
+        <KPICards kpi={kpi} thresholds={thresholds} />
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
           <DailyTrendChart data={dailyTrend} />
           <HoursDistributionChart data={hoursDistribution} allRecords={records} />
@@ -94,7 +106,14 @@ function ManagerView({ records }: { records: AttendanceRecord[] }) {
           <EmployeeTable summaries={employeeSummaries} onEmployeeClick={setSelectedEmp} />
         </div>
       </main>
-      <EmployeePanel employee={selectedEmp} onClose={() => setSelectedEmp(null)} readOnly />
+      <EmployeePanel
+        employee={selectedEmp}
+        onClose={() => setSelectedEmp(null)}
+        readOnly
+        graceMinutes={thresholds.graceMinutes}
+        shiftStartMinutes={thresholds.shiftStartMinutes}
+        shiftEndMinutes={thresholds.shiftEndMinutes}
+      />
     </div>
   );
 }
@@ -343,7 +362,7 @@ function HRDashboard() {
     for (const pf of batch) {
       const mapping = await getMapping(pf.officeCode);
       if (!mapping) continue;
-      const { records } = await parseCSVWithMapping(pf.file, mapping, pf.officeCode, thresholds.graceMinutes);
+      const { records } = await parseCSVWithMapping(pf.file, mapping, pf.officeCode, thresholds.graceMinutes, thresholds.shortDayMinutes);
       if (records.length === 0) {
         // A non-empty CSV that parsed to zero rows almost always means the
         // saved column mapping no longer matches this file's headers (or
@@ -489,6 +508,21 @@ function HRDashboard() {
   const currentOffice = getOfficeFromKey(selectedMonthKey);
   const currentYear = getYearFromKey(selectedMonthKey);
 
+  // When the user hasn't picked an explicit From/To yet, the From/To boxes
+  // still need to reflect *something* real — otherwise they sit blank while
+  // the dashboard is quietly showing the selected month's data, with no way
+  // to tell what date span that actually is. Derive it from filteredRecords
+  // (dates are normalized to ISO "YYYY-MM-DD", so lexical min/max is safe).
+  const impliedRange = (() => {
+    if (filteredRecords.length === 0) return null;
+    let min = filteredRecords[0].date, max = filteredRecords[0].date;
+    for (const r of filteredRecords) {
+      if (r.date < min) min = r.date;
+      if (r.date > max) max = r.date;
+    }
+    return { min, max };
+  })();
+
   const filteredSummaries = tableFilter === 'all' ? employeeSummaries
     : tableFilter === 'present' ? employeeSummaries.filter(e => e.presentDays > 0)
     : tableFilter === 'absent' ? employeeSummaries.filter(e => e.absentDays > 0)
@@ -609,7 +643,7 @@ function HRDashboard() {
                   <span className="text-slate-500 text-xs font-medium">From</span>
                   <input
                     type="date"
-                    value={dateFrom ?? ''}
+                    value={dateFrom ?? impliedRange?.min ?? ''}
                     min={minAvailableDate}
                     max={dateTo ?? maxAvailableDate}
                     onChange={e => {
@@ -624,13 +658,14 @@ function HRDashboard() {
                       // If From > To, reset To
                       if (v && dateTo && v > dateTo) setDateTo(v);
                     }}
-                    className="bg-transparent text-white text-xs focus:outline-none w-28 sm:w-32"
+                    className={`bg-transparent text-xs focus:outline-none w-28 sm:w-32 ${dateFrom ? 'text-white' : 'text-slate-400'}`}
+                    title={!dateFrom ? 'Auto-filled to match the data currently shown — pick a date to filter explicitly' : undefined}
                   />
                   <span className="text-slate-600 text-xs">→</span>
                   <span className="text-slate-500 text-xs font-medium">To</span>
                   <input
                     type="date"
-                    value={dateTo ?? ''}
+                    value={dateTo ?? impliedRange?.max ?? ''}
                     min={dateFrom ?? minAvailableDate}
                     max={maxAvailableDate}
                     onChange={e => {
@@ -643,8 +678,12 @@ function HRDashboard() {
                       // Auto-set From = To for single-day selection if From not set
                       if (v && !dateFrom) setDateFrom(v);
                     }}
-                    className="bg-transparent text-white text-xs focus:outline-none w-28 sm:w-32"
+                    className={`bg-transparent text-xs focus:outline-none w-28 sm:w-32 ${dateTo ? 'text-white' : 'text-slate-400'}`}
+                    title={!dateTo ? 'Auto-filled to match the data currently shown — pick a date to filter explicitly' : undefined}
                   />
+                  {!dateFrom && !dateTo && impliedRange && (
+                    <span className="text-slate-500 text-[10px] italic ml-1">(current period)</span>
+                  )}
                   {(dateFrom || dateTo) && (
                     <button onClick={() => { setDateFrom(null); setDateTo(null); }} className="text-slate-500 hover:text-white transition-colors ml-1" title="Clear date range">
                       <XIcon className="w-3.5 h-3.5" />
@@ -716,16 +755,24 @@ function HRDashboard() {
                     data={dayDeptSnapshots}
                     onDeptClick={(dept) => focusDept(dept)}
                     allRecords={filteredRecords}
+                    graceMinutes={thresholds.graceMinutes}
+                    shiftStartMinutes={thresholds.shiftStartMinutes}
+                    shiftEndMinutes={thresholds.shiftEndMinutes}
                   />
                   <DayDeptLateChart
                     data={dayDeptSnapshots}
                     onDeptClick={(dept) => focusDept(dept)}
                     allRecords={filteredRecords}
+                    graceMinutes={thresholds.graceMinutes}
+                    shiftStartMinutes={thresholds.shiftStartMinutes}
+                    shiftEndMinutes={thresholds.shiftEndMinutes}
                   />
                   <DayDeptProductivityChart
                     data={dayDeptSnapshots}
                     onDeptClick={(dept) => focusDept(dept)}
                     allRecords={filteredRecords}
+                    shiftStartMinutes={thresholds.shiftStartMinutes}
+                    shiftEndMinutes={thresholds.shiftEndMinutes}
                   />
                 </div>
                 <div className="bg-slate-800/30 rounded-xl border border-slate-700 p-4">
@@ -794,6 +841,8 @@ function HRDashboard() {
                     onDrillBack={() => setDeptDrillSync(null)}
                     onDeptDrillChange={(dept) => setDeptDrillSync(dept)}
                     onDeptClick={(dept) => toggleDept(dept)}
+                    shiftStartMinutes={thresholds.shiftStartMinutes}
+                    shiftEndMinutes={thresholds.shiftEndMinutes}
                   />
                 </div>
 
@@ -813,11 +862,22 @@ function HRDashboard() {
                       const emp = employeeSummaries.find(e => e.employeeCode === empCode);
                       if (emp) setSelectedEmp(emp);
                     }}
+                    graceMinutes={thresholds.graceMinutes}
+                    shiftStartMinutes={thresholds.shiftStartMinutes}
+                    shiftEndMinutes={thresholds.shiftEndMinutes}
                   />
                 )}
 
                 {isComparison && departments.length >= 2 && (
-                  <TeamComparisonPanel allRecords={filteredRecords} departments={departments} />
+                  <TeamComparisonPanel
+                    allRecords={filteredRecords}
+                    departments={departments}
+                    holidays={holidays}
+                    leaveRecords={leaveRecords}
+                    graceMinutes={thresholds.graceMinutes}
+                    shiftStartMinutes={thresholds.shiftStartMinutes}
+                    shiftEndMinutes={thresholds.shiftEndMinutes}
+                  />
                 )}
 
                 <EmployeeComparisonPanel
@@ -856,6 +916,8 @@ function HRDashboard() {
         onClose={() => setSelectedEmp(null)}
         holidays={holidays}
         graceMinutes={thresholds.graceMinutes}
+        shiftStartMinutes={thresholds.shiftStartMinutes}
+        shiftEndMinutes={thresholds.shiftEndMinutes}
         monthKey={selectedMonthKey}
         leaveMap={leaveMap}
         onLeaveChange={refreshLeaveRecords}

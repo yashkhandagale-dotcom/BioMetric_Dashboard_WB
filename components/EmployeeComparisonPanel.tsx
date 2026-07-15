@@ -1,5 +1,6 @@
 'use client';
 import { useState, useMemo, useEffect } from 'react';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { AttendanceRecord, EmployeeSummary, LeaveRecord, Holiday, EffectiveStatus } from '@/lib/types';
 import { computeEmployeeKPIs, ComparisonKPIs, buildLeaveMap, getEffectiveStatus, leaveKey } from '@/lib/useDashboardData';
 import { getEmployeeMonthHistory } from '@/lib/storage';
@@ -23,7 +24,24 @@ const METRICS: { key: keyof ComparisonKPIs; label: string; suffix: string; highe
   { key: 'lateArrivalRate', label: 'Late Arrival Rate', suffix: '%', higherIsBetter: false },
   { key: 'earlyExitRate', label: 'Early Exit Rate', suffix: '%', higherIsBetter: false },
   { key: 'productivityLost', label: 'Productivity Lost %', suffix: '%', higherIsBetter: false },
+  // Lower deviation = punches in/out around the same time every day, i.e.
+  // more consistent — unlike avg in/out time itself, "lower is better" here
+  // isn't a value judgment about work hours, just about predictability.
+  { key: 'inTimeDeviation', label: 'In-Time Consistency (±min)', suffix: 'min', higherIsBetter: false },
+  { key: 'outTimeDeviation', label: 'Out-Time Consistency (±min)', suffix: 'min', higherIsBetter: false },
 ];
+
+// e.g. 582 -> "9:42 AM". Avg in/out time itself is shown as plain info
+// (see AvgPunchRow below) rather than run through the red/green delta
+// machinery below — "earlier" or "later" isn't inherently good or bad the
+// way lower absenteeism or higher attendance is, so we don't color-code it.
+function minsToClock(mins: number): string {
+  const h = Math.floor(mins / 60);
+  const m = Math.round(mins % 60);
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  const h12 = h % 12 || 12;
+  return `${h12}:${m.toString().padStart(2, '0')} ${ampm}`;
+}
 
 const LEAVE_BADGES: { key: keyof ComparisonKPIs; label: string; color: string }[] = [
   { key: 'plannedLeaveCount', label: 'Planned', color: 'bg-blue-500/20 text-blue-300 border-blue-500/40' },
@@ -34,12 +52,15 @@ const LEAVE_BADGES: { key: keyof ComparisonKPIs; label: string; color: string }[
 ];
 
 function fmt(metric: typeof METRICS[number], value: number): string {
+  if (value === undefined || Number.isNaN(value)) return '—';
   if (metric.suffix === 'h') return `${value.toFixed(2)}h`;
   if (metric.suffix === '%') return `${value.toFixed(1)}%`;
+  if (metric.suffix === 'min') return `±${Math.round(value)}m`;
   return `${Math.round(value)}`;
 }
 
 function valueColor(metric: typeof METRICS[number], value: number): string {
+  if (value === undefined || Number.isNaN(value)) return 'text-slate-500';
   if (metric.key === 'attendanceRate') {
     if (value >= 90) return 'text-emerald-400';
     if (value >= 75) return 'text-amber-400';
@@ -51,6 +72,65 @@ function valueColor(metric: typeof METRICS[number], value: number): string {
     return 'text-red-400';
   }
   return 'text-slate-300';
+}
+
+// Small negligible-change threshold per metric unit, so noise doesn't get called out as a "trend".
+function deltaThreshold(metric: typeof METRICS[number]): number {
+  if (metric.suffix === 'h') return 0.1;
+  if (metric.suffix === 'min') return 5; // 5-minute swings in consistency aren't worth flagging
+  return 1;
+}
+
+function fmtDelta(metric: typeof METRICS[number], delta: number): string {
+  const sign = delta > 0 ? '+' : delta < 0 ? '−' : '±';
+  const abs = Math.abs(delta);
+  if (metric.suffix === 'min') return `${sign}${Math.round(abs)}m`;
+  const body = metric.suffix === 'h' ? abs.toFixed(2) : abs.toFixed(1);
+  return `${sign}${body}${metric.suffix}`;
+}
+
+// Hours move on a much smaller numeric scale than percentages (0-2 vs 0-100),
+// and minute-deviations on a much larger one (0-60+) — weight both so
+// "which metric moved the most" ranks fairly across units.
+function normalizedMagnitude(metric: typeof METRICS[number], delta: number): number {
+  if (Number.isNaN(delta)) return 0;
+  if (metric.suffix === 'h') return Math.abs(delta) * 15;
+  if (metric.suffix === 'min') return Math.abs(delta) / 3;
+  return Math.abs(delta);
+}
+
+interface MetricMove {
+  m: typeof METRICS[number];
+  delta: number;
+  improved: boolean;
+}
+
+function buildInsight(leftKPIs: ComparisonKPIs, rightKPIs: ComparisonKPIs, fromLabel: string, toLabel: string): string {
+  const moves: MetricMove[] = METRICS
+    .map((m) => {
+      const delta = (rightKPIs[m.key] as number) - (leftKPIs[m.key] as number);
+      const improved = m.higherIsBetter ? delta > 0 : delta < 0;
+      return { m, delta, improved };
+    })
+    .filter((mv) => Math.abs(mv.delta) >= deltaThreshold(mv.m))
+    .sort((a, b) => normalizedMagnitude(b.m, b.delta) - normalizedMagnitude(a.m, a.delta));
+
+  if (moves.length === 0) {
+    return `No meaningful change between ${fromLabel} and ${toLabel} — performance held steady.`;
+  }
+
+  const phrase = (mv: MetricMove) => {
+    const verb = mv.improved
+      ? 'improved'
+      : mv.m.higherIsBetter ? 'dropped' : 'rose';
+    return `${mv.m.label} ${verb} by ${fmtDelta(mv.m, mv.delta).replace(/^[+−]/, '')}${mv.m.suffix}`;
+  };
+
+  const top = moves.slice(0, 2);
+  if (top.length === 1) return `${phrase(top[0])} from ${fromLabel} to ${toLabel}.`;
+
+  const joiner = top[0].improved === top[1].improved ? ', and ' : ', but ';
+  return `${phrase(top[0])}${joiner}${phrase(top[1]).charAt(0).toLowerCase() + phrase(top[1]).slice(1)} from ${fromLabel} to ${toLabel}.`;
 }
 
 function EmployeeSearchInput({
@@ -143,6 +223,89 @@ function CalendarHeatmap({
   );
 }
 
+interface TrendPoint {
+  monthKey: string;
+  label: string;
+  value: number;
+  isA: boolean;
+  isB: boolean;
+}
+
+function TrendChart({
+  metric, data, metricOptions, onMetricChange,
+}: {
+  metric: typeof METRICS[number];
+  data: TrendPoint[];
+  metricOptions: typeof METRICS;
+  onMetricChange: (key: string) => void;
+}) {
+  const CustomTooltip = ({ active, payload }: any) => {
+    if (!active || !payload?.length) return null;
+    const p = payload[0]?.payload as TrendPoint;
+    return (
+      <div className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs shadow-xl">
+        <p className="text-slate-300 font-medium mb-1">{p.label}</p>
+        <p className="text-violet-300">{metric.label}: <strong>{fmt(metric, p.value)}</strong></p>
+        {(p.isA || p.isB) && <p className="text-slate-500 text-[10px] mt-1">Selected for comparison above</p>}
+      </div>
+    );
+  };
+
+  return (
+    <div className="mt-4 pt-4 border-t border-slate-700">
+      <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+        <p className="text-slate-500 text-[11px] uppercase tracking-wide">Trend across all uploaded months</p>
+        <select
+          value={metric.key}
+          onChange={(e) => onMetricChange(e.target.value)}
+          className="bg-slate-700 border border-slate-600 text-white text-xs rounded-lg px-2 py-1 focus:outline-none focus:border-violet-500"
+        >
+          {metricOptions.map((m) => <option key={m.key} value={m.key}>{m.label}</option>)}
+        </select>
+      </div>
+      {data.length < 2 ? (
+        <p className="text-slate-500 text-xs text-center py-6">Need at least 2 uploaded months to show a trend.</p>
+      ) : (
+        <ResponsiveContainer width="100%" height={180}>
+          <LineChart data={data} margin={{ top: 5, right: 10, left: -20, bottom: 5 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+            <XAxis dataKey="label" tick={{ fontSize: 10, fill: '#64748b' }} interval="preserveStartEnd" />
+            <YAxis tick={{ fontSize: 10, fill: '#64748b' }} unit={metric.suffix === '%' ? '%' : ''} />
+            <Tooltip content={<CustomTooltip />} />
+            <Line
+              type="monotone"
+              dataKey="value"
+              name={metric.label}
+              stroke="#a78bfa"
+              strokeWidth={2}
+              dot={(props: any) => {
+                const p = props.payload as TrendPoint;
+                const highlighted = p.isA || p.isB;
+                return (
+                  <circle
+                    key={props.index}
+                    cx={props.cx}
+                    cy={props.cy}
+                    r={highlighted ? 5 : 3}
+                    fill={p.isA ? '#60a5fa' : p.isB ? '#34d399' : '#a78bfa'}
+                    stroke={highlighted ? '#fff' : 'none'}
+                    strokeWidth={highlighted ? 2 : 0}
+                  />
+                );
+              }}
+              activeDot={{ r: 5 }}
+            />
+          </LineChart>
+        </ResponsiveContainer>
+      )}
+      <div className="flex items-center gap-3 mt-1">
+        <span className="flex items-center gap-1 text-[10px] text-slate-500"><span className="w-2 h-2 rounded-full bg-blue-400 inline-block" /> Month A</span>
+        <span className="flex items-center gap-1 text-[10px] text-slate-500"><span className="w-2 h-2 rounded-full bg-emerald-400 inline-block" /> Month B</span>
+      </div>
+    </div>
+  );
+}
+
 function HeatmapLegend() {
   const items: EffectiveStatus[] = ['present', 'absent', 'leave_planned', 'leave_casual', 'leave_sick', 'leave_lwp', 'half_day', 'weeklyoff', 'holiday'];
   return (
@@ -186,36 +349,66 @@ function LeaveBadgeRow({ leftLabel, rightLabel, left, right }: { leftLabel: stri
 function ComparisonGrid({
   leftLabel, rightLabel, leftKPIs, rightKPIs,
 }: { leftLabel: string; rightLabel: string; leftKPIs: ComparisonKPIs; rightKPIs: ComparisonKPIs }) {
-  let leftWinsCount = 0;
   const rows = METRICS.map((m) => {
     const l = leftKPIs[m.key] as number;
     const r = rightKPIs[m.key] as number;
-    const lWins = m.higherIsBetter ? l > r : l < r;
-    const rWins = m.higherIsBetter ? r > l : r < l;
-    if (lWins) leftWinsCount++;
-    return { m, l, r, lWins, rWins };
+    const delta = r - l;
+    const improved = m.higherIsBetter ? delta > 0 : delta < 0;
+    const meaningful = Math.abs(delta) >= deltaThreshold(m);
+    return { m, l, r, delta, improved, meaningful };
   });
-  const rightWinsCount = rows.filter((row) => row.rWins).length;
   const lowSample = leftKPIs.presentSampleSize < 5 || rightKPIs.presentSampleSize < 5;
+  const insight = buildInsight(leftKPIs, rightKPIs, leftLabel, rightLabel);
 
   return (
     <>
+      <div className="rounded-xl border border-violet-500/30 bg-violet-500/10 px-4 py-3 mb-4">
+        <p className="text-violet-200 text-sm leading-snug">💡 {insight}</p>
+      </div>
+
+      <div className="grid grid-cols-3 gap-0 text-xs mb-4 bg-slate-800/40 rounded-lg py-2">
+        <div className="text-right pr-3">
+          <p className="text-slate-500 text-[10px]">Avg In / Out</p>
+          <p className="text-slate-200 text-xs font-medium">
+            {leftKPIs.avgInTime !== undefined ? minsToClock(leftKPIs.avgInTime) : '—'}
+            {' / '}
+            {leftKPIs.avgOutTime !== undefined ? minsToClock(leftKPIs.avgOutTime) : '—'}
+          </p>
+        </div>
+        <div className="text-center text-slate-500 pt-2">Avg Punch Time</div>
+        <div className="text-left pl-3">
+          <p className="text-slate-500 text-[10px]">Avg In / Out</p>
+          <p className="text-slate-200 text-xs font-medium">
+            {rightKPIs.avgInTime !== undefined ? minsToClock(rightKPIs.avgInTime) : '—'}
+            {' / '}
+            {rightKPIs.avgOutTime !== undefined ? minsToClock(rightKPIs.avgOutTime) : '—'}
+          </p>
+        </div>
+      </div>
+
       <div className="grid grid-cols-3 gap-0 text-xs mb-2">
         <div className="text-slate-400 font-medium text-right pr-3 py-1 truncate">{leftLabel}</div>
         <div className="text-slate-500 text-center py-1">Metric</div>
         <div className="text-slate-400 font-medium text-left pl-3 py-1 truncate">{rightLabel}</div>
       </div>
       <div className="space-y-1">
-        {rows.map(({ m, l, r, lWins, rWins }) => (
+        {rows.map(({ m, l, r, delta, improved, meaningful }) => (
           <div key={m.key} className="grid grid-cols-3 gap-0 items-center py-1.5 px-2 rounded-lg hover:bg-slate-700/30">
-            <div className={`text-right pr-3 flex items-center justify-end gap-1 ${lWins ? 'font-semibold' : ''}`}>
-              {lWins && <span className="text-emerald-400 text-[9px]">▲</span>}
+            <div className="text-right pr-3">
               <span className={`text-sm font-bold ${valueColor(m, l)}`}>{fmt(m, l)}</span>
             </div>
-            <div className="text-center text-[10px] text-slate-500">{m.label}</div>
-            <div className={`text-left pl-3 flex items-center gap-1 ${rWins ? 'font-semibold' : ''}`}>
+            <div className="text-center">
+              <div className="text-[10px] text-slate-500">{m.label}</div>
+              {meaningful ? (
+                <span className={`inline-block mt-0.5 text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${improved ? 'bg-emerald-500/20 text-emerald-300' : 'bg-red-500/20 text-red-300'}`}>
+                  {fmtDelta(m, delta)}
+                </span>
+              ) : (
+                <span className="inline-block mt-0.5 text-[10px] text-slate-600">no change</span>
+              )}
+            </div>
+            <div className="text-left pl-3">
               <span className={`text-sm font-bold ${valueColor(m, r)}`}>{fmt(m, r)}</span>
-              {rWins && <span className="text-emerald-400 text-[9px]">▲</span>}
             </div>
           </div>
         ))}
@@ -228,22 +421,6 @@ function ComparisonGrid({
       )}
 
       <LeaveBadgeRow leftLabel={leftLabel} rightLabel={rightLabel} left={leftKPIs} right={rightKPIs} />
-
-      <div className="mt-4 pt-4 border-t border-slate-700 flex items-center justify-center gap-3 flex-wrap">
-        {leftWinsCount !== rightWinsCount ? (
-          <>
-            <div className={`px-4 py-2 rounded-xl text-sm font-semibold ${leftWinsCount > rightWinsCount ? 'bg-emerald-500/20 border border-emerald-500/40 text-emerald-300' : 'bg-slate-700/50 border border-slate-600 text-slate-400'}`}>
-              {leftLabel}: {leftWinsCount} wins
-            </div>
-            <span className="text-slate-600 text-lg font-light">·</span>
-            <div className={`px-4 py-2 rounded-xl text-sm font-semibold ${rightWinsCount > leftWinsCount ? 'bg-emerald-500/20 border border-emerald-500/40 text-emerald-300' : 'bg-slate-700/50 border border-slate-600 text-slate-400'}`}>
-              {rightLabel}: {rightWinsCount} wins
-            </div>
-          </>
-        ) : (
-          <p className="text-slate-400 text-sm">🤝 Tie — {leftWinsCount} metrics each</p>
-        )}
-      </div>
     </>
   );
 }
@@ -278,20 +455,22 @@ export default function EmployeeComparisonPanel({
   const monthB = history.find((h) => h.monthKey === monthBKey) || history[history.length - 1];
 
   // Per-month holidays + leave map, fetched once per monthKey and cached.
+  // Fetches for every month in this employee's history (not just A/B) so the
+  // trend chart below can plot their full trajectory, not just the two selected snapshots.
   const [monthExtras, setMonthExtras] = useState<Record<string, { holidays: Holiday[]; leaveMap: Map<string, LeaveRecord> }>>({});
 
   useEffect(() => {
-    [monthA, monthB].forEach((m) => {
-      if (!m || monthExtras[m.monthKey]) return;
-      let cancelled = false;
+    let cancelled = false;
+    history.forEach((m) => {
+      if (monthExtras[m.monthKey]) return;
       Promise.all([getHolidays(m.officeCode, m.year), getLeaveRecords(m.monthKey)]).then(([holidays, leaves]) => {
         if (cancelled) return;
-        setMonthExtras((prev) => ({ ...prev, [m.monthKey]: { holidays, leaveMap: buildLeaveMap(leaves) } }));
+        setMonthExtras((prev) => (prev[m.monthKey] ? prev : { ...prev, [m.monthKey]: { holidays, leaveMap: buildLeaveMap(leaves) } }));
       });
-      return () => { cancelled = true; };
     });
+    return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [monthA?.monthKey, monthB?.monthKey]);
+  }, [history]);
 
   function kpisForHistMonth(m: typeof history[number] | undefined): ComparisonKPIs | null {
     if (!m) return null;
@@ -303,6 +482,28 @@ export default function EmployeeComparisonPanel({
   const monthAKPIs = useMemo(() => kpisForHistMonth(monthA), [monthA, monthExtras, graceMinutes, shiftStartMinutes, shiftEndMinutes]);
   const monthBKPIs = useMemo(() => kpisForHistMonth(monthB), [monthB, monthExtras, graceMinutes, shiftStartMinutes, shiftEndMinutes]);
 
+  // Trend across every uploaded month for this employee, so a manager can see
+  // trajectory (steady slide vs. one-off dip) instead of just a two-point diff.
+  const [trendMetricKey, setTrendMetricKey] = useState<keyof ComparisonKPIs>('attendanceRate');
+  const trendMetric = METRICS.find((m) => m.key === trendMetricKey) || METRICS[0];
+
+  const trendData: TrendPoint[] = useMemo(() => {
+    return history
+      .map((m) => {
+        const k = kpisForHistMonth(m);
+        if (!k) return null;
+        return {
+          monthKey: m.monthKey,
+          label: m.label,
+          value: k[trendMetricKey] as number,
+          isA: m.monthKey === monthA?.monthKey,
+          isB: m.monthKey === monthB?.monthKey,
+        };
+      })
+      .filter((p): p is TrendPoint => p !== null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [history, monthExtras, trendMetricKey, graceMinutes, shiftStartMinutes, shiftEndMinutes, monthA?.monthKey, monthB?.monthKey]);
+
   const histEmpName = empOptions.find((e) => e.employeeCode === histEmp)?.employeeName || histEmp;
 
   if (employeeSummaries.length < 1) return null;
@@ -311,7 +512,7 @@ export default function EmployeeComparisonPanel({
     <div className="bg-slate-800 rounded-xl border border-slate-700 p-5">
       <div className="mb-4">
         <h3 className="text-white font-semibold text-sm">Employee Month Comparison</h3>
-        <p className="text-slate-500 text-xs mt-0.5">Compare an employee's performance across two of their uploaded months</p>
+        <p className="text-slate-500 text-xs mt-0.5">Track an employee's performance trend and compare any two of their uploaded months</p>
       </div>
 
       <div className="flex items-center gap-3 mb-5 flex-wrap">
@@ -367,6 +568,15 @@ export default function EmployeeComparisonPanel({
             ? `Upload at least one more month for ${histEmpName} to enable comparison.`
             : 'Pick two different months above to compare.'}
         </p>
+      )}
+
+      {history.length >= 2 && (
+        <TrendChart
+          metric={trendMetric}
+          data={trendData}
+          metricOptions={METRICS}
+          onMetricChange={(key) => setTrendMetricKey(key as keyof ComparisonKPIs)}
+        />
       )}
     </div>
   );

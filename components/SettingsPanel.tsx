@@ -142,6 +142,13 @@ export default function SettingsPanel({ onClose, thresholds, onSaveThresholds, r
                       </div>
                     ))}
                   </div>
+                  {group === 'Other Thresholds' && (
+                    <p className="text-slate-500 text-[11px] mt-2">
+                      Short Day threshold only applies to CSVs uploaded <em>after</em> you change it — it&apos;s
+                      baked into each row at import time, so already-imported months keep their original
+                      classification unless you re-upload them.
+                    </p>
+                  )}
                 </div>
               ))}
 
