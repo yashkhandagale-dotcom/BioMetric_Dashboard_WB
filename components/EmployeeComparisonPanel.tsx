@@ -24,7 +24,24 @@ const METRICS: { key: keyof ComparisonKPIs; label: string; suffix: string; highe
   { key: 'lateArrivalRate', label: 'Late Arrival Rate', suffix: '%', higherIsBetter: false },
   { key: 'earlyExitRate', label: 'Early Exit Rate', suffix: '%', higherIsBetter: false },
   { key: 'productivityLost', label: 'Productivity Lost %', suffix: '%', higherIsBetter: false },
+  // Lower deviation = punches in/out around the same time every day, i.e.
+  // more consistent — unlike avg in/out time itself, "lower is better" here
+  // isn't a value judgment about work hours, just about predictability.
+  { key: 'inTimeDeviation', label: 'In-Time Consistency (±min)', suffix: 'min', higherIsBetter: false },
+  { key: 'outTimeDeviation', label: 'Out-Time Consistency (±min)', suffix: 'min', higherIsBetter: false },
 ];
+
+// e.g. 582 -> "9:42 AM". Avg in/out time itself is shown as plain info
+// (see AvgPunchRow below) rather than run through the red/green delta
+// machinery below — "earlier" or "later" isn't inherently good or bad the
+// way lower absenteeism or higher attendance is, so we don't color-code it.
+function minsToClock(mins: number): string {
+  const h = Math.floor(mins / 60);
+  const m = Math.round(mins % 60);
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  const h12 = h % 12 || 12;
+  return `${h12}:${m.toString().padStart(2, '0')} ${ampm}`;
+}
 
 const LEAVE_BADGES: { key: keyof ComparisonKPIs; label: string; color: string }[] = [
   { key: 'plannedLeaveCount', label: 'Planned', color: 'bg-blue-500/20 text-blue-300 border-blue-500/40' },
@@ -35,12 +52,15 @@ const LEAVE_BADGES: { key: keyof ComparisonKPIs; label: string; color: string }[
 ];
 
 function fmt(metric: typeof METRICS[number], value: number): string {
+  if (value === undefined || Number.isNaN(value)) return '—';
   if (metric.suffix === 'h') return `${value.toFixed(2)}h`;
   if (metric.suffix === '%') return `${value.toFixed(1)}%`;
+  if (metric.suffix === 'min') return `±${Math.round(value)}m`;
   return `${Math.round(value)}`;
 }
 
 function valueColor(metric: typeof METRICS[number], value: number): string {
+  if (value === undefined || Number.isNaN(value)) return 'text-slate-500';
   if (metric.key === 'attendanceRate') {
     if (value >= 90) return 'text-emerald-400';
     if (value >= 75) return 'text-amber-400';
@@ -56,20 +76,27 @@ function valueColor(metric: typeof METRICS[number], value: number): string {
 
 // Small negligible-change threshold per metric unit, so noise doesn't get called out as a "trend".
 function deltaThreshold(metric: typeof METRICS[number]): number {
-  return metric.suffix === 'h' ? 0.1 : 1;
+  if (metric.suffix === 'h') return 0.1;
+  if (metric.suffix === 'min') return 5; // 5-minute swings in consistency aren't worth flagging
+  return 1;
 }
 
 function fmtDelta(metric: typeof METRICS[number], delta: number): string {
   const sign = delta > 0 ? '+' : delta < 0 ? '−' : '±';
   const abs = Math.abs(delta);
+  if (metric.suffix === 'min') return `${sign}${Math.round(abs)}m`;
   const body = metric.suffix === 'h' ? abs.toFixed(2) : abs.toFixed(1);
   return `${sign}${body}${metric.suffix}`;
 }
 
 // Hours move on a much smaller numeric scale than percentages (0-2 vs 0-100),
-// so weight the hours delta up when ranking "which metric moved the most".
+// and minute-deviations on a much larger one (0-60+) — weight both so
+// "which metric moved the most" ranks fairly across units.
 function normalizedMagnitude(metric: typeof METRICS[number], delta: number): number {
-  return metric.suffix === 'h' ? Math.abs(delta) * 15 : Math.abs(delta);
+  if (Number.isNaN(delta)) return 0;
+  if (metric.suffix === 'h') return Math.abs(delta) * 15;
+  if (metric.suffix === 'min') return Math.abs(delta) / 3;
+  return Math.abs(delta);
 }
 
 interface MetricMove {
@@ -337,6 +364,26 @@ function ComparisonGrid({
     <>
       <div className="rounded-xl border border-violet-500/30 bg-violet-500/10 px-4 py-3 mb-4">
         <p className="text-violet-200 text-sm leading-snug">💡 {insight}</p>
+      </div>
+
+      <div className="grid grid-cols-3 gap-0 text-xs mb-4 bg-slate-800/40 rounded-lg py-2">
+        <div className="text-right pr-3">
+          <p className="text-slate-500 text-[10px]">Avg In / Out</p>
+          <p className="text-slate-200 text-xs font-medium">
+            {leftKPIs.avgInTime !== undefined ? minsToClock(leftKPIs.avgInTime) : '—'}
+            {' / '}
+            {leftKPIs.avgOutTime !== undefined ? minsToClock(leftKPIs.avgOutTime) : '—'}
+          </p>
+        </div>
+        <div className="text-center text-slate-500 pt-2">Avg Punch Time</div>
+        <div className="text-left pl-3">
+          <p className="text-slate-500 text-[10px]">Avg In / Out</p>
+          <p className="text-slate-200 text-xs font-medium">
+            {rightKPIs.avgInTime !== undefined ? minsToClock(rightKPIs.avgInTime) : '—'}
+            {' / '}
+            {rightKPIs.avgOutTime !== undefined ? minsToClock(rightKPIs.avgOutTime) : '—'}
+          </p>
+        </div>
       </div>
 
       <div className="grid grid-cols-3 gap-0 text-xs mb-2">

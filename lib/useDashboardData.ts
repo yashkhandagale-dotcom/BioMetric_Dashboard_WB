@@ -67,6 +67,26 @@ export function timeStringToMinutes(timeStr: string): number {
   return hours * 60 + mins;
 }
 
+// ── Punctuality consistency (avg punch time + how spread out it is) ──────────
+// Mean of a set of minutes-from-midnight punch times.
+function meanMinutes(values: number[]): number {
+  if (values.length === 0) return -1;
+  return values.reduce((a, b) => a + b, 0) / values.length;
+}
+
+// Population standard deviation of punch times around their own mean — this
+// is the "consistency" number: a low value means the employee punches in/out
+// around the same time every day, a high value means it's erratic even if
+// the average looks fine. Needs at least 2 samples to be meaningful; callers
+// should treat undefined as "not enough data" rather than 0 (perfectly
+// consistent).
+function stdDevMinutes(values: number[]): number | undefined {
+  if (values.length < 2) return undefined;
+  const m = meanMinutes(values);
+  const variance = values.reduce((sum, v) => sum + (v - m) ** 2, 0) / values.length;
+  return Math.sqrt(variance);
+}
+
 export function computeLateMinutes(
   inTime: string,
   graceMinutes: number = 10,
@@ -200,6 +220,10 @@ export interface ComparisonKPIs {
   halfDayCount: number;
   scheduledDays: number;
   presentSampleSize: number;
+  avgInTime?: number;
+  avgOutTime?: number;
+  inTimeDeviation?: number;
+  outTimeDeviation?: number;
 }
 
 export function computeEmployeeKPIs(
@@ -262,11 +286,19 @@ export function computeEmployeeKPIs(
   const totalShiftMins = presentRecords.length * targetShiftMinutes(shiftStart, shiftEnd);
   const productivityLost = totalShiftMins > 0 ? (totalLostMins / totalShiftMins) * 100 : 0;
 
+  const inTimes = presentRecords.map((r) => timeStringToMinutes(r.inTime)).filter((m) => m >= 0);
+  const outTimes = presentRecords.map((r) => timeStringToMinutes(r.outTime)).filter((m) => m > 0);
+  const avgInTime = inTimes.length > 0 ? Math.round(meanMinutes(inTimes)) : undefined;
+  const avgOutTime = outTimes.length > 0 ? Math.round(meanMinutes(outTimes)) : undefined;
+  const inTimeDeviation = stdDevMinutes(inTimes);
+  const outTimeDeviation = stdDevMinutes(outTimes);
+
   return {
     attendanceRate, absenteeismRate, avgHoursPerDay, lateArrivalRate, earlyExitRate,
     productivityLost, presentDays, absentDays, plannedLeaveCount, casualLeaveCount,
     sickLeaveCount, lwpCount, halfDayCount, scheduledDays,
     presentSampleSize: presentRecords.length,
+    avgInTime, avgOutTime, inTimeDeviation, outTimeDeviation,
   };
 }
 
@@ -402,15 +434,29 @@ export function useDashboardData(
 
       const leave = leaveMap.get(leaveKey(r.employeeCode, r.date));
 
-      if (r.isShortDay && leave?.leaveType === 'half_day') {
+      // Bug fix: weekly-offs and company holidays must never count toward
+      // presentDays/absentDays — this matches the `workRecords` filter that
+      // `kpi` and `computeEmployeeKPIs` already apply, but employeeSummaries
+      // previously had no such guard, so a holiday the biometric device
+      // marked "Absent" (it doesn't know about the office holiday calendar)
+      // was silently inflating this employee's absent count on the Employee
+      // Table / Employee Panel even though the same day is correctly
+      // excluded everywhere else in the dashboard. The raw record is still
+      // pushed into emp.records above so EmployeePanel's day-by-day calendar
+      // keeps showing the holiday row.
+      const isNonWorkingDay = isWeeklyOff(r.status) || (isHoliday(r.date, holidays) && !isPresent(r.status));
+
+      if (isNonWorkingDay) {
+        // not counted as present or absent — skip straight to punch-count check below
+      } else if (r.isShortDay && leave?.leaveType === 'half_day') {
         emp.halfDayCount++;
         emp.presentDays += 0.5;
       } else if (r.isShortDay) {
         emp.shortDayCount++;
       } else if (isPresent(r.status)) {
-  emp.presentDays++;
-  if (isMissedPunchOut(r.status)) emp.missedPunchOutCount = (emp.missedPunchOutCount ?? 0) + 1;
-  const mins = durationToMinutes(r.duration);
+        emp.presentDays++;
+        if (isMissedPunchOut(r.status)) emp.missedPunchOutCount = (emp.missedPunchOutCount ?? 0) + 1;
+        const mins = durationToMinutes(r.duration);
         // store effective minutes (subtract lunch)
         const effectiveMins = mins > 60 ? mins - 60 : 0;
         emp.totalMinutes += effectiveMins;
@@ -430,14 +476,29 @@ export function useDashboardData(
     }
 
     return Array.from(map.values()).map((emp) => {
-      const avgMins = emp.presentDays > 0 ? Math.round(emp.totalMinutes / emp.presentDays) : 0;
+      const presentRecs = (emp.records || []).filter(r => isPresent(r.status) && !r.isShortDay);
+
+      // Bug fix: previously averaged totalMinutes over ALL present days
+      // (emp.presentDays), including present-but-no-valid-duration days like
+      // "Absent (No Outpunch)" / missed punch-outs — those correctly count as
+      // present for attendance-rate purposes, but they have no real duration
+      // to measure, so including them in this denominator silently dragged
+      // the average down (each one counted as "0h worked" rather than being
+      // excluded as unmeasured), producing a lower number here than the
+      // Working Hours Distribution chart and the Employee Comparison panel
+      // (both of which already only average present days with a valid,
+      // >60-minute raw duration).
+      const presentRecsWithDuration = presentRecs.filter(r => durationToMinutes(r.duration) > 60);
+      const totalEffectiveMinsForAvg = presentRecsWithDuration.reduce(
+        (sum, r) => sum + (durationToMinutes(r.duration) - 60), 0
+      );
+      const avgMins = presentRecsWithDuration.length > 0
+        ? Math.round(totalEffectiveMinsForAvg / presentRecsWithDuration.length) : 0;
       emp.avgHoursWorked = minutesToHHMM(avgMins);
 
       const total = emp.presentDays + emp.absentDays;
       const rate = total > 0 ? (emp.presentDays / total) * 100 : 0;
       emp.worstStatus = colorStatus(rate, thresholds.attendanceRateGreen, thresholds.attendanceRateAmber);
-
-      const presentRecs = (emp.records || []).filter(r => isPresent(r.status) && !r.isShortDay);
 
       const lateMinsArr = presentRecs.map(r => getLateMinutes(r, grace, shiftStart)).filter(m => m > 0);
       emp.avgLateMinutes = lateMinsArr.length > 0
@@ -451,6 +512,10 @@ export function useDashboardData(
       const outTimes = presentRecs.map(r => timeStringToMinutes(r.outTime)).filter(m => m > 0);
       emp.latestInTime = inTimes.length > 0 ? Math.max(...inTimes) : -1;
       emp.earliestOutTime = outTimes.length > 0 ? Math.min(...outTimes) : -1;
+      emp.avgInTime = inTimes.length > 0 ? Math.round(meanMinutes(inTimes)) : undefined;
+      emp.avgOutTime = outTimes.length > 0 ? Math.round(meanMinutes(outTimes)) : undefined;
+      emp.inTimeDeviation = stdDevMinutes(inTimes);
+      emp.outTimeDeviation = stdDevMinutes(outTimes);
 
       emp.dayWiseLateEarly = presentRecs
         .map(r => ({
@@ -465,7 +530,7 @@ export function useDashboardData(
 
       return emp;
     });
-  }, [filtered, grace, shiftStart, shiftEnd, thresholds.frequentPunchCount, thresholds.attendanceRateGreen, thresholds.attendanceRateAmber, leaveMap]);
+  }, [filtered, holidays, grace, shiftStart, shiftEnd, thresholds.frequentPunchCount, thresholds.attendanceRateGreen, thresholds.attendanceRateAmber, leaveMap]);
 
   const dailyTrend: DailyTrend[] = useMemo(() => {
     const byDate = new Map<string, {

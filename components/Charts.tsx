@@ -641,21 +641,34 @@ export function DeptProductivityChart({
 
   const drillData = useMemo(() => {
     if (!drillDept || safeRecords.length === 0) return [];
-    const map = new Map<string, { name: string; code: string; lostMins: number; presentDays: number; effectiveHours: number }>();
+    const map = new Map<string, { name: string; code: string; lostMins: number; presentDays: number; daysWithDuration: number; effectiveHours: number }>();
     for (const r of safeRecords) {
       if (r.department !== drillDept || isWeeklyOff(r.status) || !isPresent(r.status) || r.isShortDay) continue;
-      if (!map.has(r.employeeCode)) map.set(r.employeeCode, { name: r.employeeName || r.employeeCode, code: r.employeeCode, lostMins: 0, presentDays: 0, effectiveHours: 0 });
+      if (!map.has(r.employeeCode)) map.set(r.employeeCode, { name: r.employeeName || r.employeeCode, code: r.employeeCode, lostMins: 0, presentDays: 0, daysWithDuration: 0, effectiveHours: 0 });
       const e = map.get(r.employeeCode)!;
       e.presentDays++;
       e.lostMins += computeProductivityLostMinutes(r, shiftStartMinutes, shiftEndMinutes);
       const raw = durationToMinutes(r.duration);
-      e.effectiveHours += raw > 60 ? (raw - 60) / 60 : 0;
+      // Bug fix: a present-but-no-outpunch day (raw duration 0) was still
+      // counted in the presentDays denominator below, so it diluted the
+      // average as if the employee worked 0h that day instead of being
+      // excluded as "no valid duration to measure" — same issue already
+      // fixed for the Employee Table's Avg Hours and matching how the
+      // Working Hours Distribution chart already averages. Track days with
+      // an actual measured duration separately so "Present Days" (still all
+      // present days, for that stat) and "Avg Effective Hrs" (only days we
+      // can actually measure) don't share a denominator that means two
+      // different things.
+      if (raw > 60) {
+        e.daysWithDuration++;
+        e.effectiveHours += (raw - 60) / 60;
+      }
     }
     const target = targetShiftMinutes(shiftStartMinutes, shiftEndMinutes);
     const rows = Array.from(map.values()).map(e => ({
       ...e,
       daysLost: +(e.lostMins / target).toFixed(2),
-      avgEffectiveHours: e.presentDays > 0 ? +(e.effectiveHours / e.presentDays).toFixed(2) : 0,
+      avgEffectiveHours: e.daysWithDuration > 0 ? +(e.effectiveHours / e.daysWithDuration).toFixed(2) : 0,
     }));
     if (sortMode === 'az') return rows.sort((a, b) => a.name.localeCompare(b.name));
     if (sortMode === 'best') return rows.sort((a, b) => a.daysLost - b.daysLost || a.name.localeCompare(b.name));
@@ -763,6 +776,34 @@ export function HoursDistributionChart({ data, allRecords, selectedDepts }: {
 }) {
   const [drillBin, setDrillBin] = useState<string | null>(null);
 
+  // Bug fix: this used to bin every individual present day-record
+  // independently, so an employee present 20 days with varying daily hours
+  // would land in several different bars at once (and show up in more than
+  // one bar's drill-down list). Aggregate to one avg-hours number PER
+  // EMPLOYEE first — for the currently selected period/filters — then bin
+  // employees (not day-records). Every employee now falls into exactly one
+  // bar, and this same aggregation feeds both the chart and the drill-down
+  // below so the two can never disagree.
+  const employeeAverages = useMemo(() => {
+    const map = new Map<string, { name: string; code: string; dept: string; effectiveMins: number; days: number }>();
+    for (const r of allRecords) {
+      if (!isPresent(r.status) || r.isShortDay) continue;
+      const raw = durationToMinutes(r.duration);
+      if (raw <= 60) continue;
+      const effective = raw - 60; // subtract lunch
+      if (effective <= 0 || effective > 720) continue;
+      if (!map.has(r.employeeCode)) {
+        map.set(r.employeeCode, { name: r.employeeName || r.employeeCode, code: r.employeeCode, dept: r.department || 'Unknown', effectiveMins: 0, days: 0 });
+      }
+      const e = map.get(r.employeeCode)!;
+      e.effectiveMins += effective;
+      e.days++;
+    }
+    return Array.from(map.values())
+      .filter(e => e.days > 0)
+      .map(e => ({ ...e, avgMins: e.effectiveMins / e.days, avgHours: +(e.effectiveMins / e.days / 60).toFixed(2) }));
+  }, [allRecords]);
+
   const bins = useMemo(() => {
     const binMap = new Map<string, number>();
     for (let h = 0; h <= 12; h++) {
@@ -771,44 +812,28 @@ export function HoursDistributionChart({ data, allRecords, selectedDepts }: {
         binMap.set(label, 0);
       }
     }
-    for (const r of allRecords) {
-      if (!isPresent(r.status) || r.isShortDay) continue;
-      const raw = durationToMinutes(r.duration);
-      if (raw <= 60) continue;
-      const effective = raw - 60; // subtract lunch
-      if (effective <= 0 || effective > 720) continue;
-      const binH = Math.floor(effective / 30) * 30;
+    for (const e of employeeAverages) {
+      const binH = Math.floor(e.avgMins / 30) * 30;
       const label = `${Math.floor(binH / 60)}:${binH % 60 === 0 ? '00' : '30'}`;
       binMap.set(label, (binMap.get(label) || 0) + 1);
     }
     return Array.from(binMap.entries())
       .map(([bin, count]) => ({ bin, count }))
       .filter(b => b.count > 0);
-  }, [allRecords]);
+  }, [employeeAverages]);
 
-  // Drill: employees in the clicked bin
+  // Drill: employees whose AVERAGE falls in the clicked bin (same employeeAverages
+  // used to build the chart above, so the count on the bar and the list here always match).
   const drillEmployees = useMemo(() => {
     if (!drillBin) return [];
     const [hStr, mStr] = drillBin.split(':');
     const binStart = parseInt(hStr) * 60 + parseInt(mStr);
     const binEnd = binStart + 30;
 
-    const map = new Map<string, { name: string; code: string; dept: string; effectiveMins: number; records: number }>();
-    for (const r of allRecords) {
-      if (!isPresent(r.status) || r.isShortDay) continue;
-      const raw = durationToMinutes(r.duration);
-      if (raw <= 60) continue;
-      const effective = raw - 60;
-      if (effective < binStart || effective >= binEnd) continue;
-      if (!map.has(r.employeeCode)) map.set(r.employeeCode, { name: r.employeeName || r.employeeCode, code: r.employeeCode, dept: r.department || 'Unknown', effectiveMins: 0, records: 0 });
-      const e = map.get(r.employeeCode)!;
-      e.effectiveMins += effective;
-      e.records++;
-    }
-    return Array.from(map.values())
-      .map(e => ({ ...e, avgHours: e.records > 0 ? +(e.effectiveMins / e.records / 60).toFixed(2) : 0 }))
+    return employeeAverages
+      .filter(e => e.avgMins >= binStart && e.avgMins < binEnd)
       .sort((a, b) => a.avgHours - b.avgHours);
-  }, [drillBin, allRecords]);
+  }, [drillBin, employeeAverages]);
 
   if (drillBin) {
     return (
@@ -817,9 +842,9 @@ export function HoursDistributionChart({ data, allRecords, selectedDepts }: {
           <button onClick={() => setDrillBin(null)} className="flex items-center gap-1.5 text-blue-400 hover:text-blue-300 text-xs font-medium transition-colors shrink-0">
             <ArrowLeft className="w-3.5 h-3.5" /> Back
           </button>
-          <h3 className="text-white font-semibold text-sm">Employees: {drillBin}h–{drillBin.split(':')[0]}:{ parseInt(drillBin.split(':')[1]) === 0 ? '30' : '00'} effective work</h3>
+          <h3 className="text-white font-semibold text-sm">Employees: {drillBin}h–{drillBin.split(':')[0]}:{ parseInt(drillBin.split(':')[1]) === 0 ? '30' : '00'} avg effective work</h3>
         </div>
-        <p className="text-slate-500 text-xs mb-4">{drillEmployees.length} employees in this range</p>
+        <p className="text-slate-500 text-xs mb-4">{drillEmployees.length} employees average in this range</p>
         {drillEmployees.length === 0
           ? <div className="h-40 flex items-center justify-center text-slate-500 text-sm">No data</div>
           : (
@@ -846,7 +871,7 @@ export function HoursDistributionChart({ data, allRecords, selectedDepts }: {
           <h3 className="text-white font-semibold text-sm">Working Hours Distribution</h3>
           <ChartSubtitle selectedDepts={selectedDepts} />
         </div>
-        <InfoTooltip title="Hours Distribution" description="Distribution of daily effective working hours (total duration − 1h lunch) across all present employees. Click a bar to see which employees fall in that range." formula="Effective = Duration − 60 min lunch · Bin = 30 minutes" />
+        <InfoTooltip title="Hours Distribution" description="Each employee's own average effective working hours (total duration − 1h lunch, averaged across their present days in the selected period) — every employee falls into exactly one bar. Click a bar to see which employees fall in that range." formula="Effective = Duration − 60 min lunch, averaged per employee · Bin = 30 minutes" />
       </div>
       {bins.length === 0
         ? <div className="h-48 flex items-center justify-center text-slate-500 text-sm">No data</div>
@@ -861,8 +886,8 @@ export function HoursDistributionChart({ data, allRecords, selectedDepts }: {
                 if (!active || !payload?.length) return null;
                 return (
                   <div className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs shadow-xl">
-                    <p className="text-slate-300 font-medium">{label}h effective range</p>
-                    <p className="text-blue-400">Count: <strong>{payload[0]?.value} employee-days</strong></p>
+                    <p className="text-slate-300 font-medium">{label}h avg effective range</p>
+                    <p className="text-blue-400">Count: <strong>{payload[0]?.value} employees</strong></p>
                     <p className="text-slate-500 text-[10px] mt-1">Click to see employees</p>
                   </div>
                 );

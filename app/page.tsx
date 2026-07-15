@@ -95,7 +95,7 @@ function ManagerView({ records }: { records: AttendanceRecord[] }) {
         <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl px-4 py-3 text-sm text-blue-300">
           Read-only view — upload, export and settings are not available here.
         </div>
-        <KPICards kpi={kpi} />
+        <KPICards kpi={kpi} thresholds={thresholds} />
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
           <DailyTrendChart data={dailyTrend} />
           <HoursDistributionChart data={hoursDistribution} allRecords={records} />
@@ -362,7 +362,7 @@ function HRDashboard() {
     for (const pf of batch) {
       const mapping = await getMapping(pf.officeCode);
       if (!mapping) continue;
-      const { records } = await parseCSVWithMapping(pf.file, mapping, pf.officeCode, thresholds.graceMinutes);
+      const { records } = await parseCSVWithMapping(pf.file, mapping, pf.officeCode, thresholds.graceMinutes, thresholds.shortDayMinutes);
       if (records.length === 0) {
         // A non-empty CSV that parsed to zero rows almost always means the
         // saved column mapping no longer matches this file's headers (or
