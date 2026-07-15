@@ -508,6 +508,21 @@ function HRDashboard() {
   const currentOffice = getOfficeFromKey(selectedMonthKey);
   const currentYear = getYearFromKey(selectedMonthKey);
 
+  // When the user hasn't picked an explicit From/To yet, the From/To boxes
+  // still need to reflect *something* real — otherwise they sit blank while
+  // the dashboard is quietly showing the selected month's data, with no way
+  // to tell what date span that actually is. Derive it from filteredRecords
+  // (dates are normalized to ISO "YYYY-MM-DD", so lexical min/max is safe).
+  const impliedRange = (() => {
+    if (filteredRecords.length === 0) return null;
+    let min = filteredRecords[0].date, max = filteredRecords[0].date;
+    for (const r of filteredRecords) {
+      if (r.date < min) min = r.date;
+      if (r.date > max) max = r.date;
+    }
+    return { min, max };
+  })();
+
   const filteredSummaries = tableFilter === 'all' ? employeeSummaries
     : tableFilter === 'present' ? employeeSummaries.filter(e => e.presentDays > 0)
     : tableFilter === 'absent' ? employeeSummaries.filter(e => e.absentDays > 0)
@@ -628,7 +643,7 @@ function HRDashboard() {
                   <span className="text-slate-500 text-xs font-medium">From</span>
                   <input
                     type="date"
-                    value={dateFrom ?? ''}
+                    value={dateFrom ?? impliedRange?.min ?? ''}
                     min={minAvailableDate}
                     max={dateTo ?? maxAvailableDate}
                     onChange={e => {
@@ -643,13 +658,14 @@ function HRDashboard() {
                       // If From > To, reset To
                       if (v && dateTo && v > dateTo) setDateTo(v);
                     }}
-                    className="bg-transparent text-white text-xs focus:outline-none w-28 sm:w-32"
+                    className={`bg-transparent text-xs focus:outline-none w-28 sm:w-32 ${dateFrom ? 'text-white' : 'text-slate-400'}`}
+                    title={!dateFrom ? 'Auto-filled to match the data currently shown — pick a date to filter explicitly' : undefined}
                   />
                   <span className="text-slate-600 text-xs">→</span>
                   <span className="text-slate-500 text-xs font-medium">To</span>
                   <input
                     type="date"
-                    value={dateTo ?? ''}
+                    value={dateTo ?? impliedRange?.max ?? ''}
                     min={dateFrom ?? minAvailableDate}
                     max={maxAvailableDate}
                     onChange={e => {
@@ -662,8 +678,12 @@ function HRDashboard() {
                       // Auto-set From = To for single-day selection if From not set
                       if (v && !dateFrom) setDateFrom(v);
                     }}
-                    className="bg-transparent text-white text-xs focus:outline-none w-28 sm:w-32"
+                    className={`bg-transparent text-xs focus:outline-none w-28 sm:w-32 ${dateTo ? 'text-white' : 'text-slate-400'}`}
+                    title={!dateTo ? 'Auto-filled to match the data currently shown — pick a date to filter explicitly' : undefined}
                   />
+                  {!dateFrom && !dateTo && impliedRange && (
+                    <span className="text-slate-500 text-[10px] italic ml-1">(current period)</span>
+                  )}
                   {(dateFrom || dateTo) && (
                     <button onClick={() => { setDateFrom(null); setDateTo(null); }} className="text-slate-500 hover:text-white transition-colors ml-1" title="Clear date range">
                       <XIcon className="w-3.5 h-3.5" />

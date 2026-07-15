@@ -1013,18 +1013,69 @@ export function AttendanceHeatmap({
     return { employees, dates, cellMap };
   }, [records]);
 
+  // Group the (already date-range-filtered) dates by calendar month. When the
+  // selected range spans more than one month, rendering every date in a
+  // single row gets unreadable and previously got silently truncated to the
+  // first 31 entries — so instead we split into per-month chunks and let the
+  // user pick which month to look at via a dropdown.
+  const monthGroups = useMemo(() => {
+    const map = new Map<string, string[]>();
+    for (const d of dates) {
+      const key = d.slice(0, 7); // "YYYY-MM"
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(d);
+    }
+    return Array.from(map.entries()).sort((a, b) => a[0].localeCompare(b[0]));
+  }, [dates]);
+
+  const [selectedMonth, setSelectedMonth] = useState<string | null>(null);
+
+  // Keep the selected month valid as the underlying date range changes
+  // (e.g. user picks a new From/To range) — default to the most recent month.
+  useEffect(() => {
+    if (monthGroups.length === 0) return;
+    if (!selectedMonth || !monthGroups.some(([key]) => key === selectedMonth)) {
+      setSelectedMonth(monthGroups[monthGroups.length - 1][0]);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [monthGroups]);
+
   if (records.length === 0) return null;
 
-  const visibleDates = dates.slice(0, 31);
+  const isMultiMonth = monthGroups.length > 1;
+  const visibleDates = isMultiMonth
+    ? (monthGroups.find(([key]) => key === selectedMonth)?.[1] ?? monthGroups[monthGroups.length - 1][1])
+    : dates;
+
+  const monthLabel = (key: string) =>
+    new Date(`${key}-01T00:00:00`).toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
 
   return (
     <div className="bg-slate-800 rounded-xl border border-slate-700 p-4">
-      <div className="flex items-start justify-between mb-3">
+      <div className="flex items-start justify-between mb-3 gap-3 flex-wrap">
         <div>
           <h3 className="text-white font-semibold text-sm">Attendance Heatmap</h3>
-          <p className="text-slate-500 text-xs mt-0.5">{employees.length} employees · {visibleDates.length} days — click any cell for details</p>
+          <p className="text-slate-500 text-xs mt-0.5">
+            {employees.length} employees · {visibleDates.length} days
+            {isMultiMonth && selectedMonth ? ` in ${monthLabel(selectedMonth)}` : ''}
+            {' '}— click any cell for details
+          </p>
         </div>
-        <InfoTooltip title="Attendance Heatmap" description="Each cell = one employee on one day. Colors show attendance status. Click any cell to see details." />
+        <div className="flex items-center gap-2">
+          {isMultiMonth && (
+            <select
+              value={selectedMonth ?? ''}
+              onChange={e => setSelectedMonth(e.target.value)}
+              className="bg-slate-900 border border-slate-700 rounded-lg text-xs text-white px-2 py-1.5 focus:outline-none focus:border-blue-500"
+              title="Selected range spans multiple months — pick one to view"
+            >
+              {monthGroups.map(([key]) => (
+                <option key={key} value={key}>{monthLabel(key)}</option>
+              ))}
+            </select>
+          )}
+          <InfoTooltip title="Attendance Heatmap" description="Each cell = one employee on one day. Colors show attendance status. Click any cell to see details. When your selected range spans more than one month, use the month dropdown to switch between them." />
+        </div>
       </div>
 
       <div className="overflow-x-auto">
