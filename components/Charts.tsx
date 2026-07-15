@@ -929,7 +929,6 @@ export function PersonalHeatmap({
               style={{ backgroundColor: color + '90' }}
               onMouseEnter={(e) => setTooltip({ r, x: e.clientX, y: e.clientY })}
               onMouseLeave={() => setTooltip(null)}
-              title={`${r.date} — ${r.status}`}
             />
           );
         })}
