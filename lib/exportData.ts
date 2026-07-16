@@ -1,7 +1,7 @@
 import * as XLSX from 'xlsx';
 import Papa from 'papaparse';
 import { AttendanceRecord, EmployeeSummary, LeaveRecord, LeaveType, Thresholds } from './types';
-import { durationToMinutes } from './parseCSV';
+import { durationToMinutes, minutesToHHMM, effectiveMinutes } from './parseCSV';
 import { getLateMinutes, getEarlyMinutes, computeProductivityLostMinutes, targetShiftMinutes } from './useDashboardData';
 import { DEFAULT_THRESHOLDS } from './settings';
 
@@ -121,7 +121,7 @@ export function exportExcel(
     { Metric: 'Total Scheduled Days', Value: scheduled },
     { Metric: 'Overall Attendance %', Value: scheduled > 0 ? `${((presentCount / scheduled) * 100).toFixed(1)}%` : '—' },
     { Metric: 'Absenteeism %', Value: scheduled > 0 ? `${((absentCount / scheduled) * 100).toFixed(1)}%` : '—' },
-    { Metric: 'Avg Working Hours / Day', Value: `${avgWorkingHours.toFixed(2)}h` },
+    { Metric: 'Avg Working Hours / Day', Value: minutesToHHMM(Math.round(avgWorkingHours * 60)) },
     { Metric: 'Late Arrival Rate', Value: presentCount > 0 ? `${((lateRecords.length / presentCount) * 100).toFixed(1)}%` : '—' },
     { Metric: 'Early Exit Rate', Value: presentCount > 0 ? `${((earlyRecords.length / presentCount) * 100).toFixed(1)}%` : '—' },
     { Metric: 'Productivity Lost %', Value: `${productivityLost.toFixed(1)}%` },
@@ -180,7 +180,7 @@ export function exportExcel(
     if (isPresent(r.status)) {
       dept.present++;
       const mins = durationToMinutes(r.duration);
-      if (mins > 0) { dept.totalMins += mins; dept.presentCount++; }
+      if (mins > 60) { dept.totalMins += effectiveMinutes(mins); dept.presentCount++; }
       if (lateMinsFor(r, thresholds) > 0) dept.lateCount++;
       if (earlyMinsFor(r, thresholds) > 0) dept.earlyCount++;
     } else if (isAbsent(r.status)) {
@@ -194,7 +194,7 @@ export function exportExcel(
       Department: dept,
       'Total Employees': v.emps.size,
       'Attendance %': `${rate}%`,
-      'Avg Hours/Day': v.presentCount > 0 ? `${(v.totalMins / v.presentCount / 60).toFixed(2)}h` : '—',
+      'Avg Hours/Day': v.presentCount > 0 ? minutesToHHMM(Math.round(v.totalMins / v.presentCount)) : '—',
       'Late Count': v.lateCount,
       'Early Exit Count': v.earlyCount,
       'Absent Days': v.absent,

@@ -249,3 +249,12 @@ export function minutesToHHMM(minutes: number): string {
   const m = minutes % 60;
   return `${h}:${m.toString().padStart(2, '0')}`;
 }
+
+// Effective worked minutes = raw punch duration minus the 1h lunch, matching
+// computeProductivityLostMinutes in lib/useDashboardData.ts. If someone
+// barely punched in (<=60 min total), there's no lunch to subtract.
+export function effectiveMinutes(durationMinutes: number): number {
+  if (durationMinutes <= 0) return 0;
+  const lunch = durationMinutes > 60 ? 60 : 0;
+  return durationMinutes - lunch;
+}
