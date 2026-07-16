@@ -6,6 +6,7 @@ import { computeEmployeeKPIs, ComparisonKPIs, buildLeaveMap, getEffectiveStatus,
 import { getEmployeeMonthHistory } from '@/lib/storage';
 import { getLeaveRecords } from '@/lib/leaveStorage';
 import { getHolidays } from '@/lib/holidays';
+import { minutesToHHMM } from '@/lib/parseCSV';
 
 interface EmployeeComparisonPanelProps {
   allRecords: AttendanceRecord[];
@@ -20,7 +21,7 @@ interface EmployeeComparisonPanelProps {
 const METRICS: { key: keyof ComparisonKPIs; label: string; suffix: string; higherIsBetter: boolean }[] = [
   { key: 'attendanceRate', label: 'Attendance %', suffix: '%', higherIsBetter: true },
   { key: 'absenteeismRate', label: 'Absenteeism %', suffix: '%', higherIsBetter: false },
-  { key: 'avgHoursPerDay', label: 'Avg Effective Hrs/Day', suffix: 'h', higherIsBetter: true },
+  { key: 'avgHoursPerDay', label: 'Avg Working Hrs/Day', suffix: 'h', higherIsBetter: true },
   { key: 'lateArrivalRate', label: 'Late Arrival Rate', suffix: '%', higherIsBetter: false },
   { key: 'earlyExitRate', label: 'Early Exit Rate', suffix: '%', higherIsBetter: false },
   { key: 'productivityLost', label: 'Productivity Lost %', suffix: '%', higherIsBetter: false },
@@ -53,7 +54,7 @@ const LEAVE_BADGES: { key: keyof ComparisonKPIs; label: string; color: string }[
 
 function fmt(metric: typeof METRICS[number], value: number): string {
   if (value === undefined || Number.isNaN(value)) return '—';
-  if (metric.suffix === 'h') return `${value.toFixed(2)}h`;
+  if (metric.suffix === 'h') return minutesToHHMM(Math.round(value * 60));
   if (metric.suffix === '%') return `${value.toFixed(1)}%`;
   if (metric.suffix === 'min') return `±${Math.round(value)}m`;
   return `${Math.round(value)}`;

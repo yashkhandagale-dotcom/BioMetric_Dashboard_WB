@@ -2,6 +2,7 @@
 import { useState, useMemo } from 'react';
 import { AttendanceRecord, Holiday, LeaveRecord } from '@/lib/types';
 import { computeEmployeeKPIs, buildLeaveMap, ComparisonKPIs } from '@/lib/useDashboardData';
+import { minutesToHHMM } from '@/lib/parseCSV';
 
 interface TeamComparisonPanelProps {
   allRecords: AttendanceRecord[];
@@ -47,7 +48,7 @@ function valueColor(metric: string, value: number): string {
 }
 
 function formatValue(metric: string, value: number): string {
-  if (metric === 'Avg Hours/Day') return `${value.toFixed(2)}h`;
+  if (metric === 'Avg Hours/Day') return minutesToHHMM(Math.round(value * 60));
   return `${value.toFixed(1)}%`;
 }
 

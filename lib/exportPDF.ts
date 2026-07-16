@@ -1,5 +1,5 @@
 import { AttendanceRecord, EmployeeSummary, Thresholds, Holiday } from './types';
-import { durationToMinutes } from './parseCSV';
+import { durationToMinutes, minutesToHHMM } from './parseCSV';
 import {
   isWeeklyOff, isAbsent, isPresent, isMissedPunchOut,
   getLateMinutes, getEarlyMinutes, computeProductivityLostMinutes, targetShiftMinutes,
@@ -70,6 +70,7 @@ interface NormalizedEmployee {
   earlyCount: number;
   attendanceRate: number;
   avgHours: number;
+  avgHoursLabel: string;
 }
 
 function normalizeEmployee(s: EmployeeSummary): NormalizedEmployee {
@@ -86,6 +87,7 @@ function normalizeEmployee(s: EmployeeSummary): NormalizedEmployee {
     earlyCount: s.earlyExitCount ?? 0,
     attendanceRate: scheduled > 0 ? (presentDays / scheduled) * 100 : 0,
     avgHours: hhmmToHours(s.avgHoursWorked),
+    avgHoursLabel: s.avgHoursWorked || '0:00',
   };
 }
 
@@ -383,8 +385,8 @@ export async function exportPDF(
     { label: 'People', value: `${totalEmployees}`, color: BLUE },
     { label: 'Attendance', value: `${attendanceRate.toFixed(1)}%`, color: kpiColor('pct-good', attendanceRate), note: 'target 80%+' },
     { label: 'Absenteeism', value: `${absenteeismRate.toFixed(1)}%`, color: kpiColor('pct-bad', absenteeismRate) },
-    { label: 'Avg Hours / Day', value: `${avgHours.toFixed(1)}h`, color: kpiColor('hours', avgHours), note: 'target 8h+' },
-    { label: 'Time Lost to Late/Early', value: `${(totalLostMins / 60).toFixed(0)}h`, color: kpiColor('pct-bad', productivityLost), note: `${productivityLost.toFixed(0)}% of shift time` },
+    { label: 'Avg Hours / Day', value: totalEffMins > 0 ? minutesToHHMM(Math.round(totalEffMins / presentWithDur.length)) : '0:00', color: kpiColor('hours', avgHours), note: 'target 8h+' },
+    { label: 'Time Lost to Late/Early', value: minutesToHHMM(totalLostMins), color: kpiColor('pct-bad', productivityLost), note: `${productivityLost.toFixed(0)}% of shift time` },
   ];
   const cardCols = 5;
   const cardGap = 5;
@@ -530,7 +532,7 @@ export async function exportPDF(
         body: bottomEmployees.map((e) => [
           truncate(e.name, 20),
           `${e.attendanceRate.toFixed(0)}%`,
-          `${e.avgHours.toFixed(1)}h`,
+          e.avgHoursLabel,
           `${e.lateCount}`,
           `${e.absentDays}`,
         ]),
@@ -557,7 +559,7 @@ export async function exportPDF(
             const earliestOut = s.earliestOutTime ? `${Math.floor((s.earliestOutTime/60))}:${(s.earliestOutTime%60).toString().padStart(2,'0')}` : '—';
             return [
               truncate(n.name, 24),
-              `${n.avgHours.toFixed(1)}`,
+              n.avgHoursLabel,
               `${avgLate}`,
               `${missed}`,
               `${avgEarly}`,
@@ -629,7 +631,7 @@ export async function exportPDF(
   function highlightFor(e: NormalizedEmployee): string {
     const bits: string[] = [`${e.attendanceRate.toFixed(0)}% attendance`];
     if (e.lateCount === 0) bits.push('no late arrivals');
-    if (e.avgHours > 0) bits.push(`${e.avgHours.toFixed(1)}h avg/day`);
+    if (e.avgHours > 0) bits.push(`${e.avgHoursLabel} avg/day`);
     return bits.join(', ');
   }
 
