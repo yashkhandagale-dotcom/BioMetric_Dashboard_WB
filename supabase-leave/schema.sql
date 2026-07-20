@@ -452,6 +452,103 @@ begin
 end;
 $$ language plpgsql;
 
+
+-- =====================================================================
+-- WonderBiz Leave Management System — HR Manual Recording
+-- Migration: 003_leave_recording_functions.sql
+--
+-- Sprint 1 of the leave-tracker completion plan: lets HR record a leave
+-- directly (no approval chain) via POST /api/leave/requests. This adds
+-- the balance-debit side of that flow, plus columns the API route needs
+-- to persist write-through sync state to the main attendance dashboard
+-- (a separate Supabase project — see lib/leaveSync.ts).
+-- =====================================================================
+
+alter table leave_requests
+  add column if not exists sync_status text not null default 'pending'
+      check (sync_status in ('pending', 'synced', 'failed')),
+  add column if not exists sync_error text;
+
+comment on column leave_requests.sync_status is
+  'Write-through sync of this leave to the MAIN dashboard project''s leave_records table. Two separate Supabase projects, no distributed transaction, so this is tracked explicitly rather than assumed — see lib/leaveSync.ts and the retry-sync API route.';
+
+-- ---------------------------------------------------------------------
+-- 6. DEBIT LEAVE BALANCE ON APPROVAL (S1-1)
+--    Called right after a leave_requests row is created with
+--    status='approved' (currently only the hr_manual path — see
+--    app/api/leave/requests/route.ts). Derives employee/type/FY from
+--    the request row itself so the caller can't pass a mismatched
+--    balance by mistake.
+--
+--    LWP (leave_types.is_directly_applicable = false) is not a real
+--    entitlement — it's a running tally of unpaid days, so it's
+--    allowed to go negative (uncapped, per the schema's design
+--    invariants above). Every other type IS a real entitlement: this
+--    function refuses to debit past zero for SL/CL/PL, since silently
+--    over-drawing a capped balance is a data-integrity issue, not a
+--    policy call HR should be able to wave through from the request
+--    form. If HR needs to record more than the remaining balance, the
+--    shortfall belongs in a separate LWP leave_requests row instead —
+--    the API layer's policy checks (certificate/notice-period) are
+--    advisory and non-blocking (S1-2), but this guard is not.
+-- ---------------------------------------------------------------------
+create or replace function fn_debit_leave_on_approval(p_leave_request_id uuid)
+returns void as $$
+declare
+    v_req record;
+    v_lt record;
+    v_fy_start_year integer;
+    v_balance_id uuid;
+    v_current_closing numeric;
+begin
+    select * into v_req from leave_requests where id = p_leave_request_id;
+    if not found then
+        raise exception 'leave_requests row % not found', p_leave_request_id;
+    end if;
+
+    select * into v_lt from leave_types where id = v_req.leave_type_id;
+
+    -- Same 25-Mar FY cutover as fn_prorate_new_joiner, keyed off the
+    -- leave's start_date (the day actually being debited), not
+    -- applied_on/now() — a leave straddling the boundary must debit
+    -- the FY it falls in, not the FY it was recorded in.
+    if extract(month from v_req.start_date) > 3
+       or (extract(month from v_req.start_date) = 3 and extract(day from v_req.start_date) >= 25) then
+        v_fy_start_year := extract(year from v_req.start_date)::integer;
+    else
+        v_fy_start_year := extract(year from v_req.start_date)::integer - 1;
+    end if;
+
+    select id, closing_balance into v_balance_id, v_current_closing
+    from leave_balances
+    where employee_id = v_req.employee_id
+      and leave_type_id = v_req.leave_type_id
+      and fy_start_year = v_fy_start_year;
+
+    if v_balance_id is null then
+        raise exception
+            'No leave_balances row for employee %, type %, FY%s — run fn_prorate_new_joiner (or the annual renewal job) before recording leave',
+            v_req.employee_id, v_lt.code, v_fy_start_year;
+    end if;
+
+    if v_lt.is_directly_applicable and (v_current_closing - v_req.total_days) < 0 then
+        raise exception
+            '% balance is insufficient for employee % in FY%s: have %, need % — route the shortfall through a separate LWP entry instead',
+            v_lt.code, v_req.employee_id, v_fy_start_year, v_current_closing, v_req.total_days;
+    end if;
+
+    update leave_balances
+    set used = used + v_req.total_days, updated_at = now()
+    where id = v_balance_id;
+
+    insert into balance_transactions (leave_balance_id, delta, reason, reference_id, note)
+    values (v_balance_id, -v_req.total_days, 'leave_approved', p_leave_request_id,
+            format('Debited %s day(s) for leave_requests %s (%s, %s to %s)',
+                   v_req.total_days, p_leave_request_id, v_lt.code, v_req.start_date, v_req.end_date));
+end;
+$$ language plpgsql;
+
+
 -- =====================================================================
 -- Row Level Security — mirrors the pattern in the main dashboard's
 -- supabase/schema.sql: any authenticated user in THIS project has full
