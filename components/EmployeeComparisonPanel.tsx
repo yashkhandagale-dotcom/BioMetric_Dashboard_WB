@@ -4,7 +4,7 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 import { AttendanceRecord, EmployeeSummary, LeaveRecord, Holiday, EffectiveStatus } from '@/lib/types';
 import { computeEmployeeKPIs, ComparisonKPIs, buildLeaveMap, getEffectiveStatus, leaveKey } from '@/lib/useDashboardData';
 import { getEmployeeMonthHistory } from '@/lib/storage';
-import { getLeaveRecords } from '@/lib/leaveStorage';
+import { getLeaveRecords } from '@/lib/leaveTrackerRead';
 import { getHolidays } from '@/lib/holidays';
 
 interface EmployeeComparisonPanelProps {
@@ -458,15 +458,21 @@ export default function EmployeeComparisonPanel({
   // Fetches for every month in this employee's history (not just A/B) so the
   // trend chart below can plot their full trajectory, not just the two selected snapshots.
   const [monthExtras, setMonthExtras] = useState<Record<string, { holidays: Holiday[]; leaveMap: Map<string, LeaveRecord> }>>({});
+  const [leaveLoadError, setLeaveLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     history.forEach((m) => {
       if (monthExtras[m.monthKey]) return;
-      Promise.all([getHolidays(m.officeCode, m.year), getLeaveRecords(m.monthKey)]).then(([holidays, leaves]) => {
-        if (cancelled) return;
-        setMonthExtras((prev) => (prev[m.monthKey] ? prev : { ...prev, [m.monthKey]: { holidays, leaveMap: buildLeaveMap(leaves) } }));
-      });
+      Promise.all([getHolidays(m.officeCode, m.year), getLeaveRecords(m.monthKey)])
+        .then(([holidays, leaves]) => {
+          if (cancelled) return;
+          setMonthExtras((prev) => (prev[m.monthKey] ? prev : { ...prev, [m.monthKey]: { holidays, leaveMap: buildLeaveMap(leaves) } }));
+        })
+        .catch((err) => {
+          if (cancelled) return;
+          setLeaveLoadError(`Could not load leave data from the Leave Tracker: ${err instanceof Error ? err.message : 'Unknown error'}`);
+        });
     });
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -514,6 +520,12 @@ export default function EmployeeComparisonPanel({
         <h3 className="text-white font-semibold text-sm">Employee Month Comparison</h3>
         <p className="text-slate-500 text-xs mt-0.5">Track an employee's performance trend and compare any two of their uploaded months</p>
       </div>
+
+      {leaveLoadError && (
+        <div className="mb-4 bg-red-900/30 border border-red-500/30 text-red-300 text-xs rounded-lg px-3 py-2">
+          {leaveLoadError}
+        </div>
+      )}
 
       <div className="flex items-center gap-3 mb-5 flex-wrap">
         <EmployeeSearchInput

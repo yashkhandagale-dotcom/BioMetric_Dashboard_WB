@@ -12,10 +12,9 @@ const LEAVE_TYPES: { code: 'SL' | 'CL' | 'PL' | 'LWP'; label: string }[] = [
 ];
 
 type SubmitResult = {
-  leave_request: { id: string; total_days: number; sync_status: string; sync_error: string | null };
+  leave_request: { id: string; total_days: number };
   converted_to_lwp: boolean;
   policy_notes: string[];
-  sync: { synced: boolean; error?: string };
 };
 
 export default function RecordLeaveForm() {
@@ -31,22 +30,24 @@ export default function RecordLeaveForm() {
   const [reason, setReason] = useState('');
 
   const [error, setError] = useState<string | null>(null);
+  const [employeesError, setEmployeesError] = useState<string | null>(null);
   const [result, setResult] = useState<SubmitResult | null>(null);
   const [loading, setLoading] = useState(false);
-  const [retrying, setRetrying] = useState(false);
 
   useEffect(() => {
     async function load() {
+      setEmployeesError(null);
       try {
         const res = await fetch('/leave/admin/leave/employees');
-        if (!res.ok) return;
         const text = await res.text();
-        if (!text) return;
-        const data = JSON.parse(text);
+        const data = text ? JSON.parse(text) : {};
+        if (!res.ok) {
+          setEmployeesError(data.error || `Could not load the employee list (${res.status}).`);
+          return;
+        }
         setEmployees(data.employees ?? []);
       } catch {
-        // Picker just stays empty — matches the fail-silent pattern used
-        // for the reporting-hierarchy dropdowns elsewhere in this app.
+        setEmployeesError('Could not reach the server to load the employee list — check your connection and retry.');
       }
     }
     load();
@@ -121,34 +122,13 @@ export default function RecordLeaveForm() {
     setReason('');
   }
 
-  async function handleRetrySync() {
-    if (!result) return;
-    setRetrying(true);
-    try {
-      const res = await fetch(`/api/leave/employees/requests/${result.leave_request.id}/retry-sync`, { method: 'POST' });
-      const text = await res.text();
-      const data = text ? JSON.parse(text) : {};
-      setResult((prev) =>
-        prev
-          ? {
-              ...prev,
-              leave_request: {
-                ...prev.leave_request,
-                sync_status: data.sync?.synced ? 'synced' : 'failed',
-                sync_error: data.sync?.synced ? null : data.sync?.error ?? prev.leave_request.sync_error,
-              },
-              sync: data.sync ?? prev.sync,
-            }
-          : prev
-      );
-    } catch {
-      // Leave the existing failed state visible; the button stays available to try again.
-    }
-    setRetrying(false);
-  }
-
   return (
     <div className="bg-slate-800/40 border border-slate-700 rounded-xl p-6 space-y-4 max-w-2xl">
+      {employeesError && (
+        <div className="bg-red-900/30 border border-red-500/30 text-red-300 text-xs rounded-lg px-3 py-2">
+          {employeesError}
+        </div>
+      )}
       {error && (
         <div className="bg-red-900/30 border border-red-500/30 text-red-300 text-xs rounded-lg px-3 py-2">
           {error}
@@ -171,21 +151,6 @@ export default function RecordLeaveForm() {
                 <li key={i}>{note}</li>
               ))}
             </ul>
-          )}
-          {result.leave_request.sync_status === 'failed' && (
-            <div className="bg-red-900/30 border border-red-500/30 text-red-300 text-xs rounded-lg px-3 py-2 flex items-center justify-between gap-3">
-              <span>
-                Saved in the Leave Tracker, but sync to the attendance dashboard failed: {result.leave_request.sync_error}
-              </span>
-              <button
-                type="button"
-                onClick={handleRetrySync}
-                disabled={retrying}
-                className="shrink-0 bg-red-700 hover:bg-red-600 disabled:opacity-50 text-white text-xs font-medium px-3 py-1.5 rounded-lg transition-colors"
-              >
-                {retrying ? 'Retrying…' : 'Retry sync'}
-              </button>
-            </div>
           )}
         </div>
       )}

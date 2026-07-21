@@ -7,7 +7,7 @@ import {
   getMapping, saveMapping, getRecords, saveRecords, addUploadedMonth, getUploadedMonths,
 } from '@/lib/storage';
 import { getThresholds, saveThresholds, DEFAULT_THRESHOLDS } from '@/lib/settings';
-import { getLeaveRecords } from '@/lib/leaveStorage';
+import { getLeaveRecords } from '@/lib/leaveTrackerRead';
 import { getAllKnownDepartments, loadEmployeeDirectory, useEmployeeDirectorySync } from '@/lib/employeeStore';
 import { buildLeaveMap } from '@/lib/useDashboardData';
 import { parseCSVHeaders, parseCSVWithMapping } from '@/lib/parseCSV';
@@ -34,7 +34,6 @@ import TeamComparisonPanel from '@/components/TeamComparisonPanel';
 import HolidayModal from '@/components/HolidayModal';
 import InsightsStrip from '@/components/InsightsStrip';
 import SettingsPanel from '@/components/SettingsPanel';
-import HRAbsenceChecker from '@/components/HRAbsenceChecker';
 
 type AppState = 'upload' | 'mapping' | 'dashboard';
 type ViewMode = 'loading' | 'hr' | 'manager' | 'denied';
@@ -179,14 +178,21 @@ function HRDashboard() {
     const officeCode = getOfficeFromKey(selectedMonthKey);
     const year = getYearFromKey(selectedMonthKey);
     (async () => {
-      const [h, l, months] = await Promise.all([
+      const [h, months] = await Promise.all([
         getHolidays(officeCode, year),
-        getLeaveRecords(selectedMonthKey),
         getUploadedMonths(),
       ]);
       if (cancelled) return;
       setHolidays(h);
-      setLeaveRecords(l);
+      try {
+        const l = await getLeaveRecords(selectedMonthKey);
+        if (!cancelled) setLeaveRecords(l);
+      } catch (err) {
+        if (!cancelled) {
+          setLeaveRecords([]);
+          showToast('error', `Could not load leave data from the Leave Tracker: ${err instanceof Error ? err.message : 'Unknown error'}`);
+        }
+      }
       const month = selectedMonthKey.split('_')[1];
       const sameMonth = months.filter(m => m.month === month && m.year === year);
       const officeRecs = (await Promise.all(sameMonth.map(m => getRecords(m.key)))).flat();
@@ -635,9 +641,6 @@ function HRDashboard() {
         )}
         {appState === 'dashboard' && (
           <div className="space-y-6">
-
-            {/* ── HR Absence Checker ─────────────────────────────────────── */}
-            <HRAbsenceChecker allUploadedRecords={allUploadedRecords} />
 
             {/* ── Filter Bar ─────────────────────────────────────────────── */}
             <div className="flex flex-wrap items-center gap-3">

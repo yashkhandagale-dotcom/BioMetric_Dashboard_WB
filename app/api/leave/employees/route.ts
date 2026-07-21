@@ -97,10 +97,12 @@ export async function POST(req: NextRequest) {
   }
 
   // Employee identity between Leave Tracker and the main dashboard is
-  // reconciled by employee_code (see lib/leaveSync.ts). If this code
-  // doesn't exist on the dashboard side yet, sync will silently have
-  // nothing to attach to later — surface that now rather than let it
-  // fail silently the first time HR records leave for this person.
+  // reconciled by employee_code (the main dashboard now reads leave data
+  // live from this project — see app/api/dashboard/leave-records/route.ts
+  // — keyed on employee_code/office). If this code doesn't exist on the
+  // dashboard side yet, leave for this person just won't resolve to
+  // anyone there — surface that now rather than let it be a silent gap
+  // the first time HR records leave for this person.
   let warning: string | undefined;
   try {
     const dashboardService = createDashboardServiceClient();

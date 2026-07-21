@@ -99,12 +99,12 @@ export async function POST(req: NextRequest) {
   }
 
   // Cross-check against the MAIN dashboard's own Supabase project — the
-  // Leave Tracker later syncs leave records over there keyed only by
-  // employee_code (see lib/leaveStorage.ts), so a code that doesn't exist
-  // on that side yet means sync will silently have nothing to attach to.
-  // This is a warning, not a hard block: HR may legitimately be adding a
-  // new joiner here before their first biometric export creates the
-  // matching row on the dashboard side.
+  // main dashboard now reads leave data live from this project, keyed on
+  // employee_code/office (see app/api/dashboard/leave-records/route.ts),
+  // so a code that doesn't exist on that side yet means leave for this
+  // person won't resolve to anyone there. This is a warning, not a hard
+  // block: HR may legitimately be adding a new joiner here before their
+  // first biometric export creates the matching row on the dashboard side.
   let warning: string | undefined;
   try {
     const dashboardService = createDashboardServiceClient();

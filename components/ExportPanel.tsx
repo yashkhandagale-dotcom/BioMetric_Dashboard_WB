@@ -3,7 +3,7 @@ import { useState, useRef, useMemo, useEffect } from 'react';
 import { Download, FileSpreadsheet, FileText, FileIcon, ChevronDown, Loader2, X, Calendar, Building2, Users } from 'lucide-react';
 import { UploadedMonth, Thresholds, Holiday, LeaveRecord, AttendanceRecord } from '@/lib/types';
 import { getRecords } from '@/lib/storage';
-import { getAllLeaveRecords } from '@/lib/leaveStorage';
+import { getAllLeaveRecords } from '@/lib/leaveTrackerRead';
 import { getHolidays } from '@/lib/holidays';
 import { useDashboardData } from '@/lib/useDashboardData';
 import { exportExcel, exportCSV } from '@/lib/exportData';
@@ -129,12 +129,17 @@ export default function ExportPanel({ uploadedMonths, thresholds }: ExportPanelP
   }, [scopedMonths]);
 
   const [leaveRecords, setLeaveRecords] = useState<LeaveRecord[]>([]);
+  const [leaveLoadError, setLeaveLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    getAllLeaveRecords(scopedMonths.map(m => m.key)).then(records => {
-      if (!cancelled) setLeaveRecords(records);
-    });
+    getAllLeaveRecords(scopedMonths.map(m => m.key))
+      .then(records => {
+        if (!cancelled) { setLeaveRecords(records); setLeaveLoadError(null); }
+      })
+      .catch((err) => {
+        if (!cancelled) setLeaveLoadError(`Could not load leave data from the Leave Tracker — exports may be missing leave columns: ${err instanceof Error ? err.message : 'Unknown error'}`);
+      });
     return () => { cancelled = true; };
   }, [scopedMonths]);
 
@@ -211,6 +216,11 @@ export default function ExportPanel({ uploadedMonths, thresholds }: ExportPanelP
             </div>
 
             <div className="px-5 py-4 space-y-4 overflow-y-auto">
+              {leaveLoadError && (
+                <div className="bg-red-900/30 border border-red-500/30 text-red-300 text-xs rounded-lg px-3 py-2">
+                  {leaveLoadError}
+                </div>
+              )}
               {/* From / To month */}
               <div>
                 <label className="flex items-center gap-1.5 text-slate-400 text-xs font-medium mb-1.5">

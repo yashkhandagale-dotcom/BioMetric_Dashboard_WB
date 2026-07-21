@@ -16,8 +16,9 @@ interface EmployeePanelProps {
   employee: EmployeeSummary | null;
   onClose: () => void;
   readOnly?: boolean;
-  // Leave is now owned entirely by the Leave Tracker (see lib/leaveSync.ts) —
-  // this panel should never write leave_records itself once that's wired up.
+  // Leave is now owned entirely by the Leave Tracker (see
+  // lib/leaveTrackerRead.ts, which live-reads it) — this panel should
+  // never write leave data itself.
   // Kept separate from `readOnly` so department editing / delete-restore
   // (unrelated to leave) still work normally.
   leaveReadOnly?: boolean;

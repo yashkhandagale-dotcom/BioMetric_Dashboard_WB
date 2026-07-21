@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createLeaveClient, createLeaveServiceClient } from '@/lib/leaveSupabase/server';
-import { syncLeaveRequestToMainDashboard } from '@/lib/leaveSync';
 import { TrackerLeaveTypeCode } from '@/lib/leaveSupabase/leaveTypeMap';
 
 const VALID_CODES: TrackerLeaveTypeCode[] = ['SL', 'CL', 'PL', 'LWP'];
@@ -210,39 +209,18 @@ export async function POST(req: NextRequest) {
   // guess an approver — see the "single shared workspace" note in
   // app/leave/admin/layout.tsx for why that link can be missing today.
 
-  // S1-6/S1-7: write-through sync to the main dashboard, with the
-  // outcome persisted so a failure is visible and retryable rather than
-  // silently lost.
-  const syncResult = await syncLeaveRequestToMainDashboard({
-    employeeCode: employee.employee_code,
-    officeCode: employee.office,
-    leaveTypeCode: finalLeaveType.code as TrackerLeaveTypeCode,
-    startDate: start_date,
-    endDate: effectiveEndDate,
-    isHalfDay: !!is_half_day,
-    markedBy: user.email ?? undefined,
-    note: reason,
-  });
-
-  await service
-    .from('leave_requests')
-    .update({
-      sync_status: syncResult.synced ? 'synced' : 'failed',
-      sync_error: syncResult.synced ? null : syncResult.error,
-    })
-    .eq('id', created.id);
-
+  // No write-through sync step: the main attendance dashboard now reads
+  // leave data live from this project at render time (see
+  // app/api/dashboard/leave-records/route.ts), so there is nothing to
+  // push and nothing that can drift.
   return NextResponse.json(
     {
       leave_request: {
         ...created,
         leave_type_id: finalLeaveType.id,
-        sync_status: syncResult.synced ? 'synced' : 'failed',
-        sync_error: syncResult.synced ? null : syncResult.error,
       },
       converted_to_lwp: convertedToLwp,
       policy_notes,
-      sync: syncResult,
     },
     { status: 201 }
   );

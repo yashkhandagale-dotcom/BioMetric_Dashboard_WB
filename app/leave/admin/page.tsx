@@ -1,5 +1,7 @@
 import { createLeaveClient } from '@/lib/leaveSupabase/server';
 import { getFYStartYear, formatFYLabel } from '@/lib/leaveSupabase/fyHelpers';
+import SeedBalancesButton from './SeedBalancesButton';
+import AdjustBalanceButton from './AdjustBalanceButton';
 
 type BalanceRow = {
   employee_id: string;
@@ -30,7 +32,7 @@ export default async function LeaveAdminHome() {
   // Pivot: one row per employee, columns SL/CL/PL/LWP
   const byEmployee = new Map<
     string,
-    { name: string; code: string; department: string; office: string; SL: number; CL: number; PL: number; LWP: number }
+    { employeeId: string; name: string; code: string; department: string; office: string; SL: number; CL: number; PL: number; LWP: number }
   >();
 
   for (const row of balances ?? []) {
@@ -38,6 +40,7 @@ export default async function LeaveAdminHome() {
     const key = row.employee_id;
     if (!byEmployee.has(key)) {
       byEmployee.set(key, {
+        employeeId: row.employee_id,
         name: row.employees.full_name,
         code: row.employees.employee_code,
         department: row.employees.department,
@@ -60,6 +63,7 @@ export default async function LeaveAdminHome() {
           <p className="text-slate-500 text-xs mt-1">Signed in as {user?.email}</p>
         </div>
         <div className="flex items-center gap-2">
+          <SeedBalancesButton fyLabel={formatFYLabel(fyStartYear)} />
           <a
             href="/leave/admin/leave"
             className="bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
@@ -93,6 +97,7 @@ export default async function LeaveAdminHome() {
               <th className="px-4 py-3 text-right">Casual</th>
               <th className="px-4 py-3 text-right">Planned</th>
               <th className="px-4 py-3 text-right">LWP (taken)</th>
+              <th className="px-4 py-3"></th>
             </tr>
           </thead>
           <tbody>
@@ -106,10 +111,13 @@ export default async function LeaveAdminHome() {
                 <td className="px-4 py-2.5 text-right">{r.CL.toFixed(2)}</td>
                 <td className="px-4 py-2.5 text-right">{r.PL.toFixed(2)}</td>
                 <td className="px-4 py-2.5 text-right text-amber-400">{Math.abs(r.LWP).toFixed(2)}</td>
+                <td className="px-4 py-2.5 text-right">
+                  <AdjustBalanceButton employeeId={r.employeeId} employeeName={r.name} fyStartYear={fyStartYear} />
+                </td>
               </tr>
             ))}
             {rows.length === 0 && (
-              <tr><td colSpan={8} className="px-4 py-6 text-center text-slate-500">
+              <tr><td colSpan={9} className="px-4 py-6 text-center text-slate-500">
                 No employees yet. <a href="/leave/admin/employees" className="text-emerald-400 hover:underline">Add one</a> to see balances.
               </td></tr>
             )}

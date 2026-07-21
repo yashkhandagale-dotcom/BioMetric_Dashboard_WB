@@ -550,6 +550,148 @@ $$ language plpgsql;
 
 
 -- =====================================================================
+-- WonderBiz Leave Management System — Live Read + Balance Seeding/Adjustment
+-- Migration: 004_live_read_and_balance_admin.sql
+--
+-- Context: the main attendance dashboard used to get leave data via a
+-- one-way write-through sync (lib/leaveSync.ts) into its own project's
+-- leave_records table, which could fail with only a per-record retry
+-- button as a signal. That's been replaced with a live read: the main
+-- dashboard's server now queries THIS project directly (via its own
+-- service-role key, from a route the main dashboard's own session auth
+-- gates) at render time, so there is no copy to drift and nothing left
+-- to sync. sync_status/sync_error on leave_requests are dead weight
+-- now — dropping them rather than leaving a column nobody writes to
+-- sit there implying a sync state that no longer exists.
+-- =====================================================================
+
+alter table leave_requests
+  drop column if exists sync_status,
+  drop column if exists sync_error;
+
+-- 'opening_balance_seed' — the one-time Phase 1.3 seeding of existing
+-- employees' opening balances is a distinct event from a new joiner's
+-- pro-ration (fn_prorate_new_joiner uses 'pro_ration_initial'): there is
+-- no DOJ-based math here, just "no historical data exists, so grant the
+-- full annual quota." Keeping it as its own reason keeps the audit trail
+-- honest about which of the two actually happened for a given employee.
+alter table balance_transactions
+  drop constraint if exists balance_transactions_reason_check,
+  add constraint balance_transactions_reason_check check (reason in
+      ('comp_off_credit', 'hr_manual_adjustment', 'carry_forward',
+       'encashment', 'lapse', 'leave_approved', 'leave_cancelled',
+       'lwp_conversion', 'pro_ration_initial', 'opening_balance_seed'));
+
+-- ---------------------------------------------------------------------
+-- 7. SEED OPENING BALANCES (S1-3)
+--    One-time, idempotent: for every employee who does NOT already have
+--    a leave_balances row for the given FY, grant the full annual quota
+--    (5 SL / 5 CL / 11 PL, LWP untouched — it has no pool). There is no
+--    historical leave data to prorate or backfill against, so this is a
+--    flat grant, not fn_prorate_new_joiner's DOJ-based math — do not
+--    reuse that function here, it would under-credit anyone who joined
+--    before this FY started.
+--    Safe to re-run: the `on conflict do nothing` plus the "already has
+--    a row" filter mean employees seeded (or prorated) once are skipped.
+-- ---------------------------------------------------------------------
+create or replace function fn_seed_opening_balances_current_fy(p_fy_start_year integer)
+returns table(employee_id uuid, seeded boolean) as $$
+declare
+    v_emp record;
+    v_sl_id uuid; v_cl_id uuid; v_pl_id uuid; v_lwp_id uuid;
+    v_balance_id uuid;
+begin
+    select id into v_sl_id from leave_types where code = 'SL';
+    select id into v_cl_id from leave_types where code = 'CL';
+    select id into v_pl_id from leave_types where code = 'PL';
+    select id into v_lwp_id from leave_types where code = 'LWP';
+
+    for v_emp in
+        select e.id from employees e
+        where not exists (
+            select 1 from leave_balances lb
+            where lb.employee_id = e.id and lb.fy_start_year = p_fy_start_year
+        )
+    loop
+        insert into leave_balances (employee_id, leave_type_id, fy_start_year, opening_balance)
+        values
+            (v_emp.id, v_sl_id, p_fy_start_year, 5),
+            (v_emp.id, v_cl_id, p_fy_start_year, 5),
+            (v_emp.id, v_pl_id, p_fy_start_year, 11),
+            (v_emp.id, v_lwp_id, p_fy_start_year, 0)
+        on conflict (employee_id, leave_type_id, fy_start_year) do nothing;
+
+        for v_balance_id in
+            select id from leave_balances
+            where employee_id = v_emp.id and fy_start_year = p_fy_start_year
+        loop
+            insert into balance_transactions (leave_balance_id, delta, reason, created_by, note)
+            values (v_balance_id, 0, 'opening_balance_seed', null,
+                    'opening balance — seeded, no historical data available');
+        end loop;
+
+        employee_id := v_emp.id;
+        seeded := true;
+        return next;
+    end loop;
+end;
+$$ language plpgsql;
+
+-- ---------------------------------------------------------------------
+-- 8. HR MANUAL BALANCE ADJUSTMENT (S1-4)
+--    The audited path behind the "adjust balance" UI on the employee's
+--    page. Always goes through manual_adjustment (never opening_balance,
+--    accrued, or used directly) and always produces a balance_transactions
+--    row — mirrors how fn_debit_leave_on_approval never touches
+--    closing_balance directly either. p_delta may be negative (a
+--    correction going the other way) — LWP is excluded since it has no
+--    pool to adjust (its balance is a derived running tally, not a
+--    quota HR grants).
+-- ---------------------------------------------------------------------
+create or replace function fn_adjust_balance_manual(
+    p_employee_id uuid,
+    p_leave_type_code text,
+    p_fy_start_year integer,
+    p_delta numeric,
+    p_reason text,
+    p_created_by uuid
+)
+returns void as $$
+declare
+    v_lt record;
+    v_balance_id uuid;
+begin
+    if p_reason is null or length(trim(p_reason)) = 0 then
+        raise exception 'A reason is required for a manual balance adjustment';
+    end if;
+
+    select id, code from leave_types into v_lt where code = p_leave_type_code;
+    if not found then
+        raise exception 'Unknown leave type code %', p_leave_type_code;
+    end if;
+    if v_lt.code = 'LWP' then
+        raise exception 'LWP has no balance pool to adjust — it is a derived running tally, not a quota';
+    end if;
+
+    select id into v_balance_id from leave_balances
+    where employee_id = p_employee_id and leave_type_id = v_lt.id and fy_start_year = p_fy_start_year;
+
+    if v_balance_id is null then
+        raise exception
+            'No leave_balances row for employee %, type %, FY%s — seed or prorate this employee first',
+            p_employee_id, v_lt.code, p_fy_start_year;
+    end if;
+
+    update leave_balances
+    set manual_adjustment = manual_adjustment + p_delta, updated_at = now()
+    where id = v_balance_id;
+
+    insert into balance_transactions (leave_balance_id, delta, reason, created_by, note)
+    values (v_balance_id, p_delta, 'hr_manual_adjustment', p_created_by, p_reason);
+end;
+$$ language plpgsql;
+
+-- =====================================================================
 -- Row Level Security — mirrors the pattern in the main dashboard's
 -- supabase/schema.sql: any authenticated user in THIS project has full
 -- read/write. Safe for v1 because this project's only users are HR
