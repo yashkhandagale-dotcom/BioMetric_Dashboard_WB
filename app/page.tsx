@@ -1,7 +1,7 @@
 'use client';
 import { useState, useEffect, useCallback, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Upload, CheckCircle, Eye, ShieldX, Calendar, Settings as SettingsIcon, X as XIcon, ArrowLeft } from 'lucide-react';
+import { Upload, CheckCircle, Eye, ShieldX, Calendar, ClipboardList, Settings as SettingsIcon, X as XIcon, ArrowLeft } from 'lucide-react';
 import { AttendanceRecord, ColumnMapping, EmployeeSummary, UploadedMonth, Holiday, Thresholds, LeaveRecord } from '@/lib/types';
 import {
   getMapping, saveMapping, getRecords, saveRecords, addUploadedMonth, getUploadedMonths,
@@ -448,10 +448,6 @@ function HRDashboard() {
     syncURL(selectedMonthKey, selectedOffice, []);
   }
 
-  async function refreshLeaveRecords() {
-    if (selectedMonthKey) setLeaveRecords(await getLeaveRecords(selectedMonthKey));
-  }
-
   async function refreshDepartmentOverrides() {
     // Full re-fetch (not an incremental merge) — necessary because a deleted
     // employee needs their records actually REMOVED from the pool, which a
@@ -591,6 +587,13 @@ function HRDashboard() {
             >
               <SettingsIcon className="w-3.5 h-3.5" /> Settings
             </button>
+            
+              href="/leave/admin"
+              className="flex items-center gap-1.5 bg-emerald-600/20 border border-emerald-500/30 text-emerald-400 px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-emerald-600/30 transition-colors"
+              title="Record and manage employee leave"
+            >
+              <ClipboardList className="w-3.5 h-3.5" /> Leave Tracker
+            </a>
             <ExportPanel uploadedMonths={uploadedMonths} thresholds={thresholds} />
             <button onClick={() => setAppState('upload')}
               className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">
@@ -920,7 +923,6 @@ function HRDashboard() {
         shiftEndMinutes={thresholds.shiftEndMinutes}
         monthKey={selectedMonthKey}
         leaveMap={leaveMap}
-        onLeaveChange={refreshLeaveRecords}
         allDepartments={getAllKnownDepartments(allUploadedRecords)}
         onDepartmentChange={refreshDepartmentOverrides}
       />
@@ -998,4 +1000,3 @@ export default function Home() {
     </Suspense>
   );
 }
-//page.tsx
