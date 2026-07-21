@@ -13,6 +13,7 @@ const LEAVE_TYPES: { code: 'SL' | 'CL' | 'PL' | 'LWP'; label: string }[] = [
 
 type SubmitResult = {
   leave_request: { id: string; total_days: number; sync_status: string; sync_error: string | null };
+  converted_to_lwp: boolean;
   policy_notes: string[];
   sync: { synced: boolean; error?: string };
 };
@@ -87,7 +88,7 @@ export default function RecordLeaveForm() {
     let res: Response;
     let body: SubmitResult & { error?: string };
     try {
-      res = await fetch('/api/leave/requests', {
+      res = await fetch('/api/leave/employees/requests', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -124,7 +125,7 @@ export default function RecordLeaveForm() {
     if (!result) return;
     setRetrying(true);
     try {
-      const res = await fetch(`/api/leave/requests/${result.leave_request.id}/retry-sync`, { method: 'POST' });
+      const res = await fetch(`/api/leave/employees/requests/${result.leave_request.id}/retry-sync`, { method: 'POST' });
       const text = await res.text();
       const data = text ? JSON.parse(text) : {};
       setResult((prev) =>
@@ -159,6 +160,11 @@ export default function RecordLeaveForm() {
           <div className="bg-emerald-900/30 border border-emerald-500/30 text-emerald-300 text-xs rounded-lg px-3 py-2">
             Recorded — {result.leave_request.total_days} day(s) debited.
           </div>
+          {result.converted_to_lwp && (
+            <div className="bg-amber-900/30 border border-amber-500/30 text-amber-300 text-xs rounded-lg px-3 py-2">
+              Insufficient balance for the selected leave type — this entry was recorded as Leave Without Pay (LWP) instead.
+            </div>
+          )}
           {result.policy_notes.length > 0 && (
             <ul className="bg-amber-900/30 border border-amber-500/30 text-amber-300 text-xs rounded-lg px-3 py-2 list-disc pl-4 space-y-1">
               {result.policy_notes.map((note, i) => (

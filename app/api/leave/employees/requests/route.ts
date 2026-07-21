@@ -134,13 +134,50 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: insertError?.message ?? 'Failed to create leave request' }, { status: 400 });
   }
 
-  // S1-1: debit the balance atomically. If this fails (e.g. insufficient
-  // SL/CL/PL balance), the request as recorded would be inconsistent
-  // with leave_balances, so we undo the insert rather than leave a
-  // dangling "approved" leave nothing was ever debited for.
-  const { error: debitError } = await service.rpc('fn_debit_leave_on_approval', {
+  // S1-1: debit the balance atomically. fn_debit_leave_on_approval() raises
+  // when the requested paid type (SL/CL/PL) doesn't have enough balance.
+  // Per spec, that is never a hard rejection: the entry is auto-converted
+  // to LWP (which draws from no pool, so it always succeeds) and HR is
+  // told why. Only a genuine second failure (e.g. no LWP balance row
+  // provisioned at all) falls back to rejecting and undoing the insert.
+  let finalLeaveType = leaveType;
+  let convertedToLwp = false;
+
+  let { error: debitError } = await service.rpc('fn_debit_leave_on_approval', {
     p_leave_request_id: created.id,
   });
+
+  if (debitError && leaveType.code !== 'LWP') {
+    const { data: lwpType, error: lwpError } = await service
+      .from('leave_types')
+      .select('id, code, requires_certificate_after_days')
+      .eq('code', 'LWP')
+      .single();
+
+    if (!lwpError && lwpType) {
+      const { error: retypeError } = await service
+        .from('leave_requests')
+        .update({ leave_type_id: lwpType.id })
+        .eq('id', created.id);
+
+      if (!retypeError) {
+        const retry = await service.rpc('fn_debit_leave_on_approval', {
+          p_leave_request_id: created.id,
+        });
+        if (!retry.error) {
+          finalLeaveType = lwpType;
+          convertedToLwp = true;
+          debitError = null;
+          policy_notes.push(
+            `Insufficient ${leaveType.code} balance — recorded as LWP instead.`
+          );
+        } else {
+          debitError = retry.error;
+        }
+      }
+    }
+  }
+
   if (debitError) {
     await service.from('leave_requests').delete().eq('id', created.id);
     return NextResponse.json({ error: debitError.message, policy_notes }, { status: 400 });
@@ -179,7 +216,7 @@ export async function POST(req: NextRequest) {
   const syncResult = await syncLeaveRequestToMainDashboard({
     employeeCode: employee.employee_code,
     officeCode: employee.office,
-    leaveTypeCode: leaveType.code as TrackerLeaveTypeCode,
+    leaveTypeCode: finalLeaveType.code as TrackerLeaveTypeCode,
     startDate: start_date,
     endDate: effectiveEndDate,
     isHalfDay: !!is_half_day,
@@ -199,9 +236,11 @@ export async function POST(req: NextRequest) {
     {
       leave_request: {
         ...created,
+        leave_type_id: finalLeaveType.id,
         sync_status: syncResult.synced ? 'synced' : 'failed',
         sync_error: syncResult.synced ? null : syncResult.error,
       },
+      converted_to_lwp: convertedToLwp,
       policy_notes,
       sync: syncResult,
     },

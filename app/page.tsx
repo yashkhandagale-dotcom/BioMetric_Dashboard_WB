@@ -587,6 +587,7 @@ function HRDashboard() {
             >
               <SettingsIcon className="w-3.5 h-3.5" /> Settings
             </button>
+            <a
             
               href="/leave/admin"
               className="flex items-center gap-1.5 bg-emerald-600/20 border border-emerald-500/30 text-emerald-400 px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-emerald-600/30 transition-colors"
@@ -917,6 +918,7 @@ function HRDashboard() {
       <EmployeePanel
         employee={selectedEmp}
         onClose={() => setSelectedEmp(null)}
+        leaveReadOnly
         holidays={holidays}
         graceMinutes={thresholds.graceMinutes}
         shiftStartMinutes={thresholds.shiftStartMinutes}

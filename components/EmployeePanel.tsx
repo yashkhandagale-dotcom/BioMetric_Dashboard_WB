@@ -6,7 +6,6 @@ import { getLateMinutes, getEarlyMinutes } from '@/lib/useDashboardData';
 import { DEFAULT_THRESHOLDS } from '@/lib/settings';
 import { durationToMinutes } from '@/lib/parseCSV';
 import { getHolidayName } from '@/lib/holidays';
-import { upsertLeaveRecord, deleteLeaveRecord } from '@/lib/leaveStorage';
 import {
   setEmployeeDepartment, clearEmployeeDepartmentOverride, getEmployeeDepartmentOverride,
   deleteEmployee, restoreEmployee, isEmployeeDeleted,
@@ -17,13 +16,17 @@ interface EmployeePanelProps {
   employee: EmployeeSummary | null;
   onClose: () => void;
   readOnly?: boolean;
+  // Leave is now owned entirely by the Leave Tracker (see lib/leaveSync.ts) —
+  // this panel should never write leave_records itself once that's wired up.
+  // Kept separate from `readOnly` so department editing / delete-restore
+  // (unrelated to leave) still work normally.
+  leaveReadOnly?: boolean;
   holidays?: Holiday[];
   graceMinutes?: number;
   shiftStartMinutes?: number;
   shiftEndMinutes?: number;
-  monthKey?: string; // needed to persist leave marks (B7.2)
-  leaveMap?: Map<string, LeaveRecord>; // employeeCode__date -> LeaveRecord
-  onLeaveChange?: () => void;
+  monthKey?: string;
+  leaveMap?: Map<string, LeaveRecord>; // employeeCode__date -> LeaveRecord, synced in from Leave Tracker
   allDepartments?: string[]; // list of all available departments
   onDepartmentChange?: () => void; // callback when department changes
 }
@@ -78,17 +81,15 @@ function getStatusBadge(status: string, isShortDay: boolean | undefined, lateMin
 }
 
 export default function EmployeePanel({
-  employee, onClose, readOnly, holidays = [], graceMinutes = DEFAULT_THRESHOLDS.graceMinutes,
-  monthKey, leaveMap, onLeaveChange, allDepartments = [], onDepartmentChange,
+employee, onClose, readOnly, leaveReadOnly, holidays = [], graceMinutes = DEFAULT_THRESHOLDS.graceMinutes,  leaveMap, allDepartments = [], onDepartmentChange,
 }: EmployeePanelProps) {
-  const [leavePopoverFor, setLeavePopoverFor] = useState<string | null>(null);
   const [showDeptEditor, setShowDeptEditor] = useState(false);
   const [selectedDept, setSelectedDept] = useState<string | null>(null);
   const [, forceRerender] = useState(0);
 
   useEffect(() => {
     if (!employee) return;
-    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') { setLeavePopoverFor(null); onClose(); } };
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') { onClose(); } };
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
   }, [employee, onClose]);
@@ -96,26 +97,6 @@ export default function EmployeePanel({
   if (!employee) return null;
 
   const records = (employee.records || []).sort((a, b) => a.date.localeCompare(b.date));
-
-  async function markLeave(date: string, employeeCode: string, officeCode: string, leaveType: LeaveType, halfDayLeaveType?: LeaveType) {
-    if (!monthKey) return;
-    const record: LeaveRecord = {
-      employeeCode, officeCode, date, leaveType, halfDayLeaveType,
-      markedAt: new Date().toISOString(),
-    };
-    setLeavePopoverFor(null);
-    await upsertLeaveRecord(monthKey, record);
-    onLeaveChange?.();
-    forceRerender(v => v + 1);
-  }
-
-  async function clearLeave(date: string, employeeCode: string) {
-    if (!monthKey) return;
-    setLeavePopoverFor(null);
-    await deleteLeaveRecord(monthKey, employeeCode, date);
-    onLeaveChange?.();
-    forceRerender(v => v + 1);
-  }
 
   async function changeDepartment(newDept: string) {
     if (!employee) return;
@@ -174,72 +155,38 @@ export default function EmployeePanel({
                   value={selectedDept || ''}
                   onChange={e => setSelectedDept(e.target.value)}
                   onBlur={() => changeDepartment(selectedDept || employee.department)}
-                  onKeyDown={e => {
-                    if (e.key === 'Enter') changeDepartment(selectedDept || employee.department);
-                    if (e.key === 'Escape') setShowDeptEditor(false);
-                  }}
-                  className="bg-slate-700 border border-blue-500 text-white text-xs px-2 py-0.5 rounded focus:outline-none"
+                  className="bg-slate-800 border border-slate-700 rounded px-2 py-0.5 text-xs text-white"
                 >
-                  {allDepartments.map(d => (
-                    <option key={d} value={d}>{d}</option>
-                  ))}
+                  {allDepartments.map(d => <option key={d} value={d}>{d}</option>)}
                 </select>
               )}
-              <span className="text-slate-600">·</span>
-              <span className="bg-blue-600/20 text-blue-400 text-[10px] font-medium px-1.5 py-0.5 rounded">{employee.officeCode}</span>
+              {isEmployeeDeleted(employee.employeeCode, employee.officeCode) && (
+                <span className="text-red-400 text-[10px] font-medium px-1.5 py-0.5 rounded bg-red-500/10 border border-red-500/20">Deleted</span>
+              )}
             </div>
           </div>
-          <div className="flex items-center gap-1 mt-0.5 flex-shrink-0">
+          <div className="flex items-center gap-1 flex-shrink-0">
             {!readOnly && (
               isEmployeeDeleted(employee.employeeCode, employee.officeCode) ? (
-                <button onClick={handleRestore} className="text-emerald-400 hover:text-emerald-300 transition-colors p-1" title="Restore employee">
+                <button onClick={handleRestore} className="text-slate-500 hover:text-emerald-400 transition-colors p-1" title="Restore employee">
                   <RotateCcw className="w-4 h-4" />
                 </button>
               ) : (
-                <button onClick={handleDelete} className="text-red-400/70 hover:text-red-400 transition-colors p-1" title="Delete employee">
+                <button onClick={handleDelete} className="text-slate-500 hover:text-red-400 transition-colors p-1" title="Delete employee">
                   <Trash2 className="w-4 h-4" />
                 </button>
               )
             )}
-            <button onClick={onClose} className="text-slate-400 hover:text-white transition-colors">
+            <button onClick={onClose} className="text-slate-400 hover:text-white transition-colors p-1">
               <X className="w-5 h-5" />
             </button>
           </div>
         </div>
 
         <div className="flex-1 overflow-y-auto">
-          <div className="px-5 py-4 grid grid-cols-2 sm:grid-cols-4 gap-2">
-            {[
-              { label: 'Present', value: employee.presentDays, color: 'text-emerald-400' },
-              { label: 'Absent', value: employee.absentDays, color: 'text-red-400' },
-              { label: 'Late', value: employee.lateCount, color: 'text-amber-400' },
-              { label: 'Early Exit', value: employee.earlyExitCount, color: 'text-amber-400' },
-            ].map(({ label, value, color }) => (
-              <div key={label} className="bg-slate-800 rounded-xl p-3 text-center">
-                <p className={`text-xl font-bold ${color}`}>{value}</p>
-                <p className="text-slate-500 text-[10px] mt-0.5">{label}</p>
-              </div>
-            ))}
-          </div>
-
-          {(employee.shortDayCount > 0 || employee.frequentPunchDays > 0 || (employee.missedPunchOutCount ?? 0) > 0 || employee.plannedLeaveCount > 0 || employee.casualLeaveCount > 0 || employee.sickLeaveCount > 0 || employee.lwpCount > 0 || employee.halfDayCount > 0) && (
-            <div className="px-5 pb-3 flex flex-wrap gap-2">
-              {employee.shortDayCount > 0 && (
-                <span className="flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-orange-500/15 text-orange-400 border border-orange-500/20">
-                  <AlertTriangle className="w-3 h-3" />
-                  {employee.shortDayCount} Short Day{employee.shortDayCount > 1 ? 's' : ''}
-                </span>
-              )}
-              {(employee.missedPunchOutCount ?? 0) > 0 && (
-                <span
-                  className="flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-orange-500/15 text-orange-400 border border-orange-500/20"
-                  title="Counted as present — out-punch wasn't captured by the machine, worth a manual check"
-                >
-                  <AlertTriangle className="w-3 h-3" />
-                  {employee.missedPunchOutCount} Missed Punch Out{(employee.missedPunchOutCount ?? 0) > 1 ? 's' : ''}
-                </span>
-              )}
-              {employee.frequentPunchDays > 0 && (
+          {(employee.frequentPunchDays || employee.plannedLeaveCount || employee.casualLeaveCount || employee.sickLeaveCount || employee.lwpCount || employee.halfDayCount) ? (
+            <div className="px-5 pt-4 pb-2 flex flex-wrap gap-2">
+              {!!employee.frequentPunchDays && (
                 <span className="flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-amber-500/15 text-amber-400 border border-amber-500/20">
                   <Zap className="w-3 h-3" />
                   ⚡ Frequent Punch ({employee.frequentPunchDays}d)
@@ -258,7 +205,7 @@ export default function EmployeePanel({
                 );
               })}
             </div>
-          )}
+          ) : null}
 
           <div className="px-5 pb-4">
             <h4 className="text-slate-400 text-xs font-semibold uppercase tracking-wide mb-2">Attendance Pattern</h4>
@@ -325,7 +272,10 @@ export default function EmployeePanel({
           </div>
 
           <div className="px-5 pb-6">
-            <h4 className="text-slate-400 text-xs font-semibold uppercase tracking-wide mb-2">Day-wise Records</h4>
+            <div className="flex items-center justify-between mb-2">
+              <h4 className="text-slate-400 text-xs font-semibold uppercase tracking-wide">Day-wise Records</h4>
+              <span className="text-slate-500 text-[10px]">Leave shown here is recorded in Leave Tracker</span>
+            </div>
             <div className="rounded-xl border border-slate-700/50 overflow-x-auto">
               <table className="w-full text-xs min-w-[480px]">
                 <thead>
@@ -347,8 +297,6 @@ export default function EmployeePanel({
                       (r.status.toLowerCase().includes('present') || r.status.toLowerCase().includes('missed punch'));
                     const dur = durationToMinutes(r.duration);
                     const leave = leaveMap?.get(`${r.employeeCode}__${r.date}`);
-                    const canMarkLeave = !readOnly && monthKey && (r.isShortDay || r.status.toLowerCase().includes('absent'));
-                    const rowKey = `${r.employeeCode}__${r.date}`;
 
                     if (holidayName) {
                       return (
@@ -381,23 +329,6 @@ export default function EmployeePanel({
                               </span>
                             )}
                             {(r.punchCount ?? 1) >= 3 && <span className="text-amber-400" title="Frequent punch">⚡</span>}
-                            {canMarkLeave && (
-                              <button
-                                onClick={() => setLeavePopoverFor(leavePopoverFor === rowKey ? null : rowKey)}
-                                className="text-slate-500 hover:text-blue-400 transition-colors ml-1"
-                                title="Mark Leave"
-                              >
-                                <Tag className="w-3 h-3" />
-                              </button>
-                            )}
-                            {leavePopoverFor === rowKey && (
-                              <LeavePicker
-                                isShortDay={!!r.isShortDay}
-                                onPick={(type, half) => markLeave(r.date, r.employeeCode, r.officeCode, type, half)}
-                                onClear={leave ? () => clearLeave(r.date, r.employeeCode) : undefined}
-                                onDismiss={() => setLeavePopoverFor(null)}
-                              />
-                            )}
                           </div>
                         </td>
                       </tr>
@@ -410,53 +341,5 @@ export default function EmployeePanel({
         </div>
       </div>
     </>
-  );
-}
-
-function LeavePicker({ isShortDay, onPick, onClear, onDismiss }: {
-  isShortDay: boolean;
-  onPick: (type: LeaveType, halfDayLeaveType?: LeaveType) => void;
-  onClear?: () => void;
-  onDismiss: () => void;
-}) {
-  const [halfDaySub, setHalfDaySub] = useState(false);
-
-  return (
-    <div className="absolute right-0 top-6 z-50 bg-slate-900 border border-slate-600 rounded-xl shadow-2xl p-2 w-48 text-xs" onClick={(e) => e.stopPropagation()}>
-      {!halfDaySub ? (
-        <div className="space-y-0.5">
-          {(['planned', 'casual', 'sick', 'lwp'] as LeaveType[]).map((t) => (
-            <button key={t} onClick={() => onPick(t)} className="w-full text-left px-2 py-1.5 rounded-lg hover:bg-slate-800 text-slate-200">
-              {LEAVE_LABELS[t]}
-            </button>
-          ))}
-          {isShortDay && (
-            <button onClick={() => setHalfDaySub(true)} className="w-full text-left px-2 py-1.5 rounded-lg hover:bg-slate-800 text-slate-200">
-              Half Day →
-            </button>
-          )}
-          {onClear && (
-            <button onClick={onClear} className="w-full text-left px-2 py-1.5 rounded-lg hover:bg-red-500/10 text-red-400 border-t border-slate-800 mt-1 pt-1.5">
-              Clear marking
-            </button>
-          )}
-          <button onClick={onDismiss} className="w-full text-left px-2 py-1.5 rounded-lg hover:bg-slate-800 text-slate-500">
-            Dismiss
-          </button>
-        </div>
-      ) : (
-        <div className="space-y-0.5">
-          <p className="text-slate-500 text-[10px] px-2 pb-1">Half Day — covering leave type:</p>
-          {(['planned', 'casual', 'sick', 'lwp'] as LeaveType[]).map((t) => (
-            <button key={t} onClick={() => onPick('half_day', t)} className="w-full text-left px-2 py-1.5 rounded-lg hover:bg-slate-800 text-slate-200">
-              {LEAVE_LABELS[t]}
-            </button>
-          ))}
-          <button onClick={() => setHalfDaySub(false)} className="w-full text-left px-2 py-1.5 rounded-lg hover:bg-slate-800 text-slate-500 border-t border-slate-800 mt-1 pt-1.5">
-            ← Back
-          </button>
-        </div>
-      )}
-    </div>
   );
 }

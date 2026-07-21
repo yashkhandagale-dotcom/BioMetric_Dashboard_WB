@@ -59,12 +59,20 @@ export default async function LeaveAdminHome() {
           <h1 className="text-xl font-semibold">Leave Balances — {formatFYLabel(fyStartYear)}</h1>
           <p className="text-slate-500 text-xs mt-1">Signed in as {user?.email}</p>
         </div>
-        <a
-          href="/leave/admin/employees"
-          className="bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
-        >
-          Manage Employees
-        </a>
+        <div className="flex items-center gap-2">
+          <a
+            href="/leave/admin/leave"
+            className="bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+          >
+            Record Leave
+          </a>
+          <a
+            href="/leave/admin/employees"
+            className="bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+          >
+            Manage Employees
+          </a>
+        </div>
       </div>
 
       {error && (
