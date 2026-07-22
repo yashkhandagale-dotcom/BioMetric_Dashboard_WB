@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 
 type EmployeeOption = { id: string; full_name: string; employee_code: string };
 
@@ -18,6 +19,12 @@ type SubmitResult = {
 };
 
 export default function RecordLeaveForm() {
+  // D1-3: EmployeeCard's "Record Leave" quick action links here with
+  // ?employee=<id> so HR doesn't have to re-search for the person they
+  // just clicked from. Applied once the employee list has loaded, below.
+  const searchParams = useSearchParams();
+  const presetEmployeeId = searchParams.get('employee');
+
   const [employees, setEmployees] = useState<EmployeeOption[]>([]);
   const [employeeSearch, setEmployeeSearch] = useState('');
   const [employeeId, setEmployeeId] = useState<string>('');
@@ -52,6 +59,12 @@ export default function RecordLeaveForm() {
     }
     load();
   }, []);
+
+  useEffect(() => {
+    if (presetEmployeeId && !employeeId && employees.some((e) => e.id === presetEmployeeId)) {
+      setEmployeeId(presetEmployeeId);
+    }
+  }, [presetEmployeeId, employees, employeeId]);
 
   const filteredEmployees = useMemo(() => {
     const q = employeeSearch.trim().toLowerCase();

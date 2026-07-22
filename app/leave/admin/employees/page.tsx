@@ -1,12 +1,45 @@
 import { createLeaveClient } from '@/lib/leaveSupabase/server';
+import { getFYStartYear } from '@/lib/leaveSupabase/fyHelpers';
+import { getEmployeeBalancesByFY } from '@/lib/leaveSupabase/getEmployeeBalances';
 import AddEmployeeForm from './AddEmployeeForm';
+import EmployeeGrid from '@/components/leave/EmployeeGrid';
+import type { EmployeeWithBalances } from '@/components/leave/EmployeeCard';
 
 export default async function EmployeesPage() {
   const supabase = await createLeaveClient();
-  const { data: employees } = await supabase
-    .from('employees')
-    .select('id, employee_code, full_name, department, office, role, employment_status, date_of_joining')
-    .order('full_name');
+  const fyStartYear = getFYStartYear();
+
+  // Employee roster and balances are two separate queries (different
+  // tables), fetched in parallel and merged below. Balances come from the
+  // shared getEmployeeBalancesByFY helper — the same one app/leave/admin
+  // uses — so figures here can never drift from what that page shows.
+  const [{ data: employees, error: employeesError }, { rows: balances, error: balancesError }] = await Promise.all([
+    supabase
+      .from('employees')
+      .select('id, employee_code, full_name, department, office, role, employment_status, date_of_joining')
+      .order('full_name'),
+    getEmployeeBalancesByFY(supabase, fyStartYear),
+  ]);
+
+  const balancesById = new Map(balances.map((b) => [b.employeeId, b]));
+
+  const merged: EmployeeWithBalances[] = (employees ?? []).map((e) => {
+    const b = balancesById.get(e.id);
+    return {
+      id: e.id,
+      code: e.employee_code,
+      name: e.full_name,
+      department: e.department,
+      office: e.office,
+      role: e.role,
+      employmentStatus: e.employment_status,
+      dateOfJoining: e.date_of_joining,
+      SL: b?.SL ?? 0,
+      CL: b?.CL ?? 0,
+      PL: b?.PL ?? 0,
+      LWP: b?.LWP ?? 0,
+    };
+  });
 
   return (
     <div className="min-h-screen bg-slate-900 text-white p-8 space-y-6">
@@ -17,37 +50,13 @@ export default async function EmployeesPage() {
 
       <AddEmployeeForm />
 
-      <div className="bg-slate-800/40 border border-slate-700 rounded-xl overflow-hidden">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="text-left text-slate-400 text-xs border-b border-slate-700">
-              <th className="px-4 py-3">Code</th>
-              <th className="px-4 py-3">Name</th>
-              <th className="px-4 py-3">Dept</th>
-              <th className="px-4 py-3">Office</th>
-              <th className="px-4 py-3">Role</th>
-              <th className="px-4 py-3">Status</th>
-              <th className="px-4 py-3">DOJ</th>
-            </tr>
-          </thead>
-          <tbody>
-            {(employees ?? []).map((e) => (
-              <tr key={e.id} className="border-b border-slate-800 last:border-0">
-                <td className="px-4 py-2.5 text-slate-300">{e.employee_code}</td>
-                <td className="px-4 py-2.5">{e.full_name}</td>
-                <td className="px-4 py-2.5 text-slate-400">{e.department}</td>
-                <td className="px-4 py-2.5 text-slate-400">{e.office}</td>
-                <td className="px-4 py-2.5 text-slate-400">{e.role}</td>
-                <td className="px-4 py-2.5 text-slate-400">{e.employment_status}</td>
-                <td className="px-4 py-2.5 text-slate-400">{e.date_of_joining}</td>
-              </tr>
-            ))}
-            {(!employees || employees.length === 0) && (
-              <tr><td colSpan={7} className="px-4 py-6 text-center text-slate-500">No employees yet — add one above.</td></tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+      {(employeesError || balancesError) && (
+        <div className="bg-red-900/30 border border-red-500/30 text-red-300 text-xs rounded-lg px-3 py-2">
+          {employeesError?.message || balancesError?.message}
+        </div>
+      )}
+
+      <EmployeeGrid employees={merged} fyStartYear={fyStartYear} />
     </div>
   );
 }
