@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import {
   AttendanceRecord, KPIData, EmployeeSummary, DailyTrend, DeptAttendance,
-  HoursDistribution, Holiday, OfficeAttendance, LeaveRecord, Thresholds, EffectiveStatus
+  HoursDistribution, Holiday, OfficeAttendance, LeaveRecord, Thresholds, EffectiveStatus, WorkforceEvent
 } from './types';
 import { durationToMinutes, minutesToHHMM } from './parseCSV';
 import { isHoliday, getHolidayName } from './holidays';
@@ -179,7 +179,8 @@ export function computeProductivityLostMinutes(
 export function getEffectiveStatus(
   r: AttendanceRecord,
   leave: LeaveRecord | undefined,
-  holidays: Holiday[]
+  holidays: Holiday[],
+  workforceEvent?: WorkforceEvent
 ): EffectiveStatus {
   if (isWeeklyOff(r.status)) return 'weeklyoff';
   if (isHoliday(r.date, holidays) && !isPresent(r.status)) return 'holiday';
@@ -189,6 +190,16 @@ export function getEffectiveStatus(
     if (leave.leaveType === 'casual') return 'leave_casual';
     if (leave.leaveType === 'sick') return 'leave_sick';
     if (leave.leaveType === 'lwp') return 'leave_lwp';
+  }
+  // D7-3 (stretch): WFH / Business Travel / Office Shutdown are workforce
+  // signals, not leave — checked after leave (an approved leave day takes
+  // precedence over a stale/overlapping workforce_events row) and only
+  // when the optional 4th arg is actually supplied, so every existing
+  // 3-arg call site keeps behaving exactly as before.
+  if (workforceEvent) {
+    if (workforceEvent.eventType === 'wfh') return 'wfh';
+    if (workforceEvent.eventType === 'business_travel') return 'business_travel';
+    if (workforceEvent.eventType === 'office_shutdown') return 'office_shutdown';
   }
   if (isPresent(r.status)) return 'present';
   return 'absent';
@@ -201,6 +212,20 @@ export function leaveKey(employeeCode: string, date: string): string {
 export function buildLeaveMap(leaveRecords: LeaveRecord[]): Map<string, LeaveRecord> {
   const m = new Map<string, LeaveRecord>();
   for (const l of leaveRecords) m.set(leaveKey(l.employeeCode, l.date), l);
+  return m;
+}
+
+// D7-3 (stretch): same key shape as leaveKey/buildLeaveMap, for
+// WorkforceEvent — kept as a separate map rather than merged into
+// leaveMap so a workforce event can never be mistaken for a leave record
+// by a caller that forgets to check which one it pulled out.
+export function workforceEventKey(employeeCode: string, date: string): string {
+  return `${employeeCode}__${date}`;
+}
+
+export function buildWorkforceEventMap(events: WorkforceEvent[]): Map<string, WorkforceEvent> {
+  const m = new Map<string, WorkforceEvent>();
+  for (const e of events) m.set(workforceEventKey(e.employeeCode, e.date), e);
   return m;
 }
 

@@ -3,6 +3,7 @@ import { getFYStartYear, formatFYLabel } from '@/lib/leaveSupabase/fyHelpers';
 import { getEmployeeBalancesByFY } from '@/lib/leaveSupabase/getEmployeeBalances';
 import SeedBalancesButton from './SeedBalancesButton';
 import AdjustBalanceButton from './AdjustBalanceButton';
+import LeaveAnalytics from '@/components/leave/LeaveAnalytics';
 
 export default async function LeaveAdminHome() {
   const supabase = await createLeaveClient();
@@ -27,8 +28,11 @@ export default async function LeaveAdminHome() {
         </div>
         <div className="flex items-center gap-2">
           <SeedBalancesButton fyLabel={formatFYLabel(fyStartYear)} />
+          {/* D2: Record Leave is now a drawer launched per-employee from
+              the grid (or the Employee Modal) — this nav link takes HR
+              there instead of to the removed standalone page. */}
           <a
-            href="/leave/admin/leave"
+            href="/leave/admin/employees"
             className="bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
           >
             Record Leave
@@ -38,6 +42,27 @@ export default async function LeaveAdminHome() {
             className="bg-emerald-600 hover:bg-emerald-500 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
           >
             Manage Employees
+          </a>
+          {/* D3-1: Leave History page */}
+          <a
+            href="/leave/admin/history"
+            className="border border-slate-700 hover:border-slate-500 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+          >
+            Leave History
+          </a>
+          {/* D4-5: Violations dashboard */}
+          <a
+            href="/leave/admin/violations"
+            className="border border-red-500/40 hover:border-red-400 text-red-300 hover:text-red-200 text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+          >
+            Violations
+          </a>
+          {/* D6-2: Bulk Workforce Events */}
+          <a
+            href="/leave/admin/bulk-events"
+            className="border border-slate-700 hover:border-slate-500 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+          >
+            Bulk Events
           </a>
         </div>
       </div>
@@ -87,6 +112,10 @@ export default async function LeaveAdminHome() {
           </tbody>
         </table>
       </div>
+
+      {/* D5-1..D5-4: analytics charts, own component + own API call, kept
+          below the balances table it doesn't depend on. */}
+      <LeaveAnalytics fyStartYear={fyStartYear} />
     </div>
   );
 }

@@ -46,6 +46,15 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'violations', label: 'Violations' },
 ];
 
+type ModalViolation = {
+  id: string;
+  type: 'lwp_conversion' | 'missing_certificate' | 'early_probation_pl' | 'negative_balance';
+  summary: string;
+  detail: string;
+  occurredOn: string;
+  leaveRequestId?: string;
+};
+
 // D2-1: full tabbed profile promised by the placeholder text left in
 // EmployeeCard on Day 1. Opens over the grid (no navigation, no full page
 // reload) and switches tabs purely client-side — the only network call is
@@ -57,11 +66,13 @@ export default function EmployeeModal({
   refreshSignal,
   onClose,
   onRecordLeave,
+  onViolationsChanged,
 }: {
   employeeId: string;
   refreshSignal?: number;
   onClose: () => void;
   onRecordLeave: (employeeId: string) => void;
+  onViolationsChanged?: () => void;
 }) {
   const [tab, setTab] = useState<Tab>('overview');
   const [profile, setProfile] = useState<ProfileResponse | null>(null);
@@ -158,7 +169,14 @@ export default function EmployeeModal({
               {tab === 'overview' && <OverviewTab profile={profile} />}
               {tab === 'balances' && <BalancesTab profile={profile} />}
               {tab === 'timeline' && <TimelineTab profile={profile} />}
-              {tab === 'violations' && <ViolationsTab />}
+              {tab === 'violations' && (
+                <ViolationsTab
+                  employeeId={profile.employee.id}
+                  employeeName={profile.employee.name}
+                  fyStartYear={profile.fyStartYear}
+                  onRefresh={() => onViolationsChanged?.()}
+                />
+              )}
             </>
           )}
         </div>
@@ -259,15 +277,98 @@ function TimelineTab({ profile }: { profile: ProfileResponse }) {
   );
 }
 
-function ViolationsTab() {
-  // D1-4 / D4: same placeholder convention as ViolationBadge — real
-  // detection (notice-shortfall LWP conversions, missing medical
-  // certificates, early probation leave, negative balances) lands Day 4
-  // behind GET /api/leave/violations.
+function ViolationsTab({ employeeId, employeeName, fyStartYear, onRefresh }: { employeeId: string; employeeName: string; fyStartYear: number; onRefresh: () => void }) {
+  const [violations, setViolations] = useState<ModalViolation[] | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [certDraft, setCertDraft] = useState<Record<string, string>>({});
+  const [certSaving, setCertSaving] = useState<string | null>(null);
+
+  async function load() {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/leave/violations?employee_id=${employeeId}`);
+      const text = await res.text();
+      const data = text ? JSON.parse(text) : {};
+      if (!res.ok) {
+        setError(data.error || `Could not load violations (${res.status}).`);
+        return;
+      }
+      setViolations(data.violations ?? []);
+    } catch {
+      setError('Could not reach the server — check your connection and retry.');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [employeeId]);
+
+  async function resolveCertificate(v: ModalViolation) {
+    const url = (certDraft[v.id] || '').trim();
+    if (!url || !v.leaveRequestId) return;
+    setCertSaving(v.id);
+    try {
+      const res = await fetch('/api/leave/violations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ leave_request_id: v.leaveRequestId, medical_certificate_url: url }),
+      });
+      if (res.ok) {
+        await load();
+        onRefresh();
+      }
+    } finally {
+      setCertSaving(null);
+    }
+  }
+
+  if (loading) return <p className="text-slate-500 text-sm">Loading…</p>;
+  if (error) return <p className="text-red-400 text-xs">{error}</p>;
+  if (!violations || violations.length === 0) {
+    return <p className="text-slate-500 text-sm">No open violations for this employee. 🎉</p>;
+  }
+
   return (
-    <p className="text-slate-500 text-sm italic">
-      Violation detection lands Day 4 — this tab will list this employee&apos;s open violations, each traceable to a
-      real record, with a one-click Resolve action.
-    </p>
+    <ul className="space-y-2">
+      {violations.map((v) => (
+        <li key={v.id} className="border border-slate-700 rounded-lg px-3 py-2 text-xs bg-slate-800/40 space-y-1.5">
+          <p className="text-white font-medium">{v.summary}</p>
+          <p className="text-slate-500">{v.occurredOn}</p>
+          <p className="text-slate-400">{v.detail}</p>
+          {v.type === 'missing_certificate' && (
+            <div className="flex items-center gap-2 pt-1">
+              <input
+                type="text"
+                value={certDraft[v.id] || ''}
+                onChange={(e) => setCertDraft((s) => ({ ...s, [v.id]: e.target.value }))}
+                placeholder="Certificate reference…"
+                className="bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-white flex-1"
+              />
+              <button
+                type="button"
+                onClick={() => resolveCertificate(v)}
+                disabled={certSaving === v.id}
+                className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-medium px-2.5 py-1 rounded transition-colors"
+              >
+                {certSaving === v.id ? 'Saving…' : 'Mark Received'}
+              </button>
+            </div>
+          )}
+          {(v.type === 'negative_balance' || v.type === 'early_probation_pl') && (
+            <div className="pt-1">
+              <AdjustBalanceButton employeeId={employeeId} employeeName={employeeName} fyStartYear={fyStartYear} />
+            </div>
+          )}
+          {v.type === 'lwp_conversion' && (
+            <p className="text-slate-500 italic">Already correctly recorded as LWP — shown for review only.</p>
+          )}
+        </li>
+      ))}
+    </ul>
   );
 }

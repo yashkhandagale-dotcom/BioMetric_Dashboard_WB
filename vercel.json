@@ -1,0 +1,12 @@
+{
+  "crons": [
+    {
+      "path": "/api/leave/admin/jobs/probation-accrual",
+      "schedule": "0 3 1 * *"
+    },
+    {
+      "path": "/api/leave/admin/jobs/annual-reset",
+      "schedule": "0 3 25 3 *"
+    }
+  ]
+}

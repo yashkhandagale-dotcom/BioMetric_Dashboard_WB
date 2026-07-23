@@ -1,4 +1,4 @@
-import { LeaveRecord } from './types';
+import { LeaveRecord, WorkforceEvent } from './types';
 
 /**
  * Live-reads leave data for the given monthKeys (`${year}_${month}_${officeCode}`)
@@ -26,4 +26,27 @@ export async function getAllLeaveRecords(monthKeys: string[]): Promise<LeaveReco
 
 export async function getLeaveRecords(monthKey: string): Promise<LeaveRecord[]> {
   return getAllLeaveRecords([monthKey]);
+}
+
+/**
+ * D7-3 (stretch): same live-read pattern as getAllLeaveRecords, for the
+ * new workforce_events table (WFH / Business Travel / Office Shutdown —
+ * see app/api/dashboard/workforce-events/route.ts). Kept as its own
+ * function rather than merged into getAllLeaveRecords's response, since
+ * these aren't leave and callers that only care about leave shouldn't
+ * have to filter them back out.
+ */
+export async function getAllWorkforceEvents(monthKeys: string[]): Promise<WorkforceEvent[]> {
+  if (monthKeys.length === 0) return [];
+  const res = await fetch(`/api/dashboard/workforce-events?monthKeys=${encodeURIComponent(monthKeys.join(','))}`);
+  const text = await res.text();
+  const body = text ? JSON.parse(text) : {};
+  if (!res.ok) {
+    throw new Error(body.error || `Failed to load workforce events (${res.status})`);
+  }
+  return (body.events ?? []) as WorkforceEvent[];
+}
+
+export async function getWorkforceEvents(monthKey: string): Promise<WorkforceEvent[]> {
+  return getAllWorkforceEvents([monthKey]);
 }
