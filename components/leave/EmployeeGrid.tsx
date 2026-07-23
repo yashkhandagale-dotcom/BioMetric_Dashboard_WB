@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import EmployeeCard, { EmployeeWithBalances } from './EmployeeCard';
 import EmployeeModal from './EmployeeModal';
@@ -36,6 +36,32 @@ export default function EmployeeGrid({
   // EmployeeModal (if any) knows to refetch its Balances / Leave Timeline
   // tabs instead of showing what it fetched before the save.
   const [refreshSignal, setRefreshSignal] = useState(0);
+
+  // D4: real per-employee violation counts for ViolationBadge — the Day 1
+  // placeholder always passed `count={undefined}`; this is the wiring it
+  // was left waiting for. One fetch of every open violation, grouped by
+  // employeeId client-side, rather than one request per card.
+  const [violationCounts, setViolationCounts] = useState<Record<string, number>>({});
+
+  const loadViolationCounts = useCallback(async () => {
+    try {
+      const res = await fetch('/api/leave/violations');
+      const text = await res.text();
+      const data = text ? JSON.parse(text) : {};
+      if (!res.ok) return;
+      const counts: Record<string, number> = {};
+      for (const v of data.violations ?? []) {
+        counts[v.employeeId] = (counts[v.employeeId] || 0) + 1;
+      }
+      setViolationCounts(counts);
+    } catch {
+      // Non-critical — the badge just stays hidden if this fails.
+    }
+  }, []);
+
+  useEffect(() => {
+    loadViolationCounts();
+  }, [loadViolationCounts, refreshSignal]);
 
   function handleDrawerSuccess() {
     setRefreshSignal((s) => s + 1);
@@ -148,6 +174,7 @@ export default function EmployeeGrid({
               key={e.id}
               employee={e}
               fyStartYear={fyStartYear}
+              violationCount={violationCounts[e.id]}
               onViewProfile={setProfileEmployeeId}
               onRecordLeave={setDrawerEmployeeId}
             />
@@ -161,6 +188,7 @@ export default function EmployeeGrid({
           refreshSignal={refreshSignal}
           onClose={() => setProfileEmployeeId(null)}
           onRecordLeave={setDrawerEmployeeId}
+          onViolationsChanged={loadViolationCounts}
         />
       )}
 

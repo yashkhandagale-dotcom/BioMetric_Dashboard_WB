@@ -31,11 +31,13 @@ const STATUS_STYLES: Record<string, string> = {
 export default function EmployeeCard({
   employee,
   fyStartYear,
+  violationCount,
   onViewProfile,
   onRecordLeave,
 }: {
   employee: EmployeeWithBalances;
   fyStartYear: number;
+  violationCount?: number;
   onViewProfile: (employeeId: string) => void;
   onRecordLeave: (employeeId: string) => void;
 }) {
@@ -50,8 +52,8 @@ export default function EmployeeCard({
             {employee.code} · {employee.department} · {employee.office}
           </p>
         </div>
-        {/* D1-4: real count wired up on Day 4 */}
-        <ViolationBadge count={undefined} />
+        {/* D4: real count from EmployeeGrid's violations fetch */}
+        <ViolationBadge count={violationCount} />
       </div>
 
       <div className="flex items-center gap-2 text-xs">

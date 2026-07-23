@@ -724,3 +724,39 @@ create policy "authenticated read/write" on leave_requests
   for all using (auth.role() = 'authenticated') with check (auth.role() = 'authenticated');
 create policy "authenticated read/write" on approval_steps
   for all using (auth.role() = 'authenticated') with check (auth.role() = 'authenticated');
+
+-- =====================================================================
+-- WonderBiz Leave Management System — Bulk Workforce Events
+-- Migration: 005_workforce_events.sql
+--
+-- WFH, Business Travel, and Office Shutdown are workforce/attendance
+-- signals, not leave — per the schema's own design invariant ("WFH is
+-- NOT a leave type... never touches leave_balances"), so this table is
+-- deliberately independent of leave_requests/leave_balances: no FK into
+-- either, no policy-engine function touches it, and the bulk-insert API
+-- route built against it (D6-3) never calls fn_debit_leave_on_approval
+-- or writes to leave_balances. That's what the Day 6 acceptance
+-- criterion "bulk events do not touch leave_balances" is checking.
+-- =====================================================================
+
+create table if not exists workforce_events (
+    id                  uuid primary key default gen_random_uuid(),
+    employee_id         uuid not null references employees(id),
+    event_type          text not null check (event_type in
+                            ('wfh', 'business_travel', 'office_shutdown')),
+    event_date          date not null,
+    note                text,
+    created_by          uuid references employees(id),
+    created_at          timestamptz not null default now(),
+    unique (employee_id, event_date, event_type)
+);
+
+comment on table workforce_events is
+    'WFH / Business Travel / Office Shutdown markers only. Not a leave type — intentionally has no relationship to leave_balances or leave_requests.';
+
+create index if not exists idx_workforce_events_employee_date
+    on workforce_events(employee_id, event_date);
+
+alter table workforce_events enable row level security;
+create policy "authenticated read/write" on workforce_events
+  for all using (auth.role() = 'authenticated') with check (auth.role() = 'authenticated');

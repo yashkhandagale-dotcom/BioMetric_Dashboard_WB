@@ -45,7 +45,11 @@ export default async function EmployeesPage() {
     <div className="min-h-screen bg-slate-900 text-white p-8 space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-semibold">Employees</h1>
-        <a href="/leave/admin" className="text-xs text-slate-400 hover:text-white">← Back to balances</a>
+        <div className="flex items-center gap-4">
+          <a href="/leave/admin/history" className="text-xs text-slate-400 hover:text-white">Leave History →</a>
+          <a href="/leave/admin/violations" className="text-xs text-red-400 hover:text-red-300">Violations →</a>
+          <a href="/leave/admin" className="text-xs text-slate-400 hover:text-white">← Back to balances</a>
+        </div>
       </div>
 
       <AddEmployeeForm />

@@ -16,6 +16,13 @@ function daysBetweenInclusive(start: string, end: string): number {
 // balance debit, audit row, cross-project sync — lives here so a future
 // employee-initiated apply flow can reuse the pieces without inheriting
 // the "already approved" assumption.
+//
+// D2-4: request/response contract is unchanged from Day 2. D4-1: the
+// LWP-conversion branch below now also sets is_lwp_override/
+// lwp_override_reason on the row — those columns already existed on
+// leave_requests but were never written, so GET /api/leave/violations
+// would otherwise have nothing to detect for this category. This is a
+// bug fix to the column D4-1 is defined against, not a contract change.
 export async function POST(req: NextRequest) {
   const sessionClient = await createLeaveClient();
   const { data: { user } } = await sessionClient.auth.getUser();
@@ -156,7 +163,11 @@ export async function POST(req: NextRequest) {
     if (!lwpError && lwpType) {
       const { error: retypeError } = await service
         .from('leave_requests')
-        .update({ leave_type_id: lwpType.id })
+        .update({
+          leave_type_id: lwpType.id,
+          is_lwp_override: true,
+          lwp_override_reason: `Insufficient ${leaveType.code} balance at time of recording — auto-converted to LWP.`,
+        })
         .eq('id', created.id);
 
       if (!retypeError) {

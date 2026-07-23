@@ -181,12 +181,18 @@ const STATUS_COLOR: Record<EffectiveStatus, string> = {
   half_day: 'bg-amber-500',
   weeklyoff: 'bg-slate-600',
   holiday: 'bg-violet-500',
+  // D7-3 (stretch): only ever populated where a caller opts in to
+  // getEffectiveStatus's 4th arg — see lib/useDashboardData.ts.
+  wfh: 'bg-teal-500',
+  business_travel: 'bg-indigo-500',
+  office_shutdown: 'bg-fuchsia-500',
 };
 
 const STATUS_LABEL: Record<EffectiveStatus, string> = {
   present: 'Present', absent: 'Absent', missed_punch_out: 'Missed Punch Out',
   leave_planned: 'Planned Leave', leave_casual: 'Casual Leave', leave_sick: 'Sick Leave',
   leave_lwp: 'LWP', half_day: 'Half Day', weeklyoff: 'Weekly Off', holiday: 'Holiday',
+  wfh: 'WFH', business_travel: 'Business Travel', office_shutdown: 'Office Shutdown',
 };
 
 function CalendarHeatmap({
