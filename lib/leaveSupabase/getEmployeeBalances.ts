@@ -29,9 +29,10 @@ type BalanceRow = {
 
 export async function getEmployeeBalancesByFY(
   supabase: SupabaseClient,
-  fyStartYear: number = getFYStartYear()
+  fyStartYear: number = getFYStartYear(),
+  employeeId?: string
 ): Promise<{ rows: EmployeeBalances[]; error: { message: string } | null }> {
-  const { data: balances, error } = await supabase
+  let query = supabase
     .from('leave_balances')
     .select(
       `
@@ -41,8 +42,17 @@ export async function getEmployeeBalancesByFY(
       employees ( full_name, employee_code, department, office )
     `
     )
-    .eq('fy_start_year', fyStartYear)
-    .returns<BalanceRow[]>();
+    .eq('fy_start_year', fyStartYear);
+
+  // Optional scope-down to a single employee — used by the Employee Modal's
+  // profile route (Day 2) so it doesn't have to pull every employee's
+  // balance rows just to show one person's SL/CL/PL/LWP figures. Existing
+  // callers that omit this keep getting the full-roster pivot unchanged.
+  if (employeeId) {
+    query = query.eq('employee_id', employeeId);
+  }
+
+  const { data: balances, error } = await query.returns<BalanceRow[]>();
 
   // Pivot: one row per employee, columns SL/CL/PL/LWP
   const byEmployee = new Map<string, EmployeeBalances>();

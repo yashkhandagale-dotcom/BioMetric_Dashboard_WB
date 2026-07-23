@@ -1,6 +1,5 @@
 'use client';
 
-import { useState } from 'react';
 import AdjustBalanceButton from '@/app/leave/admin/AdjustBalanceButton';
 import ViolationBadge from './ViolationBadge';
 
@@ -32,11 +31,14 @@ const STATUS_STYLES: Record<string, string> = {
 export default function EmployeeCard({
   employee,
   fyStartYear,
+  onViewProfile,
+  onRecordLeave,
 }: {
   employee: EmployeeWithBalances;
   fyStartYear: number;
+  onViewProfile: (employeeId: string) => void;
+  onRecordLeave: (employeeId: string) => void;
 }) {
-  const [showProfile, setShowProfile] = useState(false);
   const statusStyle = STATUS_STYLES[employee.employmentStatus] ?? STATUS_STYLES.active;
 
   return (
@@ -66,32 +68,26 @@ export default function EmployeeCard({
         <Balance label="LWP" value={Math.abs(employee.LWP)} amber />
       </div>
 
-      {showProfile && (
-        <div className="border border-slate-700 rounded-lg px-3 py-2 text-xs text-slate-300 space-y-1 bg-slate-900/40">
-          <p><span className="text-slate-500">Role:</span> {employee.role}</p>
-          <p><span className="text-slate-500">Employee code:</span> {employee.code}</p>
-          <p><span className="text-slate-500">Department:</span> {employee.department}</p>
-          <p><span className="text-slate-500">Office:</span> {employee.office}</p>
-          <p><span className="text-slate-500">Date of joining:</span> {employee.dateOfJoining}</p>
-          <p className="text-slate-500 italic pt-1">
-            Full tabbed profile (balances, leave timeline, violations) opens from here starting Day 2.
-          </p>
-        </div>
-      )}
-
       <div className="flex flex-wrap items-center gap-2 pt-1">
-        <a
-          href={`/leave/admin/leave?employee=${employee.id}`}
+        {/* D2-3: was a link to the now-removed /leave/admin/leave page —
+            opens the RecordLeaveDrawer (state lives in EmployeeGrid) so
+            HR never leaves the grid. */}
+        <button
+          type="button"
+          onClick={() => onRecordLeave(employee.id)}
           className="text-xs bg-blue-600 hover:bg-blue-500 text-white font-medium px-2.5 py-1.5 rounded-lg transition-colors"
         >
           Record Leave
-        </a>
+        </button>
+        {/* D2-1: was an inline expand/collapse panel — now opens the full
+            tabbed EmployeeModal (Overview, Balances, Leave Timeline,
+            Violations), exactly as the Day 1 placeholder text promised. */}
         <button
           type="button"
-          onClick={() => setShowProfile((v) => !v)}
+          onClick={() => onViewProfile(employee.id)}
           className="text-xs text-slate-400 hover:text-white border border-slate-700 hover:border-slate-500 rounded-lg px-2.5 py-1.5 transition-colors"
         >
-          {showProfile ? 'Hide Profile' : 'View Profile'}
+          View Profile
         </button>
         {/* Reused as-is from app/leave/admin/AdjustBalanceButton.tsx — not
             duplicated, per the "reuse existing components" constraint. */}

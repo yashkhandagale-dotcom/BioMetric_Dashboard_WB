@@ -1,7 +1,10 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import EmployeeCard, { EmployeeWithBalances } from './EmployeeCard';
+import EmployeeModal from './EmployeeModal';
+import RecordLeaveDrawer from './RecordLeaveDrawer';
 
 const STATUS_OPTIONS = [
   { value: 'probation', label: 'Probation' },
@@ -17,10 +20,32 @@ export default function EmployeeGrid({
   employees: EmployeeWithBalances[];
   fyStartYear: number;
 }) {
+  const router = useRouter();
+
   const [search, setSearch] = useState('');
   const [department, setDepartment] = useState('');
   const [office, setOffice] = useState('');
   const [status, setStatus] = useState('');
+
+  // D2-1 / D2-3: which employee's modal/drawer is open, if any. Both can
+  // be open at once (the modal's own "Record Leave" action opens the
+  // drawer on top of it) — see EmployeeModal's onRecordLeave prop below.
+  const [profileEmployeeId, setProfileEmployeeId] = useState<string | null>(null);
+  const [drawerEmployeeId, setDrawerEmployeeId] = useState<string | null>(null);
+  // Bumped whenever a leave is successfully recorded, so the open
+  // EmployeeModal (if any) knows to refetch its Balances / Leave Timeline
+  // tabs instead of showing what it fetched before the save.
+  const [refreshSignal, setRefreshSignal] = useState(0);
+
+  function handleDrawerSuccess() {
+    setRefreshSignal((s) => s + 1);
+    // This page's balances come from a Server Component (getEmployeeBalancesByFY
+    // in app/leave/admin/employees/page.tsx) — router.refresh() re-runs that
+    // fetch and re-renders with fresh props in place, without a full page
+    // reload/navigation, so every card's balances (not just the one the
+    // drawer was open for) stay in sync with what was just recorded.
+    router.refresh();
+  }
 
   // Filter options are derived from the data itself (departments/offices
   // are free text on the employees table, not a fixed enum) rather than
@@ -46,6 +71,7 @@ export default function EmployeeGrid({
   }, [employees, search, department, office, status]);
 
   const hasActiveFilters = !!(search || department || office || status);
+  const drawerEmployee = employees.find((e) => e.id === drawerEmployeeId);
 
   return (
     <div className="space-y-4">
@@ -118,9 +144,33 @@ export default function EmployeeGrid({
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {filtered.map((e) => (
-            <EmployeeCard key={e.id} employee={e} fyStartYear={fyStartYear} />
+            <EmployeeCard
+              key={e.id}
+              employee={e}
+              fyStartYear={fyStartYear}
+              onViewProfile={setProfileEmployeeId}
+              onRecordLeave={setDrawerEmployeeId}
+            />
           ))}
         </div>
+      )}
+
+      {profileEmployeeId && (
+        <EmployeeModal
+          employeeId={profileEmployeeId}
+          refreshSignal={refreshSignal}
+          onClose={() => setProfileEmployeeId(null)}
+          onRecordLeave={setDrawerEmployeeId}
+        />
+      )}
+
+      {drawerEmployeeId && (
+        <RecordLeaveDrawer
+          employeeId={drawerEmployeeId}
+          employeeName={drawerEmployee?.name}
+          onClose={() => setDrawerEmployeeId(null)}
+          onSuccess={handleDrawerSuccess}
+        />
       )}
     </div>
   );

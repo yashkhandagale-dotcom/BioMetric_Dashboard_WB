@@ -6,6 +6,12 @@ import { createServiceClient as createDashboardServiceClient } from '@/lib/supab
 // Manager" dropdowns via GET /api/leave/employees?role=tech_lead|manager.
 // This was previously missing here (only POST existed), which made the
 // dropdown fetch 405.
+//
+// D2/D3: also reused, unfiltered, by components/leave/RecordLeaveForm.tsx
+// (the drawer's employee search) and app/leave/admin/history/page.tsx
+// (department/office filter options) — department/office were added to
+// the select below for that reuse; existing callers that only read
+// id/full_name/employee_code/role are unaffected.
 export async function GET(req: NextRequest) {
   try {
     const sessionClient = await createLeaveClient();
@@ -17,7 +23,7 @@ export async function GET(req: NextRequest) {
     const role = req.nextUrl.searchParams.get('role'); // 'tech_lead' | 'manager' | null (= all)
     let query = sessionClient
       .from('employees')
-      .select('id, full_name, employee_code, role')
+      .select('id, full_name, employee_code, role, department, office')
       .order('full_name');
     if (role) query = query.eq('role', role);
 

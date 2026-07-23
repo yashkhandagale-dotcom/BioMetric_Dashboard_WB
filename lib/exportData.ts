@@ -318,3 +318,22 @@ export function exportCSV(
   a.click();
   URL.revokeObjectURL(url);
 }
+
+// D3-3: generic CSV export, reusing the exact same Papa.unparse + BOM +
+// Blob-download pattern as exportCSV above, for callers that already
+// have their own plain row objects (e.g. the Leave History page) rather
+// than AttendanceRecord[]. Kept separate from exportCSV rather than
+// generalizing that function's signature — exportCSV's attendance-specific
+// logic (flags, late/early computation) stays untouched, per the
+// "never rewrite existing working logic unnecessarily" constraint.
+export function exportRowsAsCSV(rows: Record<string, string | number | boolean>[], filename: string): void {
+  const csv = Papa.unparse(rows);
+  const bom = '\uFEFF';
+  const blob = new Blob([bom + csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
