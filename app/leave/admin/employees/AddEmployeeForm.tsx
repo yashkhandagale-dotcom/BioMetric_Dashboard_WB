@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 const ROLES = ['employee', 'tech_lead', 'manager', 'hr', 'hr_super_admin'];
 
 type PersonOption = { id: string; full_name: string; employee_code: string };
+type TeamOption = { id: string; name: string; managerId: string | null; managerName: string | null };
 
 export default function AddEmployeeForm() {
   const router = useRouter();
@@ -16,14 +17,17 @@ export default function AddEmployeeForm() {
     department: '',
     office: '',
     date_of_joining: '',
+    team_id: '',
     reporting_tech_lead_id: '',
     reporting_manager_id: '',
   });
+  const [managedTeamIds, setManagedTeamIds] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [warning, setWarning] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [techLeads, setTechLeads] = useState<PersonOption[]>([]);
   const [managers, setManagers] = useState<PersonOption[]>([]);
+  const [teams, setTeams] = useState<TeamOption[]>([]);
 
   useEffect(() => {
     async function loadOptions(role: string, setOptions: (v: PersonOption[]) => void) {
@@ -39,8 +43,21 @@ export default function AddEmployeeForm() {
         // Reporting hierarchy is optional, so this must never block the form.
       }
     }
+    async function loadTeams() {
+      try {
+        const res = await fetch('/api/leave/teams');
+        if (!res.ok) return;
+        const text = await res.text();
+        if (!text) return;
+        const data = JSON.parse(text);
+        setTeams(data.teams ?? []);
+      } catch {
+        // Team dropdown just stays empty.
+      }
+    }
     loadOptions('tech_lead', setTechLeads);
     loadOptions('manager', setManagers);
+    loadTeams();
   }, []);
 
   function update(field: string, value: string) {
@@ -58,7 +75,7 @@ export default function AddEmployeeForm() {
       res = await fetch('/api/leave/employees', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(form),
+        body: JSON.stringify({ ...form, managed_team_ids: managedTeamIds }),
       });
       const text = await res.text();
       body = text ? JSON.parse(text) : {};
@@ -77,9 +94,10 @@ export default function AddEmployeeForm() {
     }
     setForm({
       employee_code: '', full_name: '', email: '', role: 'employee',
-      department: '', office: '', date_of_joining: '',
+      department: '', office: '', date_of_joining: '', team_id: '',
       reporting_tech_lead_id: '', reporting_manager_id: '',
     });
+    setManagedTeamIds([]);
     router.refresh();
   }
 
@@ -113,32 +131,76 @@ export default function AddEmployeeForm() {
         <Field label="Department" value={form.department} onChange={(v) => update('department', v)} required />
         <Field label="Office" value={form.office} onChange={(v) => update('office', v)} required />
         <Field label="Date of Joining" value={form.date_of_joining} onChange={(v) => update('date_of_joining', v)} type="date" required />
-        <div>
-          <label className="block text-xs text-slate-400 mb-1">Reporting Tech Lead</label>
-          <select
-            value={form.reporting_tech_lead_id}
-            onChange={(e) => update('reporting_tech_lead_id', e.target.value)}
-            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
-          >
-            <option value="">— None —</option>
-            {techLeads.map((p) => (
-              <option key={p.id} value={p.id}>{p.full_name} ({p.employee_code})</option>
-            ))}
-          </select>
-        </div>
-        <div>
-          <label className="block text-xs text-slate-400 mb-1">Reporting Manager</label>
-          <select
-            value={form.reporting_manager_id}
-            onChange={(e) => update('reporting_manager_id', e.target.value)}
-            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
-          >
-            <option value="">— None —</option>
-            {managers.map((p) => (
-              <option key={p.id} value={p.id}>{p.full_name} ({p.employee_code})</option>
-            ))}
-          </select>
-        </div>
+        {(form.role === 'employee' || form.role === 'tech_lead') && (
+          <div>
+            <label className="block text-xs text-slate-400 mb-1">Team</label>
+            <select
+              value={form.team_id}
+              onChange={(e) => update('team_id', e.target.value)}
+              className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+              required
+            >
+              <option value="">— Select a team —</option>
+              {teams.map((t) => (
+                <option key={t.id} value={t.id}>
+                  {t.name}{t.managerName ? ` — managed by ${t.managerName}` : ''}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+        {form.role === 'employee' && (
+          <div>
+            <label className="block text-xs text-slate-400 mb-1">Reporting Tech Lead</label>
+            <select
+              value={form.reporting_tech_lead_id}
+              onChange={(e) => update('reporting_tech_lead_id', e.target.value)}
+              className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+            >
+              <option value="">— None —</option>
+              {techLeads.map((p) => (
+                <option key={p.id} value={p.id}>{p.full_name} ({p.employee_code})</option>
+              ))}
+            </select>
+          </div>
+        )}
+        {form.role === 'manager' && (
+          <>
+            <div>
+              <label className="block text-xs text-slate-400 mb-1">Teams Managed</label>
+              <div className="border border-slate-700 rounded-lg px-3 py-2 max-h-32 overflow-y-auto space-y-1 bg-slate-900">
+                {teams.length === 0 && <p className="text-slate-500 text-xs">No teams yet.</p>}
+                {teams.map((t) => (
+                  <label key={t.id} className="flex items-center gap-2 text-xs text-white cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={managedTeamIds.includes(t.id)}
+                      onChange={(e) =>
+                        setManagedTeamIds((ids) =>
+                          e.target.checked ? [...ids, t.id] : ids.filter((x) => x !== t.id)
+                        )
+                      }
+                    />
+                    <span>{t.name}{t.managerName ? ` (currently: ${t.managerName})` : ''}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs text-slate-400 mb-1">Reports To (Manager)</label>
+              <select
+                value={form.reporting_manager_id}
+                onChange={(e) => update('reporting_manager_id', e.target.value)}
+                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+              >
+                <option value="">— None —</option>
+                {managers.map((p) => (
+                  <option key={p.id} value={p.id}>{p.full_name} ({p.employee_code})</option>
+                ))}
+              </select>
+            </div>
+          </>
+        )}
       </div>
       <button
         type="submit"

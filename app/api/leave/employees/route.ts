@@ -57,17 +57,26 @@ export async function POST(req: NextRequest) {
     department,
     office,
     date_of_joining,
+    team_id,
     reporting_tech_lead_id,
     reporting_manager_id,
+    managed_team_ids, // string[] — only used when role === 'manager'
     notice_period_days,
   } = body;
 
   if (!employee_code || !full_name || !email || !role || !department || !office || !date_of_joining) {
     return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
   }
+  if ((role === 'employee' || role === 'tech_lead') && !team_id) {
+    return NextResponse.json({ error: 'A team is required for this role.' }, { status: 400 });
+  }
 
   const service = createLeaveServiceClient();
 
+  // Hierarchy fields are role-gated the same way the profile PATCH route
+  // gates them — see supabase-leave/006_teams_and_hierarchy.sql and
+  // app/api/leave/employees/[id]/profile/route.ts for the full rationale.
+  const isMember = role === 'employee' || role === 'tech_lead';
   const { data: employee, error: insertError } = await service
     .from('employees')
     .insert({
@@ -78,8 +87,9 @@ export async function POST(req: NextRequest) {
       department,
       office,
       date_of_joining,
-      reporting_tech_lead_id: reporting_tech_lead_id || null,
-      reporting_manager_id: reporting_manager_id || null,
+      team_id: isMember ? team_id || null : null,
+      reporting_tech_lead_id: role === 'employee' ? reporting_tech_lead_id || null : null,
+      reporting_manager_id: role === 'manager' ? reporting_manager_id || null : null,
       notice_period_days: notice_period_days || 30,
       employment_status: 'probation',
     })
@@ -88,6 +98,19 @@ export async function POST(req: NextRequest) {
 
   if (insertError) {
     return NextResponse.json({ error: insertError.message }, { status: 400 });
+  }
+
+  if (role === 'manager' && Array.isArray(managed_team_ids) && managed_team_ids.length > 0) {
+    const { error: teamErr } = await service
+      .from('teams')
+      .update({ manager_id: employee.id, updated_at: new Date().toISOString() })
+      .in('id', managed_team_ids);
+    if (teamErr) {
+      return NextResponse.json(
+        { error: `Employee created, but assigning teams failed: ${teamErr.message}`, employee },
+        { status: 207 }
+      );
+    }
   }
 
   const { error: prorateError } = await service.rpc('fn_prorate_new_joiner', {

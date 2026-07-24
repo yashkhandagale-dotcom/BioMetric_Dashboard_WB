@@ -29,20 +29,43 @@ export default async function LeaveAdminHome() {
 
   const fyStartYear = getFYStartYear();
 
-  const [{ data: employees, error: employeesError }, { rows: balances, error: balancesError }] = await Promise.all([
+  const [
+    { data: employees, error: employeesError },
+    { rows: balances, error: balancesError },
+    { data: teams, error: teamsError },
+  ] = await Promise.all([
     supabase
       .from('employees')
       .select(
-        'id, employee_code, full_name, department, office, role, employment_status, date_of_joining, reporting_tech_lead_id, reporting_manager_id'
+        'id, employee_code, full_name, department, office, role, employment_status, date_of_joining, team_id, reporting_tech_lead_id, reporting_manager_id'
       )
       .order('full_name'),
     getEmployeeBalancesByFY(supabase, fyStartYear),
+    supabase.from('teams').select('id, name, manager_id'),
   ]);
 
   const balancesById = new Map(balances.map((b) => [b.employeeId, b]));
+  const employeesById = new Map((employees ?? []).map((e) => [e.id, e]));
+  const teamsById = new Map((teams ?? []).map((t) => [t.id, t]));
+  // Every team a given manager currently manages — the "auto-updated
+  // everywhere" hierarchy is entirely driven off teams.manager_id, so this
+  // is the single source of truth both for a manager's card and for every
+  // team member's effective-manager lookup below.
+  const teamsByManagerId = new Map<string, { id: string; name: string }[]>();
+  for (const t of teams ?? []) {
+    if (!t.manager_id) continue;
+    const list = teamsByManagerId.get(t.manager_id) ?? [];
+    list.push({ id: t.id, name: t.name });
+    teamsByManagerId.set(t.manager_id, list);
+  }
 
   const merged: EmployeeWithBalances[] = (employees ?? []).map((e) => {
     const b = balancesById.get(e.id);
+    const team = e.team_id ? teamsById.get(e.team_id) : undefined;
+    const effectiveManager = team?.manager_id ? employeesById.get(team.manager_id) : undefined;
+    const techLead = e.reporting_tech_lead_id ? employeesById.get(e.reporting_tech_lead_id) : undefined;
+    const reportingManager = e.reporting_manager_id ? employeesById.get(e.reporting_manager_id) : undefined;
+
     return {
       id: e.id,
       code: e.employee_code,
@@ -52,8 +75,16 @@ export default async function LeaveAdminHome() {
       role: e.role,
       employmentStatus: e.employment_status,
       dateOfJoining: e.date_of_joining,
+      teamId: e.team_id,
+      teamName: team?.name ?? null,
+      // Derived, not stored — reassigning a team's manager changes this
+      // for every member automatically, with no per-employee write.
+      effectiveManagerName: e.role === 'manager' ? null : effectiveManager?.full_name ?? null,
       reportingTechLeadId: e.reporting_tech_lead_id,
+      techLeadName: e.role === 'employee' ? techLead?.full_name ?? null : null,
       reportingManagerId: e.reporting_manager_id,
+      reportingManagerName: e.role === 'manager' ? reportingManager?.full_name ?? null : null,
+      managedTeams: e.role === 'manager' ? teamsByManagerId.get(e.id) ?? [] : [],
       SL: b?.SL ?? 0,
       CL: b?.CL ?? 0,
       PL: b?.PL ?? 0,
@@ -65,7 +96,8 @@ export default async function LeaveAdminHome() {
     <div className="min-h-screen bg-slate-900 text-white p-8 space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-semibold">Leave Balances — {formatFYLabel(fyStartYear)}</h1>
+          <a href="/" className="text-xs text-slate-400 hover:text-white">← Back to Dashboard</a>
+          <h1 className="text-xl font-semibold mt-1">Leave Balances — {formatFYLabel(fyStartYear)}</h1>
           <p className="text-slate-500 text-xs mt-1">Signed in as {user?.email}</p>
         </div>
         <div className="flex items-center gap-2">
@@ -96,9 +128,9 @@ export default async function LeaveAdminHome() {
         </div>
       </div>
 
-      {(employeesError || balancesError) && (
+      {(employeesError || balancesError || teamsError) && (
         <div className="bg-red-900/30 border border-red-500/30 text-red-300 text-xs rounded-lg px-3 py-2">
-          {employeesError?.message || balancesError?.message}
+          {employeesError?.message || balancesError?.message || teamsError?.message}
         </div>
       )}
 
