@@ -32,37 +32,38 @@ export default async function LeaveAdminHome() {
   const [
     { data: employees, error: employeesError },
     { rows: balances, error: balancesError },
-    { data: teams, error: teamsError },
+    { data: deptManagers, error: deptManagersError },
   ] = await Promise.all([
     supabase
       .from('employees')
       .select(
-        'id, employee_code, full_name, department, office, role, employment_status, date_of_joining, team_id, reporting_tech_lead_id, reporting_manager_id'
+        'id, employee_code, full_name, department, office, role, employment_status, date_of_joining, reporting_tech_lead_id, reporting_manager_id'
       )
       .order('full_name'),
     getEmployeeBalancesByFY(supabase, fyStartYear),
-    supabase.from('teams').select('id, name, manager_id'),
+    supabase.from('department_managers').select('department, manager_id'),
   ]);
 
   const balancesById = new Map(balances.map((b) => [b.employeeId, b]));
   const employeesById = new Map((employees ?? []).map((e) => [e.id, e]));
-  const teamsById = new Map((teams ?? []).map((t) => [t.id, t]));
-  // Every team a given manager currently manages — the "auto-updated
-  // everywhere" hierarchy is entirely driven off teams.manager_id, so this
-  // is the single source of truth both for a manager's card and for every
-  // team member's effective-manager lookup below.
-  const teamsByManagerId = new Map<string, { id: string; name: string }[]>();
-  for (const t of teams ?? []) {
-    if (!t.manager_id) continue;
-    const list = teamsByManagerId.get(t.manager_id) ?? [];
-    list.push({ id: t.id, name: t.name });
-    teamsByManagerId.set(t.manager_id, list);
+  const managerIdByDept = new Map((deptManagers ?? []).map((d) => [d.department, d.manager_id]));
+  // Every department a given manager currently manages — the
+  // "auto-updated everywhere" hierarchy is entirely driven off
+  // department_managers.manager_id, so this is the single source of
+  // truth both for a manager's card and for every department member's
+  // effective-manager lookup below.
+  const departmentsByManagerId = new Map<string, string[]>();
+  for (const d of deptManagers ?? []) {
+    if (!d.manager_id) continue;
+    const list = departmentsByManagerId.get(d.manager_id) ?? [];
+    list.push(d.department);
+    departmentsByManagerId.set(d.manager_id, list);
   }
 
   const merged: EmployeeWithBalances[] = (employees ?? []).map((e) => {
     const b = balancesById.get(e.id);
-    const team = e.team_id ? teamsById.get(e.team_id) : undefined;
-    const effectiveManager = team?.manager_id ? employeesById.get(team.manager_id) : undefined;
+    const effectiveManagerId = managerIdByDept.get(e.department) ?? null;
+    const effectiveManager = effectiveManagerId ? employeesById.get(effectiveManagerId) : undefined;
     const techLead = e.reporting_tech_lead_id ? employeesById.get(e.reporting_tech_lead_id) : undefined;
     const reportingManager = e.reporting_manager_id ? employeesById.get(e.reporting_manager_id) : undefined;
 
@@ -75,16 +76,14 @@ export default async function LeaveAdminHome() {
       role: e.role,
       employmentStatus: e.employment_status,
       dateOfJoining: e.date_of_joining,
-      teamId: e.team_id,
-      teamName: team?.name ?? null,
-      // Derived, not stored — reassigning a team's manager changes this
-      // for every member automatically, with no per-employee write.
+      // Derived, not stored — reassigning a department's manager changes
+      // this for every member automatically, with no per-employee write.
       effectiveManagerName: e.role === 'manager' ? null : effectiveManager?.full_name ?? null,
       reportingTechLeadId: e.reporting_tech_lead_id,
       techLeadName: e.role === 'employee' ? techLead?.full_name ?? null : null,
       reportingManagerId: e.reporting_manager_id,
       reportingManagerName: e.role === 'manager' ? reportingManager?.full_name ?? null : null,
-      managedTeams: e.role === 'manager' ? teamsByManagerId.get(e.id) ?? [] : [],
+      managedDepartments: e.role === 'manager' ? departmentsByManagerId.get(e.id) ?? [] : [],
       SL: b?.SL ?? 0,
       CL: b?.CL ?? 0,
       PL: b?.PL ?? 0,
@@ -128,9 +127,9 @@ export default async function LeaveAdminHome() {
         </div>
       </div>
 
-      {(employeesError || balancesError || teamsError) && (
+      {(employeesError || balancesError || deptManagersError) && (
         <div className="bg-red-900/30 border border-red-500/30 text-red-300 text-xs rounded-lg px-3 py-2">
-          {employeesError?.message || balancesError?.message || teamsError?.message}
+          {employeesError?.message || balancesError?.message || deptManagersError?.message}
         </div>
       )}
 

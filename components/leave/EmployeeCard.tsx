@@ -15,16 +15,14 @@ export type EmployeeWithBalances = {
   role: string;
   employmentStatus: string;
   dateOfJoining: string;
-  teamId?: string | null;
-  teamName?: string | null;
-  // Derived from the team's manager, not stored per-employee — see
-  // supabase-leave/006_teams_and_hierarchy.sql.
+  // Derived from the department's manager, not stored per-employee — see
+  // supabase-leave/schema.sql's 006_department_managers.sql.
   effectiveManagerName?: string | null;
   reportingTechLeadId: string | null;
   techLeadName?: string | null;
   reportingManagerId: string | null;
   reportingManagerName?: string | null;
-  managedTeams?: { id: string; name: string }[];
+  managedDepartments?: string[];
   SL: number;
   CL: number;
   PL: number;
@@ -111,10 +109,9 @@ export default function EmployeeCard({
           fyStartYear={fyStartYear}
           currentRole={employee.role}
           currentStatus={employee.employmentStatus}
-          currentTeamId={employee.teamId}
           currentTechLeadId={employee.reportingTechLeadId}
           currentManagerId={employee.reportingManagerId}
-          currentManagedTeamIds={(employee.managedTeams ?? []).map((t) => t.id)}
+          currentManagedDepartments={employee.managedDepartments ?? []}
         />
       </div>
     </div>
@@ -130,17 +127,18 @@ function Balance({ label, value, amber }: { label: string; value: number; amber?
   );
 }
 
-// Shows where this person sits in the org: team + (derived) manager for
-// employees/tech leads, or the teams they manage + who they report to for
-// managers. Nothing here is editable — it's read-only, sourced from the
-// Adjust → Details tab.
+// Shows where this person sits in the org: (derived) manager for
+// employees/tech leads — department itself is already shown in the card
+// header above — or the departments they manage + who they report to
+// for managers. Nothing here is editable — it's read-only, sourced from
+// the Adjust → Details tab.
 function HierarchyLine({ employee }: { employee: EmployeeWithBalances }) {
   if (employee.role === 'manager') {
-    const teams = employee.managedTeams ?? [];
+    const departments = employee.managedDepartments ?? [];
     return (
       <div className="text-xs text-slate-500 space-y-0.5">
         <p>
-          Manages: {teams.length > 0 ? teams.map((t) => t.name).join(', ') : <span className="italic">no team assigned</span>}
+          Manages: {departments.length > 0 ? departments.join(', ') : <span className="italic">no department assigned</span>}
         </p>
         {employee.reportingManagerName && <p>Reports to {employee.reportingManagerName}</p>}
       </div>
@@ -150,7 +148,6 @@ function HierarchyLine({ employee }: { employee: EmployeeWithBalances }) {
   if (employee.role === 'employee' || employee.role === 'tech_lead') {
     return (
       <div className="text-xs text-slate-500 space-y-0.5">
-        <p>Team: {employee.teamName || <span className="italic">not assigned</span>}</p>
         {employee.effectiveManagerName && <p>Manager: {employee.effectiveManagerName}</p>}
         {employee.role === 'employee' && employee.techLeadName && <p>Tech Lead: {employee.techLeadName}</p>}
       </div>

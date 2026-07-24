@@ -49,7 +49,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
         supabase
           .from('employees')
           .select(
-            'id, employee_code, full_name, email, role, department, office, employment_status, date_of_joining, notice_period_days, team_id, reporting_tech_lead_id, reporting_manager_id'
+            'id, employee_code, full_name, email, role, department, office, employment_status, date_of_joining, notice_period_days, reporting_tech_lead_id, reporting_manager_id'
           )
           .eq('id', id)
           .maybeSingle(),
@@ -86,29 +86,27 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 
     // Hierarchy resolution — mirrors app/leave/admin/page.tsx's logic so
     // this modal never disagrees with the grid about who reports to whom.
-    // employee/tech_lead: effective manager is derived from team_id ->
-    // teams.manager_id (never employees.reporting_manager_id — see
-    // supabase-leave/006_teams_and_hierarchy.sql). manager: shows the
-    // team(s) they manage plus who THEY report to.
-    let teamName: string | null = null;
+    // employee/tech_lead: effective manager is derived from department ->
+    // department_managers.manager_id (never employees.reporting_manager_id
+    // — see supabase-leave/schema.sql's 006_department_managers.sql).
+    // manager: shows the department(s) they manage plus who THEY report to.
     let effectiveManagerName: string | null = null;
     let techLeadName: string | null = null;
     let reportingManagerName: string | null = null;
-    let managedTeams: { id: string; name: string }[] = [];
+    let managedDepartments: string[] = [];
 
     if (employee.role === 'employee' || employee.role === 'tech_lead') {
-      if (employee.team_id) {
-        const { data: team } = await supabase
-          .from('teams')
-          .select('name, manager_id')
-          .eq('id', employee.team_id)
+      if (employee.department) {
+        const { data: deptMgr } = await supabase
+          .from('department_managers')
+          .select('manager_id')
+          .eq('department', employee.department)
           .maybeSingle();
-        teamName = team?.name ?? null;
-        if (team?.manager_id) {
+        if (deptMgr?.manager_id) {
           const { data: mgr } = await supabase
             .from('employees')
             .select('full_name')
-            .eq('id', team.manager_id)
+            .eq('id', deptMgr.manager_id)
             .maybeSingle();
           effectiveManagerName = mgr?.full_name ?? null;
         }
@@ -122,8 +120,11 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
         techLeadName = tl?.full_name ?? null;
       }
     } else if (employee.role === 'manager') {
-      const { data: teams } = await supabase.from('teams').select('id, name').eq('manager_id', employee.id);
-      managedTeams = teams ?? [];
+      const { data: depts } = await supabase
+        .from('department_managers')
+        .select('department')
+        .eq('manager_id', employee.id);
+      managedDepartments = (depts ?? []).map((d) => d.department);
       if (employee.reporting_manager_id) {
         const { data: mgr } = await supabase
           .from('employees')
@@ -162,14 +163,12 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
         employmentStatus: employee.employment_status,
         dateOfJoining: employee.date_of_joining,
         noticePeriodDays: employee.notice_period_days,
-        teamId: employee.team_id,
-        teamName,
         effectiveManagerName,
         techLeadId: employee.reporting_tech_lead_id,
         techLeadName,
         reportingManagerId: employee.reporting_manager_id,
         reportingManagerName,
-        managedTeams,
+        managedDepartments,
       },
       balances: {
         SL: b?.SL ?? 0,
@@ -210,10 +209,9 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const {
     role,
     employment_status,
-    team_id,
     reporting_tech_lead_id,
     reporting_manager_id,
-    managed_team_ids, // string[] — only meaningful when role (new or existing) === 'manager'
+    managed_departments, // string[] — only meaningful when role (new or existing) === 'manager'
   } = body;
 
   // Need the CURRENT role to know which hierarchy fields are even valid
@@ -247,23 +245,17 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   }
 
   // ── Hierarchy fields, gated by the RESOLVED role ──────────────────────
-  // employee: team_id (required-ish) + reporting_tech_lead_id (from any
-  //   tech_lead, company-wide — not team-filtered, by design).
-  // tech_lead: team_id only. No tech lead of their own, no manager field
-  //   (their manager is derived from their team).
-  // manager: no team_id, no reporting_tech_lead_id. Instead
-  //   reporting_manager_id (must be another employee with role=manager)
-  //   and managed_team_ids (this manager's teams — can be several).
+  // employee: department (owned by CSV sync, not editable here) +
+  //   reporting_tech_lead_id (from any tech_lead, company-wide — not
+  //   department-filtered, by design).
+  // tech_lead: no fields of their own here. No tech lead of their own,
+  //   no manager field (their manager is derived from their department
+  //   via department_managers).
+  // manager: no reporting_tech_lead_id. Instead reporting_manager_id
+  //   (must be another employee with role=manager) and
+  //   managed_departments (this manager's departments — can be several).
   // hr / hr_super_admin: none of the above apply; all cleared.
   if (resolvedRole === 'employee' || resolvedRole === 'tech_lead') {
-    if (team_id !== undefined) {
-      if (team_id) {
-        const { data: team, error: teamErr } = await supabase.from('teams').select('id').eq('id', team_id).maybeSingle();
-        if (teamErr) return NextResponse.json({ error: teamErr.message }, { status: 400 });
-        if (!team) return NextResponse.json({ error: 'Selected team does not exist.' }, { status: 400 });
-      }
-      update.team_id = team_id || null;
-    }
     // Not applicable to these roles — always cleared, regardless of what
     // was sent, so a stale value from before a role change can't linger.
     update.reporting_manager_id = null;
@@ -291,7 +283,6 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
       update.reporting_tech_lead_id = null;
     }
   } else if (resolvedRole === 'manager') {
-    update.team_id = null;
     update.reporting_tech_lead_id = null;
 
     if (reporting_manager_id !== undefined) {
@@ -313,12 +304,11 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     }
   } else {
     // hr / hr_super_admin
-    update.team_id = null;
     update.reporting_tech_lead_id = null;
     update.reporting_manager_id = null;
   }
 
-  if (Object.keys(update).length === 1 && managed_team_ids === undefined) {
+  if (Object.keys(update).length === 1 && managed_departments === undefined) {
     return NextResponse.json({ error: 'Nothing to update.' }, { status: 400 });
   }
 
@@ -326,7 +316,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     .from('employees')
     .update(update)
     .eq('id', id)
-    .select('id, role, employment_status, team_id, reporting_tech_lead_id, reporting_manager_id')
+    .select('id, role, employment_status, department, reporting_tech_lead_id, reporting_manager_id')
     .maybeSingle();
 
   if (error) {
@@ -336,38 +326,45 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     return NextResponse.json({ error: 'Employee not found.' }, { status: 404 });
   }
 
-  // ── Sync which teams this manager manages ─────────────────────────────
-  // This is the "auto-updated everywhere" step: reassigning teams.manager_id
-  // here is the ONLY write that changes who a team's employees resolve to
-  // as their effective manager (see GET above and app/leave/admin/page.tsx) —
-  // there's nothing to update per-employee. Uses the service client since
-  // this can touch teams the current session didn't create.
-  if (resolvedRole === 'manager' && Array.isArray(managed_team_ids)) {
+  // ── Sync which departments this manager manages ────────────────────────
+  // This is the "auto-updated everywhere" step: reassigning a department's
+  // manager_id here is the ONLY write that changes who a department's
+  // employees resolve to as their effective manager (see GET above and
+  // app/leave/admin/page.tsx) — there's nothing to update per-employee.
+  // Uses the service client since this can touch departments the current
+  // session's row-level scope didn't create.
+  if (resolvedRole === 'manager' && Array.isArray(managed_departments)) {
     const service = createLeaveServiceClient();
-    const desired = new Set<string>(managed_team_ids);
+    const desired = new Set<string>(managed_departments);
 
-    const { data: currentlyManaged, error: curErr } = await service.from('teams').select('id').eq('manager_id', id);
+    const { data: currentlyManaged, error: curErr } = await service
+      .from('department_managers')
+      .select('department')
+      .eq('manager_id', id);
     if (curErr) {
-      return NextResponse.json({ error: `Saved, but could not read current teams: ${curErr.message}`, employee: data }, { status: 207 });
+      return NextResponse.json({ error: `Saved, but could not read current departments: ${curErr.message}`, employee: data }, { status: 207 });
     }
-    const currentIds = new Set((currentlyManaged ?? []).map((t) => t.id));
+    const currentDepts = new Set((currentlyManaged ?? []).map((d) => d.department));
 
-    const toAdd = [...desired].filter((tid) => !currentIds.has(tid));
-    const toRemove = [...currentIds].filter((tid) => !desired.has(tid));
+    const toAdd = [...desired].filter((d) => !currentDepts.has(d));
+    const toRemove = [...currentDepts].filter((d) => !desired.has(d));
 
     if (toAdd.length > 0) {
-      const { error: addErr } = await service.from('teams').update({ manager_id: id, updated_at: new Date().toISOString() }).in('id', toAdd);
+      const { error: addErr } = await service.from('department_managers').upsert(
+        toAdd.map((department) => ({ department, manager_id: id, updated_at: new Date().toISOString() })),
+        { onConflict: 'department' }
+      );
       if (addErr) {
-        return NextResponse.json({ error: `Saved, but failed to assign some teams: ${addErr.message}`, employee: data }, { status: 207 });
+        return NextResponse.json({ error: `Saved, but failed to assign some departments: ${addErr.message}`, employee: data }, { status: 207 });
       }
     }
     if (toRemove.length > 0) {
       const { error: removeErr } = await service
-        .from('teams')
+        .from('department_managers')
         .update({ manager_id: null, updated_at: new Date().toISOString() })
-        .in('id', toRemove);
+        .in('department', toRemove);
       if (removeErr) {
-        return NextResponse.json({ error: `Saved, but failed to unassign some teams: ${removeErr.message}`, employee: data }, { status: 207 });
+        return NextResponse.json({ error: `Saved, but failed to unassign some departments: ${removeErr.message}`, employee: data }, { status: 207 });
       }
     }
   }

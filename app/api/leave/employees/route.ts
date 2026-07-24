@@ -57,26 +57,22 @@ export async function POST(req: NextRequest) {
     department,
     office,
     date_of_joining,
-    team_id,
     reporting_tech_lead_id,
     reporting_manager_id,
-    managed_team_ids, // string[] — only used when role === 'manager'
+    managed_departments, // string[] — only used when role === 'manager'
     notice_period_days,
   } = body;
 
   if (!employee_code || !full_name || !email || !role || !department || !office || !date_of_joining) {
     return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
   }
-  if ((role === 'employee' || role === 'tech_lead') && !team_id) {
-    return NextResponse.json({ error: 'A team is required for this role.' }, { status: 400 });
-  }
 
   const service = createLeaveServiceClient();
 
   // Hierarchy fields are role-gated the same way the profile PATCH route
-  // gates them — see supabase-leave/006_teams_and_hierarchy.sql and
-  // app/api/leave/employees/[id]/profile/route.ts for the full rationale.
-  const isMember = role === 'employee' || role === 'tech_lead';
+  // gates them — see app/api/leave/employees/[id]/profile/route.ts for
+  // the full rationale. Grouping itself is just `department` (already
+  // required above) — there is no separate team concept.
   const { data: employee, error: insertError } = await service
     .from('employees')
     .insert({
@@ -87,7 +83,6 @@ export async function POST(req: NextRequest) {
       department,
       office,
       date_of_joining,
-      team_id: isMember ? team_id || null : null,
       reporting_tech_lead_id: role === 'employee' ? reporting_tech_lead_id || null : null,
       reporting_manager_id: role === 'manager' ? reporting_manager_id || null : null,
       notice_period_days: notice_period_days || 30,
@@ -100,14 +95,20 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: insertError.message }, { status: 400 });
   }
 
-  if (role === 'manager' && Array.isArray(managed_team_ids) && managed_team_ids.length > 0) {
-    const { error: teamErr } = await service
-      .from('teams')
-      .update({ manager_id: employee.id, updated_at: new Date().toISOString() })
-      .in('id', managed_team_ids);
-    if (teamErr) {
+  if (role === 'manager' && Array.isArray(managed_departments) && managed_departments.length > 0) {
+    const { error: deptErr } = await service
+      .from('department_managers')
+      .upsert(
+        managed_departments.map((department: string) => ({
+          department,
+          manager_id: employee.id,
+          updated_at: new Date().toISOString(),
+        })),
+        { onConflict: 'department' }
+      );
+    if (deptErr) {
       return NextResponse.json(
-        { error: `Employee created, but assigning teams failed: ${teamErr.message}`, employee },
+        { error: `Employee created, but assigning departments failed: ${deptErr.message}`, employee },
         { status: 207 }
       );
     }
