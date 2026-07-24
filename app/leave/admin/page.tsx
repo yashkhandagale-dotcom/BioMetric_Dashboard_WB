@@ -3,6 +3,9 @@ import { getFYStartYear, formatFYLabel } from '@/lib/leaveSupabase/fyHelpers';
 import { getEmployeeBalancesByFY } from '@/lib/leaveSupabase/getEmployeeBalances';
 import EmployeeGrid from '@/components/leave/EmployeeGrid';
 import type { EmployeeWithBalances } from '@/components/leave/EmployeeCard';
+import TodaysAbsenteesAccordion from '@/components/leave/TodaysAbsenteesAccordion';
+import PossibleHalfDayAccordion from '@/components/leave/PossibleHalfDayAccordion';
+import PolicyInfoButton from '@/components/leave/PolicyInfoButton';
 
 // This page used to show a plain balances-only table (Code/Name/Dept/
 // Office/SL/CL/PL/LWP + an Adjust button) and link out to a separate
@@ -124,6 +127,13 @@ export default async function LeaveAdminHome() {
           >
             Bulk Events
           </a>
+          <a
+            href="/leave/admin/organization"
+            className="border border-slate-700 hover:border-slate-500 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+          >
+            Organization
+          </a>
+          <PolicyInfoButton />
         </div>
       </div>
 
@@ -132,6 +142,17 @@ export default async function LeaveAdminHome() {
           {employeesError?.message || balancesError?.message || deptManagersError?.message}
         </div>
       )}
+
+      {/* Attendance-exception review — separate from the balances grid
+          below on purpose: these accordions are about today's punch data
+          (biometric CSV), the grid below is about employee/balance
+          records. Both write into the same leave_requests table via the
+          same RecordLeaveDrawer, so nothing about "record leave" is
+          duplicated between them. */}
+      <div className="space-y-3">
+        <TodaysAbsenteesAccordion />
+        <PossibleHalfDayAccordion />
+      </div>
 
       <EmployeeGrid employees={merged} fyStartYear={fyStartYear} />
     </div>

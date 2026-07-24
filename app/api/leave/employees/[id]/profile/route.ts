@@ -299,6 +299,30 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         if (!mgr || mgr.role !== 'manager') {
           return NextResponse.json({ error: 'A manager can only report to another employee with role = manager.' }, { status: 400 });
         }
+        // Circular-hierarchy guard: walk the proposed manager's existing
+        // reporting_manager_id chain upward. If `id` (the employee being
+        // edited) appears anywhere in that chain, setting reporting_manager_id
+        // = reporting_manager_id here would close a loop (e.g. A → B → C → A).
+        // The immediate self-report check above only catches a 1-hop cycle;
+        // this catches any length.
+        let cursor: string | null = reporting_manager_id;
+        const seen = new Set<string>();
+        while (cursor) {
+          if (cursor === id) {
+            return NextResponse.json(
+              { error: 'This assignment would create a circular reporting chain (this employee already appears above the selected manager).' },
+              { status: 400 }
+            );
+          }
+          if (seen.has(cursor)) break; // pre-existing bad data — don't infinite-loop, just stop
+          seen.add(cursor);
+          const { data: next } = await supabase
+            .from('employees')
+            .select('reporting_manager_id')
+            .eq('id', cursor)
+            .maybeSingle();
+          cursor = next?.reporting_manager_id ?? null;
+        }
       }
       update.reporting_manager_id = reporting_manager_id || null;
     }

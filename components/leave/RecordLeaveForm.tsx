@@ -34,19 +34,30 @@ export type SubmitResult = {
 // handling, and the policy-notes/LWP-conversion messaging are unchanged.
 export default function RecordLeaveForm({
   presetEmployeeId,
+  presetDate,
+  presetIsHalfDay,
+  presetLeaveTypeCode,
   onSuccess,
 }: {
   presetEmployeeId?: string;
+  // Additive preset props — used by the Possible Half Day accordion's
+  // "Mark Half Day" action to prefill the exact date already under review
+  // and default to a half-day submission, without changing any existing
+  // caller (RecordLeaveDrawer's plain "Record Leave" usage is unaffected
+  // since these are all optional).
+  presetDate?: string;
+  presetIsHalfDay?: boolean;
+  presetLeaveTypeCode?: 'SL' | 'CL' | 'PL' | 'LWP';
   onSuccess?: (result: SubmitResult) => void;
 }) {
   const [employees, setEmployees] = useState<EmployeeOption[]>([]);
   const [employeeSearch, setEmployeeSearch] = useState('');
   const [employeeId, setEmployeeId] = useState<string>('');
 
-  const [leaveTypeCode, setLeaveTypeCode] = useState<'SL' | 'CL' | 'PL' | 'LWP'>('SL');
-  const [isHalfDay, setIsHalfDay] = useState(false);
+  const [leaveTypeCode, setLeaveTypeCode] = useState<'SL' | 'CL' | 'PL' | 'LWP'>(presetLeaveTypeCode ?? 'SL');
+  const [isHalfDay, setIsHalfDay] = useState(presetIsHalfDay ?? false);
   const [halfDaySession, setHalfDaySession] = useState<'AM' | 'PM'>('AM');
-  const [startDate, setStartDate] = useState('');
+  const [startDate, setStartDate] = useState(presetDate ?? '');
   const [endDate, setEndDate] = useState('');
   const [reason, setReason] = useState('');
 

@@ -12,13 +12,23 @@ import RecordLeaveForm, { SubmitResult } from './RecordLeaveForm';
 export default function RecordLeaveDrawer({
   employeeId,
   employeeName,
+  presetDate,
+  presetIsHalfDay,
+  presetLeaveTypeCode,
+  title,
   onClose,
   onSuccess,
 }: {
   employeeId: string;
   employeeName?: string;
+  // Optional — used when this drawer is opened from the Possible Half Day
+  // accordion's "Mark Half Day" action instead of a plain Record Leave.
+  presetDate?: string;
+  presetIsHalfDay?: boolean;
+  presetLeaveTypeCode?: 'SL' | 'CL' | 'PL' | 'LWP';
+  title?: string;
   onClose: () => void;
-  onSuccess: () => void;
+  onSuccess: (result: SubmitResult) => void;
 }) {
   const [mounted, setMounted] = useState(false);
 
@@ -35,13 +45,16 @@ export default function RecordLeaveDrawer({
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
 
-  function handleFormSuccess(_result: SubmitResult) {
+  function handleFormSuccess(result: SubmitResult) {
     // Balances refresh right away (parent re-fetches server data); the
     // drawer itself stays open a moment longer so HR can read the
     // confirmation/policy notes RecordLeaveForm renders inline, then
     // auto-closes — matching "drawer opens, fills, saves, closes,
     // balances refresh in place" from the Day 2 acceptance criteria.
-    onSuccess();
+    // Result is now forwarded (rather than discarded) so a caller like
+    // PossibleHalfDayAccordion can record which leave_request_id this
+    // half-day resolved to.
+    onSuccess(result);
     setTimeout(onClose, 1800);
   }
 
@@ -55,7 +68,7 @@ export default function RecordLeaveDrawer({
       >
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-700 flex-shrink-0">
           <div>
-            <h3 className="text-white font-semibold text-sm">Record Leave</h3>
+            <h3 className="text-white font-semibold text-sm">{title ?? 'Record Leave'}</h3>
             {employeeName && <p className="text-slate-500 text-xs mt-0.5">{employeeName}</p>}
           </div>
           <button type="button" onClick={onClose} className="text-slate-400 hover:text-white">
@@ -63,7 +76,13 @@ export default function RecordLeaveDrawer({
           </button>
         </div>
         <div className="flex-1 overflow-y-auto p-5">
-          <RecordLeaveForm presetEmployeeId={employeeId} onSuccess={handleFormSuccess} />
+          <RecordLeaveForm
+            presetEmployeeId={employeeId}
+            presetDate={presetDate}
+            presetIsHalfDay={presetIsHalfDay}
+            presetLeaveTypeCode={presetLeaveTypeCode}
+            onSuccess={handleFormSuccess}
+          />
         </div>
       </div>
     </div>
