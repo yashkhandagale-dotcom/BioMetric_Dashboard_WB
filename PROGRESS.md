@@ -367,3 +367,171 @@ This pivot supersedes what Sprint 3 in the original plan would have done
 row in the sprint plan can be treated as done differently than originally
 scoped, not skipped.
 
+---
+
+## Post-pivot fix: CSV upload now auto-onboards employees into the Leave Tracker
+
+**Reported symptom:** biometric dashboard shows all employees after a CSV
+upload; Leave Tracker shows none, no matter how many times leave policy
+was configured. Confirmed this wasn't a policy problem — `employees` had
+zero rows, and nothing in the app ever wrote to it except manual
+onboarding via the Leave Tracker's own "Add Employee" form. CSV upload
+only ever wrote to `attendance_records`. This is exactly the gap flagged
+(but not built) in the pivot section above as "Sprint 4's planned CSV
+auto-creation."
+
+**What changed:**
+- `lib/employeeStore.ts` — new `ensureEmployeesFromAttendance(records)`.
+  For each employee_code in a saved CSV batch, `INSERT ... ON CONFLICT
+  (employee_code) DO NOTHING` into `employees`, with `role: 'employee'`
+  as a safe default (satisfies the not-null check constraint) and
+  `department`/`office`/`full_name` taken from the CSV row.
+  **Deliberately DO NOTHING, not DO UPDATE**, on conflict: an
+  already-onboarded employee's role, email, reporting lines, and any
+  HR-set department must never be silently overwritten by the next
+  biometric upload. This preserves the existing invariant in
+  `applyEmployeeDirectory()` that `employees.department` is the single
+  source of truth over CSV data, not the other way around.
+- `lib/storage.ts` — `saveRecords()` now calls
+  `ensureEmployeesFromAttendance()` right after attendance rows are
+  upserted, and returns `{ added, updated, employeesCreated,
+  employeesSyncError }` instead of just `{ added, updated }`. Employee
+  sync failing does not throw / block the attendance save — losing
+  attendance data over a directory-sync error would be worse than
+  reporting the sync error and moving on.
+- `app/page.tsx` — the per-file upload result string now appends
+  `"— N new employees onboarded to Leave Tracker"` when applicable, or a
+  visible warning if the employee sync itself failed, instead of staying
+  silent either way.
+
+**What this does NOT do (by design, flagged explicitly):**
+- Does not set `email` (CSVs don't have it) — stays `null`, fine per
+  schema.
+- Does not set `reporting_tech_lead_id` / `reporting_manager_id` /
+  `date_of_joining` — HR still needs to fill these in via the Leave
+  Tracker for anything that depends on the reporting hierarchy (approval
+  routing) or accurate pro-ration.
+- Does not retroactively backfill leave balances for newly-created
+  employees — that still requires running "Seed Balances"
+  (`/api/leave/admin/seed-balances`) after upload, same as before. Could
+  be chained automatically in a future pass if wanted, but kept as a
+  separate explicit action here since it's a leave-granting operation and
+  shouldn't happen silently as a side effect of a CSV upload.
+- Does not change `department` for an employee who already exists — see
+  above.
+
+**Verification done:** `npx tsc --noEmit` clean; `npx next build`
+succeeds end-to-end (dummy env vars, no live Supabase credentials
+available in this sandbox).
+
+**Still needs you (no live DB access from here):**
+1. Deploy this and upload a real CSV against your actual Supabase
+   project; confirm new `employee_code`s appear in `leave/admin/employees`
+   immediately after upload.
+2. Run "Seed Balances" afterward to grant them their leave policy quota
+   for the current FY.
+3. If you want new-hire fields (reporting lines, date of joining, role
+   other than the 'employee' default) filled in automatically instead of
+   manually per person, that needs a decision on where that data would
+   come from — CSVs don't carry it today.
+
+---
+
+## /leave/admin redesign (user-directed)
+
+**User's requests, verbatim intent:**
+1. Show the full employee list (what `/leave/admin/employees` had) directly
+   on `/leave/admin`.
+2. Add a "Leave Analytics" button at top.
+3. Remove "Manage Employees" — CSV creates employees now, so a separate
+   add/manage page has no job left to do. Adjust button should absorb
+   status/manager/lead management per employee instead.
+4. Remove "Record Leave" and "Seed Balances" buttons entirely — leave
+   balance seeding will run as a DB script, not a UI action.
+5. "Back to balances" should go directly to `/leave/admin`, not through
+   an intermediate page.
+
+**What changed:**
+- **`app/leave/admin/page.tsx`** — full rewrite. Now fetches and renders
+  the same rich `EmployeeGrid` the old `/leave/admin/employees` page used
+  (search/filter by dept/office/status, per-card Adjust/Record
+  Leave/View Profile), instead of the old plain balances table. Top nav
+  is now: Leave Analytics · Leave History · Violations · Bulk Events.
+  "Record Leave" and "Manage Employees" removed — the former was, on
+  inspection, a bug: both linked to the exact same URL
+  (`/leave/admin/employees`) under different labels. "Seed Balances" is
+  gone from the UI entirely per the user's direction (runs as a DB
+  script now, outside the app).
+- **`app/leave/admin/analytics/page.tsx`** (new) — `LeaveAnalytics`,
+  previously always rendered inline at the bottom of `/leave/admin`
+  (running its queries on every load whether anyone looked at it or
+  not), moved to its own route behind the new top button.
+- **`app/leave/admin/employees/page.tsx`** — content moved into
+  `/leave/admin` (above); this route now just `redirect()`s there,
+  rather than being deleted outright, in case anything has it
+  bookmarked/linked.
+- **`app/leave/admin/employees/AddEmployeeForm.tsx`** — deleted. Its job
+  (create the initial employee row) is now done automatically by
+  `ensureEmployeesFromAttendance` on CSV upload; anything a CSV can't
+  supply (status, role, reporting tech lead/manager) moved into the
+  Adjust button's new Details tab (below) instead of a separate form.
+- **`app/leave/admin/SeedBalancesButton.tsx`** — deleted (unused after
+  removal from `page.tsx`; the seed-balances API route itself
+  (`/api/leave/admin/seed-balances`) is untouched in case the DB script
+  the user mentioned ends up calling it directly rather than being pure
+  SQL).
+- **`app/leave/admin/AdjustBalanceButton.tsx`** — grew a second tab.
+  "Balance" is the original adjust-SL/CL/PL-with-a-reason flow,
+  unchanged. New "Details" tab edits `employment_status`, `role`,
+  `reporting_tech_lead_id`, `reporting_manager_id` — the exact fields
+  the old Add Employee form captured that CSV upload can't supply.
+  Deliberately does NOT touch `department`/`office`/`full_name`/`email`
+  — those are either CSV-owned (department/office/name, per
+  `applyEmployeeDirectory`'s existing single-source-of-truth rule) or
+  out of scope for this pass (email).
+- **`app/api/leave/employees/[id]/profile/route.ts`** — added a `PATCH`
+  handler backing the Details tab above. Validates `role` and
+  `employment_status` against their DB check-constraint value sets
+  before writing, and rejects an employee being set as their own tech
+  lead/manager (the same self-reference footgun the FK columns would
+  otherwise silently allow).
+- **`components/leave/EmployeeCard.tsx`** /
+  **`components/leave/EmployeeGrid.tsx`** — `EmployeeWithBalances` type
+  gained `reportingTechLeadId` / `reportingManagerId` so the Adjust
+  button's Details tab can prefill correctly; empty-state copy on the
+  grid updated (no longer says "add one above", since there's no add
+  form above anymore).
+- **`app/leave/admin/history/page.tsx`**,
+  **`app/leave/admin/violations/page.tsx`**,
+  **`app/leave/admin/bulk-events/page.tsx`** — "← Back to employees"
+  links repointed from `/leave/admin/employees` (the now-redirected
+  intermediate page) straight to `/leave/admin` as "← Back to balances".
+  This was the literal cause of the "back button jumps from here and
+  there" complaint — it wasn't a broken link, just a two-hop one.
+
+**What this does NOT do (flagged, not decided here):**
+- Per-employee-card "Record Leave" button (opens `RecordLeaveDrawer`)
+  was kept — this is a working, distinct feature (marking an actual
+  leave taken) from the removed top-nav button, which was a mislabeled
+  duplicate link. If this should also go, say so explicitly — did not
+  want to guess on this one.
+- The Details tab does not (yet) surface each person's *current* tech
+  lead/manager *name* next to the dropdown, only the ID via
+  pre-selection — fine for now since the dropdown shows the right
+  option selected, but a "currently reports to: X" label would be a
+  small nice-to-have if wanted.
+- Email and date-of-joining are still not editable anywhere in the UI
+  post-CSV-onboarding (never were, outside the deleted Add Employee
+  form). Flagging in case that turns out to matter for approval routing
+  or pro-ration later.
+
+**Verification done:** `npx tsc --noEmit` clean; `npx next build`
+succeeds end-to-end (26 routes compile, including the new
+`/leave/admin/analytics`), dummy env vars, no live Supabase credentials
+available in this sandbox.
+
+**Still needs you:** deploy and click through for real — especially the
+Details tab's save (needs a live `employees` table with at least two
+people to meaningfully test the tech lead/manager dropdowns), and the DB
+script for balance seeding, since that's intentionally outside this
+app now.

@@ -15,6 +15,8 @@ export type EmployeeWithBalances = {
   role: string;
   employmentStatus: string;
   dateOfJoining: string;
+  reportingTechLeadId: string | null;
+  reportingManagerId: string | null;
   SL: number;
   CL: number;
   PL: number;
@@ -93,7 +95,15 @@ export default function EmployeeCard({
         </button>
         {/* Reused as-is from app/leave/admin/AdjustBalanceButton.tsx — not
             duplicated, per the "reuse existing components" constraint. */}
-        <AdjustBalanceButton employeeId={employee.id} employeeName={employee.name} fyStartYear={fyStartYear} />
+        <AdjustBalanceButton
+          employeeId={employee.id}
+          employeeName={employee.name}
+          fyStartYear={fyStartYear}
+          currentRole={employee.role}
+          currentStatus={employee.employmentStatus}
+          currentTechLeadId={employee.reportingTechLeadId}
+          currentManagerId={employee.reportingManagerId}
+        />
       </div>
     </div>
   );

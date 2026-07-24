@@ -128,3 +128,73 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     return NextResponse.json({ error: `Failed to load employee profile: ${message}` }, { status: 500 });
   }
 }
+
+// Updates the fields a CSV upload cannot supply — employment_status, role,
+// and reporting hierarchy (tech lead / manager). Department/office/full_name
+// are owned by the CSV sync (lib/employeeStore.ts's ensureEmployeesFromAttendance)
+// now, so this intentionally does NOT touch those — this is "Adjust" tab #2
+// (Details), separate from the existing balance-adjustment tab.
+const ROLES = ['employee', 'tech_lead', 'manager', 'hr', 'hr_super_admin'];
+const STATUSES = ['probation', 'active', 'notice_period', 'exited'];
+
+export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+
+  const supabase = await createLeaveClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) {
+    return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+  }
+
+  const body = await req.json();
+  const { role, employment_status, reporting_tech_lead_id, reporting_manager_id } = body;
+
+  const update: Record<string, unknown> = { updated_at: new Date().toISOString() };
+
+  if (role !== undefined) {
+    if (!ROLES.includes(role)) {
+      return NextResponse.json({ error: `Invalid role "${role}".` }, { status: 400 });
+    }
+    update.role = role;
+  }
+  if (employment_status !== undefined) {
+    if (!STATUSES.includes(employment_status)) {
+      return NextResponse.json({ error: `Invalid status "${employment_status}".` }, { status: 400 });
+    }
+    update.employment_status = employment_status;
+  }
+  if (reporting_tech_lead_id !== undefined) {
+    if (reporting_tech_lead_id === id) {
+      return NextResponse.json({ error: 'An employee cannot report to themself.' }, { status: 400 });
+    }
+    update.reporting_tech_lead_id = reporting_tech_lead_id || null;
+  }
+  if (reporting_manager_id !== undefined) {
+    if (reporting_manager_id === id) {
+      return NextResponse.json({ error: 'An employee cannot report to themself.' }, { status: 400 });
+    }
+    update.reporting_manager_id = reporting_manager_id || null;
+  }
+
+  if (Object.keys(update).length === 1) {
+    return NextResponse.json({ error: 'Nothing to update.' }, { status: 400 });
+  }
+
+  const { data, error } = await supabase
+    .from('employees')
+    .update(update)
+    .eq('id', id)
+    .select('id, role, employment_status, reporting_tech_lead_id, reporting_manager_id')
+    .maybeSingle();
+
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 400 });
+  }
+  if (!data) {
+    return NextResponse.json({ error: 'Employee not found.' }, { status: 404 });
+  }
+
+  return NextResponse.json({ employee: data });
+}

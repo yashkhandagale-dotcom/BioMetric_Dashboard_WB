@@ -389,9 +389,16 @@ function HRDashboard() {
       // since attendance_records.month_key has a foreign key referencing
       // uploaded_months.key. Creating it first avoids a 409/23503 FK violation.
       await addUploadedMonth({ key: monthKey, label: monthLabel, officeCode: pf.officeCode, month: pf.month, year: pf.year });
-      const { added, updated } = await saveRecords(monthKey, records);
+      const { added, updated, employeesCreated, employeesSyncError } = await saveRecords(monthKey, records);
       lastMonthKey = monthKey;
-      results.push(`${pf.officeCode} ${getMonthName(pf.month)} ${pf.year} (${added} new, ${updated} updated)`);
+      let summary = `${pf.officeCode} ${getMonthName(pf.month)} ${pf.year} (${added} new, ${updated} updated)`;
+      if (employeesCreated > 0) {
+        summary += ` — ${employeesCreated} new employee${employeesCreated === 1 ? '' : 's'} onboarded to Leave Tracker`;
+      }
+      if (employeesSyncError) {
+        summary += ` — WARNING: employee sync to Leave Tracker failed (${employeesSyncError})`;
+      }
+      results.push(summary);
     }
 
     const months = await getUploadedMonths();

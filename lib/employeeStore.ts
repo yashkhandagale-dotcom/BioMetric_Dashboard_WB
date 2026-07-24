@@ -237,6 +237,71 @@ export async function addDepartment(name: string, existingDepartments: string[])
   return { success: true };
 }
 
+// ── CSV auto-onboarding (Sprint 4's previously-planned feature) ──────────────
+// Called from lib/storage.ts:saveRecords() right after an attendance CSV is
+// saved. This is an INSERT ... ON CONFLICT (employee_code) DO NOTHING —
+// deliberately NOT an upsert-with-update:
+//   - New employee_code in the CSV -> row is created with safe defaults
+//     (role: 'employee', employment_status: 'active') so they immediately
+//     show up in the Leave Tracker and start accruing leave.
+//   - employee_code that's already onboarded -> completely untouched. Their
+//     role, email, reporting lines, and any HR-set department stay exactly
+//     as-is. This matches the existing rule in applyEmployeeDirectory():
+//     employees.department always wins over the CSV, never the other way
+//     around. If we overwrote department here on every upload, a dashboard
+//     department reassignment would get silently reverted by the next
+//     biometric CSV import.
+export interface EnsureEmployeesResult extends StoreResult {
+  created: number;
+}
+
+export async function ensureEmployeesFromAttendance(
+  records: AttendanceRecord[]
+): Promise<EnsureEmployeesResult> {
+  if (records.length === 0) return { success: true, created: 0 };
+
+  // One row per employee_code — first sighting in the batch wins if the same
+  // employee appears on multiple CSV rows (they will, once per day).
+  const seen = new Map<string, { employeeName: string; department: string; officeCode: string }>();
+  for (const r of records) {
+    if (!seen.has(r.employeeCode)) {
+      seen.set(r.employeeCode, {
+        employeeName: r.employeeName,
+        department: r.department,
+        officeCode: r.officeCode,
+      });
+    }
+  }
+
+  const rows = Array.from(seen.entries()).map(([employeeCode, e]) => ({
+    employee_code: employeeCode,
+    full_name: e.employeeName,
+    department: e.department,
+    office: e.officeCode,
+    role: 'employee', // safe default — check constraint requires one of a fixed set; HR can promote later
+    // employment_status defaults to 'active' at the DB level; is_deleted defaults to false.
+  }));
+
+  const supabase = createClient();
+  const { data, error } = await supabase
+    .from('employees')
+    .upsert(rows, { onConflict: 'employee_code', ignoreDuplicates: true })
+    .select('employee_code');
+
+  if (error) {
+    return { success: false, created: 0, error: `Could not auto-onboard employees from CSV: ${error.message}` };
+  }
+
+  const created = data?.length ?? 0;
+  if (created > 0) {
+    // Refresh the directory so the newly-created rows are immediately visible
+    // (department pills, "known departments" list, etc.) without a page reload.
+    await loadEmployeeDirectory();
+  }
+
+  return { success: true, created };
+}
+
 /** Union of departments seen in uploaded records + HR-created + in-use directory entries. */
 export function getAllKnownDepartments(records: AttendanceRecord[]): string[] {
   const set = new Set<string>();

@@ -162,7 +162,7 @@ export default function EmployeeGrid({
       {filtered.length === 0 ? (
         <div className="bg-slate-800/40 border border-slate-700 rounded-xl px-4 py-10 text-center text-slate-500 text-sm">
           {employees.length === 0 ? (
-            <>No employees yet — add one above.</>
+            <>No employees yet — they'll appear here automatically after the next biometric CSV upload.</>
           ) : (
             <>No employees match your search/filters.</>
           )}
