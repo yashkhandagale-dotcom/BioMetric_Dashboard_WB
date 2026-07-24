@@ -2,23 +2,21 @@ import { createServerClient } from '@supabase/ssr';
 import { createClient as createSupabaseJsClient } from '@supabase/supabase-js';
 import { cookies } from 'next/headers';
 
-// Server Components / Route Handlers under app/leave/** only. This is a
-// SEPARATE Supabase project from the main dashboard's — different DB,
-// different auth users, different everything. That separation is
-// deliberate: the leave tracker is new and still evolving, and this way
-// nothing it does can ever touch the already-deployed dashboard's data
-// or its Supabase project's quotas/connections.
+// Server Components / Route Handlers under app/leave/** only.
 //
-// Uses its own cookie names (via a distinct storageKey below) so a leave
-// session and a dashboard session can coexist in the same browser without
-// colliding.
+// Post-DB-merge: same Supabase project as lib/supabase/server.ts now, kept
+// on its own cookie name ("sb-leave-auth") so a Leave Tracker session and a
+// Dashboard session stay independent in the same browser — see
+// lib/leaveSupabase/client.ts for the full reasoning and the open question
+// about role-based access this raised.
 export async function createLeaveClient() {
   const cookieStore = await cookies();
 
   return createServerClient(
-    process.env.NEXT_PUBLIC_LEAVE_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_LEAVE_SUPABASE_ANON_KEY!,
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
+      cookieOptions: { name: 'sb-leave-auth' },
       cookies: {
         getAll() {
           return cookieStore.getAll();
@@ -37,13 +35,16 @@ export async function createLeaveClient() {
   );
 }
 
-// Service-role client — bypasses RLS on the LEAVE project only. Use only
-// inside app/leave/api/* route handlers, e.g. for scheduled jobs like the
-// 25-March annual reset. Never import into client-side code.
+// Service-role client — bypasses RLS. Use only inside app/leave/api/*
+// route handlers, e.g. for scheduled jobs like the 25-March annual reset.
+// Never import into client-side code. Same project as the Dashboard's
+// service client (lib/supabase/server.ts:createServiceClient) now — both
+// bypass RLS on the same unified DB, so both can technically touch any
+// table. Keep using the right one for the right app anyway, for clarity.
 export function createLeaveServiceClient() {
   return createSupabaseJsClient(
-    process.env.NEXT_PUBLIC_LEAVE_SUPABASE_URL!,
-    process.env.LEAVE_SUPABASE_SERVICE_ROLE_KEY!,
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
     { auth: { autoRefreshToken: false, persistSession: false } }
   );
 }

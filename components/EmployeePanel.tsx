@@ -7,7 +7,7 @@ import { DEFAULT_THRESHOLDS } from '@/lib/settings';
 import { durationToMinutes } from '@/lib/parseCSV';
 import { getHolidayName } from '@/lib/holidays';
 import {
-  setEmployeeDepartment, clearEmployeeDepartmentOverride, getEmployeeDepartmentOverride,
+  setEmployeeDepartment,
   deleteEmployee, restoreEmployee, isEmployeeDeleted,
 } from '@/lib/employeeStore';
 import { PersonalHeatmap } from './Charts';
@@ -28,6 +28,10 @@ interface EmployeePanelProps {
   shiftEndMinutes?: number;
   monthKey?: string;
   leaveMap?: Map<string, LeaveRecord>; // employeeCode__date -> LeaveRecord, synced in from Leave Tracker
+  // Surfaces department-change / delete / restore failures to the app's
+  // existing toast UI (see PROGRESS.md Sprint 2). Omitted in the read-only
+  // Manager view, which never calls the write paths below.
+  onToast?: (type: 'success' | 'error', message: string) => void;
   allDepartments?: string[]; // list of all available departments
   onDepartmentChange?: () => void; // callback when department changes
 }
@@ -82,7 +86,7 @@ function getStatusBadge(status: string, isShortDay: boolean | undefined, lateMin
 }
 
 export default function EmployeePanel({
-employee, onClose, readOnly, leaveReadOnly, holidays = [], graceMinutes = DEFAULT_THRESHOLDS.graceMinutes,  leaveMap, allDepartments = [], onDepartmentChange,
+employee, onClose, readOnly, leaveReadOnly, holidays = [], graceMinutes = DEFAULT_THRESHOLDS.graceMinutes,  leaveMap, allDepartments = [], onDepartmentChange, onToast,
 }: EmployeePanelProps) {
   const [showDeptEditor, setShowDeptEditor] = useState(false);
   const [selectedDept, setSelectedDept] = useState<string | null>(null);
@@ -102,10 +106,11 @@ employee, onClose, readOnly, leaveReadOnly, holidays = [], graceMinutes = DEFAUL
   async function changeDepartment(newDept: string) {
     if (!employee) return;
     setShowDeptEditor(false);
-    if (newDept === employee.department) {
-      await clearEmployeeDepartmentOverride(employee.employeeCode, employee.officeCode);
-    } else {
-      await setEmployeeDepartment(employee.employeeCode, employee.officeCode, newDept, employee.employeeName);
+    if (newDept === employee.department) return; // no actual change
+    const result = await setEmployeeDepartment(employee.employeeCode, employee.officeCode, newDept, employee.employeeName);
+    if (!result.success) {
+      onToast?.('error', result.error ?? 'Could not save the department change.');
+      return; // directory was not updated locally — nothing else to refresh
     }
     onDepartmentChange?.();
     forceRerender(v => v + 1);
@@ -114,14 +119,22 @@ employee, onClose, readOnly, leaveReadOnly, holidays = [], graceMinutes = DEFAUL
   async function handleDelete() {
     if (!employee) return;
     if (!window.confirm(`Delete ${employee.employeeName}? They'll be hidden from every chart, table, and export — even if they still appear in future CSV uploads. You can restore them from Settings → Employees.`)) return;
-    await deleteEmployee(employee.employeeCode, employee.officeCode, employee.employeeName);
+    const result = await deleteEmployee(employee.employeeCode, employee.officeCode, employee.employeeName);
+    if (!result.success) {
+      onToast?.('error', result.error ?? 'Could not delete employee.');
+      return; // keep the panel open — the employee was not actually removed
+    }
     onDepartmentChange?.();
     onClose(); // nothing left to show — they're excluded from every list now
   }
 
   async function handleRestore() {
     if (!employee) return;
-    await restoreEmployee(employee.employeeCode, employee.officeCode);
+    const result = await restoreEmployee(employee.employeeCode, employee.officeCode);
+    if (!result.success) {
+      onToast?.('error', result.error ?? 'Could not restore employee.');
+      return;
+    }
     onDepartmentChange?.();
     forceRerender(v => v + 1);
   }
@@ -141,7 +154,7 @@ employee, onClose, readOnly, leaveReadOnly, holidays = [], graceMinutes = DEFAUL
                     <button
                       onClick={() => {
                         setShowDeptEditor(true);
-                        setSelectedDept(getEmployeeDepartmentOverride(employee.employeeCode, employee.officeCode) || employee.department);
+                        setSelectedDept(employee.department);
                       }}
                       className="text-slate-500 hover:text-blue-400 transition-colors"
                       title="Change department"

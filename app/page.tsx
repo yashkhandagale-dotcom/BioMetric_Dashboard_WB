@@ -164,7 +164,12 @@ function HRDashboard() {
   const directoryVersion = useEmployeeDirectorySync();
 
   useEffect(() => {
-    loadEmployeeDirectory();
+    loadEmployeeDirectory().then((result) => {
+      if (!result.success) {
+        showToast('error', result.error ?? 'Could not load the employee directory.');
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
@@ -930,6 +935,7 @@ function HRDashboard() {
         leaveMap={leaveMap}
         allDepartments={getAllKnownDepartments(allUploadedRecords)}
         onDepartmentChange={refreshDepartmentOverrides}
+        onToast={showToast}
       />
 
       {showHolidayModal && (
@@ -947,6 +953,7 @@ function HRDashboard() {
           thresholds={thresholds}
           onSaveThresholds={handleSaveThresholds}
           records={filteredRecords}
+          onToast={showToast}
         />
       )}
 

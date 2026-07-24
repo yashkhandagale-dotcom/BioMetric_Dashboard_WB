@@ -99,6 +99,34 @@ create table if not exists shared_links (
 );
 create index if not exists idx_shared_links_expiry on shared_links(expires_at);
 
+-- ── Employees (HR directory: department overrides + soft-delete) ───────────
+-- lib/employeeStore.ts reads/writes this table directly (loadEmployeeDirectory,
+-- setEmployeeDepartment, deleteEmployee, restoreEmployee) but no `create table`
+-- for it ever existed in this file — see PROGRESS.md Sprint 1/2 for how that
+-- was found. `if not exists` makes this safe to run whether the table is
+-- genuinely missing from your live project, or was already created there by
+-- hand (e.g. via the Table Editor) before this migration existed.
+--
+-- IMPORTANT: if `employees` already exists in your live project with a
+-- different column set than below, this statement will silently do nothing
+-- (no error, no columns added/changed) — reconcile manually against the
+-- columns lib/employeeStore.ts writes: employee_code, office_code,
+-- employee_name, department, is_deleted, deleted_at, updated_at.
+create table if not exists employees (
+  employee_code text not null,
+  office_code text not null,
+  employee_name text,
+  department text,
+  is_deleted boolean not null default false,
+  deleted_at timestamptz,
+  updated_at timestamptz not null default now()
+);
+
+-- ── Custom (HR-added) departments ───────────────────────────────────────────
+create table if not exists custom_departments (
+  name text primary key
+);
+
 -- ═══════════════════════════════════════════════════════════════════════════
 -- Row Level Security — every table requires an authenticated Supabase session
 -- except shared_links, which is deliberately opened up for the token-gated
@@ -113,6 +141,8 @@ alter table leave_records enable row level security;
 alter table custom_holidays enable row level security;
 alter table dashboard_settings enable row level security;
 alter table shared_links enable row level security;
+alter table employees enable row level security;
+alter table custom_departments enable row level security;
 
 create policy "authenticated read/write" on uploaded_months
   for all using (auth.role() = 'authenticated') with check (auth.role() = 'authenticated');
@@ -125,6 +155,10 @@ create policy "authenticated read/write" on leave_records
 create policy "authenticated read/write" on custom_holidays
   for all using (auth.role() = 'authenticated') with check (auth.role() = 'authenticated');
 create policy "authenticated read/write" on dashboard_settings
+  for all using (auth.role() = 'authenticated') with check (auth.role() = 'authenticated');
+create policy "authenticated read/write" on employees
+  for all using (auth.role() = 'authenticated') with check (auth.role() = 'authenticated');
+create policy "authenticated read/write" on custom_departments
   for all using (auth.role() = 'authenticated') with check (auth.role() = 'authenticated');
 
 -- shared_links: HR (authenticated) can insert; the read-only manager link
@@ -164,5 +198,15 @@ on conflict (id) do nothing;
 -- adjust the constraint name below before running).
 -- alter table employees drop constraint employees_employee_code_key;
 
-alter table employees
-  add constraint employees_code_office_unique unique (employee_code, office_code);
+-- Wrapped in a DO block (rather than a bare ALTER TABLE) so this is safe to
+-- run whether `employees` is the table this file just created above (no
+-- constraint yet) or a pre-existing table this was already run against once.
+do $$
+begin
+  if not exists (
+    select 1 from pg_constraint where conname = 'employees_code_office_unique'
+  ) then
+    alter table employees
+      add constraint employees_code_office_unique unique (employee_code, office_code);
+  end if;
+end $$;

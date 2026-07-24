@@ -3,30 +3,44 @@ import { AttendanceRecord } from './types';
 import { createClient } from './supabase/client';
 
 // ── In-memory directory ───────────────────────────────────────────────────────
-// Hydrated once from Supabase, then read synchronously by applyEmployeeDirectory()
-// (called from lib/storage.ts:getRecords()). Writes go to Supabase AND update
-// this cache immediately (optimistic), so every place that reads through
-// getRecords() reflects a change instantly — no extra plumbing needed.
+// POST-DB-MERGE (see PROGRESS.md / unified_schema.sql): this now reads and
+// writes the real `employees` table directly — the same table the Leave
+// Tracker's onboarding creates rows in — instead of a separate
+// dashboard-only override table. There is exactly one department value per
+// employee now, not "CSV value unless overridden": `employees.department`
+// IS the department, full stop, and always wins over whatever a CSV upload
+// says (see applyEmployeeDirectory below).
+//
+// Employee codes are confirmed globally unique (not per-office) in this
+// org's real data, so the directory is keyed by employee_code alone now —
+// no office needed for lookup.
+//
+// Writes are UPDATEs, not upserts: rows can only be created via Leave
+// Tracker onboarding (or Sprint 4's planned CSV auto-creation) now that
+// `employees` requires role/office/full_name that the dashboard doesn't
+// know how to fill in. If an UPDATE matches zero rows, that means this
+// employee_code hasn't been onboarded into the Leave Tracker yet — surfaced
+// as an explicit error rather than silently creating a partial row.
 
 interface DirectoryEntry {
-  department: string | null; // HR override; null = no override
+  department: string;
   isDeleted: boolean;
-  officeCode: string;
-  employeeName?: string;
+  office: string;
+  employeeName: string;
 }
 
 let directory = new Map<string, DirectoryEntry>();
 let customDepartments: string[] = [];
 let loaded = false;
 
-// Employee codes are only unique WITHIN an office — this workspace holds
-// multiple offices in one shared DB, and small sequential codes (e.g. 257,
-// 270) are easily reused by a different office. Keying the directory by
-// employee_code alone let one office's delete/reassign action silently hit
-// another office's employee sharing the same code. Always key/lookup by
-// office too.
-function directoryKey(employeeCode: string, officeCode: string): string {
-  return `${officeCode}::${employeeCode}`;
+// ── Result type for every function that talks to Supabase ────────────────────
+// Every read/write below returns one of these instead of throwing or silently
+// swallowing errors, so callers (EmployeePanel, SettingsPanel, page.tsx) can
+// surface `error` via the app's existing toast mechanism. Writes only update
+// local state after Supabase confirms success — see PROGRESS.md Sprint 2.
+export interface StoreResult {
+  success: boolean;
+  error?: string;
 }
 
 type Listener = () => void;
@@ -52,95 +66,138 @@ export function isEmployeeDirectoryLoaded(): boolean {
 }
 
 // ── Load once at app start ────────────────────────────────────────────────────
-export async function loadEmployeeDirectory(): Promise<void> {
+export async function loadEmployeeDirectory(): Promise<StoreResult> {
   const supabase = createClient();
-  const [{ data: emps }, { data: depts }] = await Promise.all([
-    supabase.from('employees').select('employee_code, office_code, employee_name, department, is_deleted'),
+  const [{ data: emps, error: empsError }, { data: depts, error: deptsError }] = await Promise.all([
+    supabase.from('employees').select('employee_code, full_name, department, office, is_deleted'),
     supabase.from('custom_departments').select('name'),
   ]);
+
+  if (empsError || deptsError) {
+    // Don't set `loaded = true` and don't touch the existing directory/cache —
+    // leave whatever was last successfully loaded (or the empty initial state)
+    // in place rather than silently presenting a blank directory.
+    const message = [empsError?.message, deptsError?.message].filter(Boolean).join('; ');
+    return { success: false, error: `Could not load the employee directory: ${message}` };
+  }
+
   directory = new Map(
     (emps ?? []).map((e) => [
-      directoryKey(e.employee_code as string, e.office_code as string),
+      e.employee_code as string,
       {
-        department: e.department as string | null,
+        department: e.department as string,
         isDeleted: !!e.is_deleted,
-        officeCode: e.office_code as string,
-        employeeName: e.employee_name as string | undefined,
+        office: e.office as string,
+        employeeName: e.full_name as string,
       },
     ])
   );
   customDepartments = (depts ?? []).map((d) => d.name as string);
   loaded = true;
   notify();
+  return { success: true };
 }
 
 // ── Department reassignment ───────────────────────────────────────────────────
+// employeeName/officeCode params kept for call-site compatibility (unchanged
+// EmployeePanel.tsx / SettingsPanel.tsx signatures) but are no longer written
+// anywhere — office/full_name are Leave Tracker-owned fields now, the
+// dashboard only ever updates `department` here.
 export async function setEmployeeDepartment(
   employeeCode: string,
-  officeCode: string,
+  _officeCode: string,
   department: string,
-  employeeName?: string
-): Promise<void> {
-  const key = directoryKey(employeeCode, officeCode);
-  const prev = directory.get(key);
-  directory.set(key, { department, isDeleted: prev?.isDeleted ?? false, officeCode, employeeName: employeeName ?? prev?.employeeName });
-  notify();
-
+  _employeeName?: string
+): Promise<StoreResult> {
   const supabase = createClient();
-  await supabase.from('employees').upsert(
-    { employee_code: employeeCode, office_code: officeCode, employee_name: employeeName, department, updated_at: new Date().toISOString() },
-    { onConflict: 'employee_code,office_code' }
-  );
+  const { data, error } = await supabase
+    .from('employees')
+    .update({ department, updated_at: new Date().toISOString() })
+    .eq('employee_code', employeeCode)
+    .select('employee_code, full_name, office, is_deleted');
+
+  if (error) {
+    return { success: false, error: `Could not save the department change: ${error.message}` };
+  }
+  if (!data || data.length === 0) {
+    return {
+      success: false,
+      error: `${employeeCode} hasn't been onboarded in the Leave Tracker yet — add them there first, then reassign their department here.`,
+    };
+  }
+
+  const row = data[0];
+  directory.set(employeeCode, {
+    department,
+    isDeleted: !!row.is_deleted,
+    office: row.office as string,
+    employeeName: row.full_name as string,
+  });
+  notify();
+  return { success: true };
 }
 
-export function getEmployeeDepartmentOverride(employeeCode: string, officeCode: string): string | null {
-  return directory.get(directoryKey(employeeCode, officeCode))?.department ?? null;
-}
-
-export async function clearEmployeeDepartmentOverride(employeeCode: string, officeCode: string): Promise<void> {
-  const key = directoryKey(employeeCode, officeCode);
-  const prev = directory.get(key);
-  directory.set(key, { department: null, isDeleted: prev?.isDeleted ?? false, officeCode, employeeName: prev?.employeeName });
-  notify();
-
-  const supabase = createClient();
-  await supabase.from('employees').upsert(
-    { employee_code: employeeCode, office_code: officeCode, department: null, updated_at: new Date().toISOString() },
-    { onConflict: 'employee_code,office_code' }
-  );
+export function getEmployeeDepartment(employeeCode: string): string | null {
+  return directory.get(employeeCode)?.department ?? null;
 }
 
 // ── Delete / restore ──────────────────────────────────────────────────────────
 // A deleted employee is dropped from every record pool at read-time (see
 // applyEmployeeDirectory below) — even if a future CSV upload still lists them.
-export async function deleteEmployee(employeeCode: string, officeCode: string, employeeName?: string): Promise<void> {
-  const key = directoryKey(employeeCode, officeCode);
-  const prev = directory.get(key);
-  directory.set(key, { department: prev?.department ?? null, isDeleted: true, officeCode, employeeName: employeeName ?? prev?.employeeName });
-  notify();
-
+export async function deleteEmployee(employeeCode: string, _officeCode: string, _employeeName?: string): Promise<StoreResult> {
   const supabase = createClient();
-  await supabase.from('employees').upsert(
-    { employee_code: employeeCode, office_code: officeCode, employee_name: employeeName, is_deleted: true, deleted_at: new Date().toISOString(), updated_at: new Date().toISOString() },
-    { onConflict: 'employee_code,office_code' }
-  );
+  const { data, error } = await supabase
+    .from('employees')
+    .update({ is_deleted: true, deleted_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+    .eq('employee_code', employeeCode)
+    .select('employee_code, full_name, department, office');
+
+  if (error) {
+    return { success: false, error: `Could not delete employee: ${error.message}` };
+  }
+  if (!data || data.length === 0) {
+    return { success: false, error: `${employeeCode} was not found in the employee directory.` };
+  }
+
+  const row = data[0];
+  directory.set(employeeCode, {
+    department: row.department as string,
+    isDeleted: true,
+    office: row.office as string,
+    employeeName: row.full_name as string,
+  });
+  notify();
+  return { success: true };
 }
 
-export async function restoreEmployee(employeeCode: string, officeCode: string): Promise<void> {
-  const key = directoryKey(employeeCode, officeCode);
-  const prev = directory.get(key);
-  directory.set(key, { department: prev?.department ?? null, isDeleted: false, officeCode, employeeName: prev?.employeeName });
-  notify();
-
+export async function restoreEmployee(employeeCode: string, _officeCode?: string): Promise<StoreResult> {
   const supabase = createClient();
-  await supabase.from('employees').upsert(
-    { employee_code: employeeCode, office_code: officeCode, is_deleted: false, deleted_at: null, updated_at: new Date().toISOString() },
-    { onConflict: 'employee_code,office_code' }
-  );
+  const { data, error } = await supabase
+    .from('employees')
+    .update({ is_deleted: false, deleted_at: null, updated_at: new Date().toISOString() })
+    .eq('employee_code', employeeCode)
+    .select('employee_code, full_name, department, office');
+
+  if (error) {
+    return { success: false, error: `Could not restore employee: ${error.message}` };
+  }
+  if (!data || data.length === 0) {
+    return { success: false, error: `${employeeCode} was not found in the employee directory.` };
+  }
+
+  const row = data[0];
+  directory.set(employeeCode, {
+    department: row.department as string,
+    isDeleted: false,
+    office: row.office as string,
+    employeeName: row.full_name as string,
+  });
+  notify();
+  return { success: true };
 }
 
-export function isEmployeeDeleted(employeeCode: string, officeCode: string): boolean {
-  return directory.get(directoryKey(employeeCode, officeCode))?.isDeleted ?? false;
+export function isEmployeeDeleted(employeeCode: string, _officeCode?: string): boolean {
+  return directory.get(employeeCode)?.isDeleted ?? false;
 }
 
 /** For a "Deleted Employees" restore list — sourced from the directory itself,
@@ -148,25 +205,39 @@ export function isEmployeeDeleted(employeeCode: string, officeCode: string): boo
 export function getDeletedEmployees(): { employeeCode: string; employeeName?: string; officeCode: string }[] {
   return Array.from(directory.entries())
     .filter(([, e]) => e.isDeleted)
-    .map(([employeeCode, e]) => ({ employeeCode, employeeName: e.employeeName, officeCode: e.officeCode }));
+    .map(([employeeCode, e]) => ({ employeeCode, employeeName: e.employeeName, officeCode: e.office }));
 }
 
 // ── Custom (HR-created) departments ───────────────────────────────────────────
-export async function addDepartment(name: string, existingDepartments: string[]): Promise<boolean> {
+// `duplicate: true` is the existing inline-validation case (name already
+// exists) — SettingsPanel still shows that next to the input, unchanged.
+// `success: false` with an `error` is a genuine write failure and should be
+// toasted, same as every other function here.
+export interface AddDepartmentResult {
+  success: boolean;
+  duplicate?: boolean;
+  error?: string;
+}
+
+export async function addDepartment(name: string, existingDepartments: string[]): Promise<AddDepartmentResult> {
   const trimmed = name.trim();
-  if (!trimmed) return false;
+  if (!trimmed) return { success: false };
   const all = [...existingDepartments, ...customDepartments];
-  if (all.some((d) => d.toLowerCase() === trimmed.toLowerCase())) return false;
+  if (all.some((d) => d.toLowerCase() === trimmed.toLowerCase())) return { success: false, duplicate: true };
+
+  const supabase = createClient();
+  const { error } = await supabase.from('custom_departments').insert({ name: trimmed });
+
+  if (error) {
+    return { success: false, error: `Could not add department: ${error.message}` };
+  }
 
   customDepartments = [...customDepartments, trimmed];
   notify();
-
-  const supabase = createClient();
-  await supabase.from('custom_departments').insert({ name: trimmed });
-  return true;
+  return { success: true };
 }
 
-/** Union of departments seen in uploaded records + HR-created + in-use overrides. */
+/** Union of departments seen in uploaded records + HR-created + in-use directory entries. */
 export function getAllKnownDepartments(records: AttendanceRecord[]): string[] {
   const set = new Set<string>();
   for (const r of records) if (r.department) set.add(r.department);
@@ -176,13 +247,16 @@ export function getAllKnownDepartments(records: AttendanceRecord[]): string[] {
 }
 
 // ── Applied at read-time by lib/storage.ts:getRecords() ──────────────────────
+// `employees.department` is now the single source of truth (not an optional
+// override) — it always wins over whatever a CSV upload says, whenever the
+// employee_code is known to the directory at all.
 export function applyEmployeeDirectory(records: AttendanceRecord[]): AttendanceRecord[] {
   if (directory.size === 0) return records;
   const next: AttendanceRecord[] = [];
   for (const r of records) {
-    const entry = directory.get(directoryKey(r.employeeCode, r.officeCode));
+    const entry = directory.get(r.employeeCode);
     if (entry?.isDeleted) continue; // dropped everywhere — KPIs, charts, tables, exports
-    if (entry?.department && entry.department !== r.department) {
+    if (entry && entry.department !== r.department) {
       next.push({ ...r, department: entry.department });
     } else {
       next.push(r);

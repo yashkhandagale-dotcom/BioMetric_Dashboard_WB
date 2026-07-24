@@ -16,6 +16,10 @@ interface SettingsPanelProps {
   thresholds: Thresholds;
   onSaveThresholds: (t: Thresholds) => void;
   records: AttendanceRecord[];
+  // Surfaces add-department / restore-employee write failures to the app's
+  // existing toast UI (see PROGRESS.md Sprint 2). Duplicate-department-name
+  // validation stays inline (deptError below) — that's not a write failure.
+  onToast?: (type: 'success' | 'error', message: string) => void;
 }
 
 const THRESHOLD_FIELDS: { key: keyof Thresholds; label: string; group: string }[] = [
@@ -47,7 +51,7 @@ function hhmmToMins(hhmm: string): number {
   return h * 60 + m;
 }
 
-export default function SettingsPanel({ onClose, thresholds, onSaveThresholds, records }: SettingsPanelProps) {
+export default function SettingsPanel({ onClose, thresholds, onSaveThresholds, records, onToast }: SettingsPanelProps) {
   const [tab, setTab] = useState<'mapping' | 'thresholds' | 'share' | 'backup' | 'departments' | 'employees'>('thresholds');
   const [draft, setDraft] = useState<Thresholds>(thresholds);
   const [dirty, setDirty] = useState(false);
@@ -69,9 +73,13 @@ export default function SettingsPanel({ onClose, thresholds, onSaveThresholds, r
   async function handleAddDepartment() {
     const trimmed = newDeptName.trim();
     if (!trimmed) return;
-    const ok = await addDepartment(trimmed, departments);
-    if (!ok) {
-      setDeptError(`"${trimmed}" already exists.`);
+    const result = await addDepartment(trimmed, departments);
+    if (!result.success) {
+      if (result.duplicate) {
+        setDeptError(`"${trimmed}" already exists.`);
+      } else if (result.error) {
+        onToast?.('error', result.error);
+      }
       return;
     }
     setDeptError(null);
@@ -278,7 +286,12 @@ export default function SettingsPanel({ onClose, thresholds, onSaveThresholds, r
                           <p className="text-slate-500 text-xs">{e.employeeCode} · {e.officeCode}</p>
                         </div>
                         <button
-                          onClick={() => restoreEmployee(e.employeeCode, e.officeCode)}
+                          onClick={async () => {
+                            const result = await restoreEmployee(e.employeeCode, e.officeCode);
+                            if (!result.success) {
+                              onToast?.('error', result.error ?? 'Could not restore employee.');
+                            }
+                          }}
                           className="text-emerald-400 hover:text-emerald-300 text-xs font-medium px-2.5 py-1 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 transition-colors"
                         >
                           Restore
