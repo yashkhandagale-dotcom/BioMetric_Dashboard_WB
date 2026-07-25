@@ -54,6 +54,27 @@ function toYMD(d: Date): string {
 }
 
 /**
+ * Resolves what "today" should mean for this feature. This app's
+ * attendance_records are populated by batch CSV upload (see
+ * uploaded_months/lib/parseCSV.ts) — there is no live punch feed — so
+ * the calendar date returned by `new Date()` essentially never has a
+ * matching row once you're testing/demoing against last month's export.
+ * The Dashboard itself never assumes "today" for this reason; it always
+ * works off whichever month/date was actually uploaded. This does the
+ * same: default to the latest date that actually exists in
+ * attendance_records, and only fall back to the real calendar date if
+ * the table is empty.
+ */
+async function resolveDefaultDate(supabase: SupabaseClient): Promise<string> {
+  const { data } = await supabase
+    .from('attendance_records')
+    .select('date')
+    .order('date', { ascending: false })
+    .limit(1);
+  return data?.[0]?.date ?? toYMD(new Date());
+}
+
+/**
  * Computes today's (or a given date's) absentee list and possible-half-day/
  * missed-punch list, excluding every edge case the requirement calls out:
  *   - Weekend / weekly-off (isWeeklyOff — already handles "WeeklyOff Present")
@@ -78,7 +99,7 @@ export async function getAttendanceExceptions(
   supabase: SupabaseClient,
   dateOverride?: string
 ): Promise<ExceptionResult> {
-  const date = dateOverride ?? toYMD(new Date());
+  const date = dateOverride ?? (await resolveDefaultDate(supabase));
   const year = date.slice(0, 4);
 
   const [

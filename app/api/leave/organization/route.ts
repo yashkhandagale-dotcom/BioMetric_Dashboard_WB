@@ -20,15 +20,25 @@ export async function GET() {
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
     }
 
-    const [{ departments, error: deptError }, { hierarchy, error: hierError }, { data: allManagers, error: mgrListError }] =
-      await Promise.all([
-        getDepartmentsWithManagers(supabase),
-        getReportingHierarchy(supabase),
-        supabase.from('employees').select('id, employee_code, full_name').eq('role', 'manager').order('full_name'),
-        ]);
+    const [
+      { departments, error: deptError },
+      { hierarchy, error: hierError },
+      { data: allManagers, error: mgrListError },
+      { data: allEmployeesForReporting, error: allEmpError },
+    ] = await Promise.all([
+      getDepartmentsWithManagers(supabase),
+      getReportingHierarchy(supabase),
+      supabase.from('employees').select('id, employee_code, full_name').eq('role', 'manager').order('full_name'),
+      // Deliberately not filtered by role — a manager's "reports to" can
+      // be any existing employee (e.g. a CEO/CTO who isn't itself
+      // role='manager' in this system). See the note in
+      // app/api/leave/employees/[id]/profile/route.ts for why this was
+      // relaxed from manager-only.
+      supabase.from('employees').select('id, employee_code, full_name, role').order('full_name'),
+    ]);
 
-    if (deptError || hierError || mgrListError) {
-      return NextResponse.json({ error: deptError || hierError || mgrListError?.message }, { status: 400 });
+    if (deptError || hierError || mgrListError || allEmpError) {
+      return NextResponse.json({ error: deptError || hierError || mgrListError?.message || allEmpError?.message }, { status: 400 });
     }
 
     return NextResponse.json({
@@ -36,6 +46,7 @@ export async function GET() {
       managers: hierarchy?.managers ?? [],
       techLeads: hierarchy?.techLeads ?? [],
       managerOptions: allManagers ?? [],
+      reportingTargetOptions: allEmployeesForReporting ?? [],
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';
@@ -87,9 +98,12 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'A manager cannot report to themself.' }, { status: 400 });
     }
     if (reporting_manager_id) {
-      const { data: mgr } = await service.from('employees').select('id, role').eq('id', reporting_manager_id).maybeSingle();
-      if (!mgr || mgr.role !== 'manager') {
-        return NextResponse.json({ error: 'A manager can only report to another employee with role = manager.' }, { status: 400 });
+      // Any existing employee is a valid reporting target — see the
+      // matching note in the profile route for why this isn't
+      // restricted to role='manager' anymore.
+      const { data: mgr } = await service.from('employees').select('id').eq('id', reporting_manager_id).maybeSingle();
+      if (!mgr) {
+        return NextResponse.json({ error: 'Selected reporting-to employee was not found.' }, { status: 400 });
       }
       // Circular-hierarchy guard — same walk-the-chain check as
       // app/api/leave/employees/[id]/profile/route.ts's PATCH handler,

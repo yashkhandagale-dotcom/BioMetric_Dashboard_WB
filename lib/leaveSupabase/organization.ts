@@ -88,14 +88,20 @@ export async function getReportingHierarchy(
     { data: techLeadRows, error: techLeadError },
     { data: deptManagers, error: deptError },
     { data: allEmployees, error: allError },
+    { data: reportingTargets, error: targetsError },
   ] = await Promise.all([
     supabase.from('employees').select('id, employee_code, full_name, reporting_manager_id').eq('role', 'manager'),
     supabase.from('employees').select('id, employee_code, full_name').eq('role', 'tech_lead'),
     supabase.from('department_managers').select('department, manager_id'),
     supabase.from('employees').select('id, reporting_tech_lead_id').eq('role', 'employee'),
+    // reporting_manager_id can point at any employee now (not just
+    // role=manager — see the profile route's note on why), so resolving
+    // its display name needs to look across everyone, not just the
+    // manager list above.
+    supabase.from('employees').select('id, full_name'),
   ]);
 
-  const firstError = managerError || techLeadError || deptError || allError;
+  const firstError = managerError || techLeadError || deptError || allError || targetsError;
   if (firstError) return { hierarchy: null, error: firstError.message };
 
   const departmentsByManagerId = new Map<string, string[]>();
@@ -106,7 +112,7 @@ export async function getReportingHierarchy(
     departmentsByManagerId.set(d.manager_id, list);
   }
 
-  const managersById = new Map((managerRows ?? []).map((m) => [m.id, m]));
+  const namesById = new Map((reportingTargets ?? []).map((e) => [e.id, e.full_name]));
 
   const managers: ManagerSummary[] = (managerRows ?? []).map((m) => ({
     id: m.id,
@@ -114,7 +120,7 @@ export async function getReportingHierarchy(
     fullName: m.full_name,
     managedDepartments: departmentsByManagerId.get(m.id) ?? [],
     reportingManagerId: m.reporting_manager_id,
-    reportingManagerName: m.reporting_manager_id ? managersById.get(m.reporting_manager_id)?.full_name ?? null : null,
+    reportingManagerName: m.reporting_manager_id ? namesById.get(m.reporting_manager_id) ?? null : null,
   }));
 
   const techLeadCounts = new Map<string, number>();

@@ -13,6 +13,7 @@ type ManagerRow = {
 };
 type TechLeadRow = { id: string; employeeCode: string; fullName: string; managedEmployeeCount: number };
 type ManagerOption = { id: string; employee_code: string; full_name: string };
+type ReportingOption = { id: string; employee_code: string; full_name: string; role: string };
 
 // New, separate admin page — "Organization Management" — that moves
 // department-manager / tech-lead / reporting-manager assignment out of
@@ -27,6 +28,7 @@ export default function OrganizationManagementPage() {
   const [managers, setManagers] = useState<ManagerRow[]>([]);
   const [techLeads, setTechLeads] = useState<TechLeadRow[]>([]);
   const [managerOptions, setManagerOptions] = useState<ManagerOption[]>([]);
+  const [reportingTargetOptions, setReportingTargetOptions] = useState<ReportingOption[]>([]);
   const [techLeadOptions, setTechLeadOptions] = useState<{ id: string; full_name: string }[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -51,6 +53,7 @@ export default function OrganizationManagementPage() {
       setManagers(orgBody.managers ?? []);
       setTechLeads(orgBody.techLeads ?? []);
       setManagerOptions(orgBody.managerOptions ?? []);
+      setReportingTargetOptions(orgBody.reportingTargetOptions ?? []);
 
       const empText = await empRes.text();
       const empBody = empText ? JSON.parse(empText) : {};
@@ -227,10 +230,12 @@ export default function OrganizationManagementPage() {
                           className="bg-slate-900 border border-slate-700 rounded-lg px-2 py-1 text-xs text-white"
                         >
                           <option value="">No one (top-level)</option>
-                          {managerOptions
+                          {reportingTargetOptions
                             .filter((opt) => opt.id !== m.id)
                             .map((opt) => (
-                              <option key={opt.id} value={opt.id}>{opt.full_name}</option>
+                              <option key={opt.id} value={opt.id}>
+                                {opt.full_name} — {opt.role}
+                              </option>
                             ))}
                         </select>
                       </td>

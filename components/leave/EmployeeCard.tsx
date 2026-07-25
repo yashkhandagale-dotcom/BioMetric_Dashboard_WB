@@ -40,14 +40,10 @@ export default function EmployeeCard({
   employee,
   fyStartYear,
   violationCount,
-  onViewProfile,
-  onRecordLeave,
 }: {
   employee: EmployeeWithBalances;
   fyStartYear: number;
   violationCount?: number;
-  onViewProfile: (employeeId: string) => void;
-  onRecordLeave: (employeeId: string) => void;
 }) {
   const statusStyle = STATUS_STYLES[employee.employmentStatus] ?? STATUS_STYLES.active;
 
@@ -81,28 +77,13 @@ export default function EmployeeCard({
       <HierarchyLine employee={employee} />
 
       <div className="flex flex-wrap items-center gap-2 pt-1">
-        {/* D2-3: was a link to the now-removed /leave/admin/leave page —
-            opens the RecordLeaveDrawer (state lives in EmployeeGrid) so
-            HR never leaves the grid. */}
-        <button
-          type="button"
-          onClick={() => onRecordLeave(employee.id)}
-          className="text-xs bg-blue-600 hover:bg-blue-500 text-white font-medium px-2.5 py-1.5 rounded-lg transition-colors"
-        >
-          Record Leave
-        </button>
-        {/* D2-1: was an inline expand/collapse panel — now opens the full
-            tabbed EmployeeModal (Overview, Balances, Leave Timeline,
-            Violations), exactly as the Day 1 placeholder text promised. */}
-        <button
-          type="button"
-          onClick={() => onViewProfile(employee.id)}
-          className="text-xs text-slate-400 hover:text-white border border-slate-700 hover:border-slate-500 rounded-lg px-2.5 py-1.5 transition-colors"
-        >
-          View Profile
-        </button>
-        {/* Reused as-is from app/leave/admin/AdjustBalanceButton.tsx — not
-            duplicated, per the "reuse existing components" constraint. */}
+        {/* Record Leave / View Profile were removed from here — every
+            leave action now happens from the Leave Tracker page
+            (/leave/admin/history: Absentees / Half Days / Leave History
+            tabs), so there's exactly one place HR records leave from,
+            not one per card plus a second centralized page. Adjust
+            (status/role/hierarchy) stays here since it's genuinely
+            per-employee, one-off editing — not a leave action. */}
         <AdjustBalanceButton
           employeeId={employee.id}
           employeeName={employee.name}

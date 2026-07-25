@@ -19,10 +19,14 @@ export default function RecordLeaveDrawer({
   onClose,
   onSuccess,
 }: {
-  employeeId: string;
+  // Optional — when omitted, RecordLeaveForm falls back to its own
+  // searchable employee dropdown. Used by the Leave Tracker page's
+  // standalone "+ Record Leave" button, which isn't tied to any one
+  // absentee/half-day row.
+  employeeId?: string;
   employeeName?: string;
-  // Optional — used when this drawer is opened from the Possible Half Day
-  // accordion's "Mark Half Day" action instead of a plain Record Leave.
+  // Optional — used when this drawer is opened from the Half Day tab's
+  // "Mark Half Day" action instead of a plain Record Leave.
   presetDate?: string;
   presetIsHalfDay?: boolean;
   presetLeaveTypeCode?: 'SL' | 'CL' | 'PL' | 'LWP';

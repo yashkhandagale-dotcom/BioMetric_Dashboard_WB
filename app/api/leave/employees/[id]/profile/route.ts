@@ -290,14 +290,23 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
         return NextResponse.json({ error: 'A manager cannot report to themself.' }, { status: 400 });
       }
       if (reporting_manager_id) {
+        // Deliberately NOT restricted to role='manager'. Earlier this
+        // required the reporting-to employee to also be role='manager',
+        // which meant modeling a CEO/CTO at the top of the chain forced
+        // inventing an extra 'manager'-role row for them even though
+        // they might be hr_super_admin or any other role — adding roles
+        // just to satisfy this check rather than reflecting anything
+        // real. Any existing employee can be a reporting target now;
+        // the only real rules are "not yourself" and "no cycle", both
+        // still enforced below.
         const { data: mgr, error: mgrErr } = await supabase
           .from('employees')
-          .select('id, role')
+          .select('id')
           .eq('id', reporting_manager_id)
           .maybeSingle();
         if (mgrErr) return NextResponse.json({ error: mgrErr.message }, { status: 400 });
-        if (!mgr || mgr.role !== 'manager') {
-          return NextResponse.json({ error: 'A manager can only report to another employee with role = manager.' }, { status: 400 });
+        if (!mgr) {
+          return NextResponse.json({ error: 'Selected reporting-to employee was not found.' }, { status: 400 });
         }
         // Circular-hierarchy guard: walk the proposed manager's existing
         // reporting_manager_id chain upward. If `id` (the employee being

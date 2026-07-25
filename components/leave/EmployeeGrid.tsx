@@ -1,10 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useRouter } from 'next/navigation';
 import EmployeeCard, { EmployeeWithBalances } from './EmployeeCard';
-import EmployeeModal from './EmployeeModal';
-import RecordLeaveDrawer from './RecordLeaveDrawer';
 
 const STATUS_OPTIONS = [
   { value: 'probation', label: 'Probation' },
@@ -13,6 +10,12 @@ const STATUS_OPTIONS = [
   { value: 'exited', label: 'Exited' },
 ];
 
+// Record Leave / View Profile no longer live here — leave recording and
+// leave/attendance history are exclusively on the Leave Tracker page
+// (/leave/admin/history: Absentees / Half Days / Leave History tabs).
+// This grid is now purely a searchable, read-only balances/info view +
+// Adjust (status/role/hierarchy), matching "no Record Leave button, no
+// View Profile button" on the employee card.
 export default function EmployeeGrid({
   employees,
   fyStartYear,
@@ -20,27 +23,12 @@ export default function EmployeeGrid({
   employees: EmployeeWithBalances[];
   fyStartYear: number;
 }) {
-  const router = useRouter();
-
   const [search, setSearch] = useState('');
   const [department, setDepartment] = useState('');
   const [office, setOffice] = useState('');
   const [status, setStatus] = useState('');
 
-  // D2-1 / D2-3: which employee's modal/drawer is open, if any. Both can
-  // be open at once (the modal's own "Record Leave" action opens the
-  // drawer on top of it) — see EmployeeModal's onRecordLeave prop below.
-  const [profileEmployeeId, setProfileEmployeeId] = useState<string | null>(null);
-  const [drawerEmployeeId, setDrawerEmployeeId] = useState<string | null>(null);
-  // Bumped whenever a leave is successfully recorded, so the open
-  // EmployeeModal (if any) knows to refetch its Balances / Leave Timeline
-  // tabs instead of showing what it fetched before the save.
-  const [refreshSignal, setRefreshSignal] = useState(0);
-
-  // D4: real per-employee violation counts for ViolationBadge — the Day 1
-  // placeholder always passed `count={undefined}`; this is the wiring it
-  // was left waiting for. One fetch of every open violation, grouped by
-  // employeeId client-side, rather than one request per card.
+  // D4: real per-employee violation counts for ViolationBadge.
   const [violationCounts, setViolationCounts] = useState<Record<string, number>>({});
 
   const loadViolationCounts = useCallback(async () => {
@@ -61,17 +49,7 @@ export default function EmployeeGrid({
 
   useEffect(() => {
     loadViolationCounts();
-  }, [loadViolationCounts, refreshSignal]);
-
-  function handleDrawerSuccess() {
-    setRefreshSignal((s) => s + 1);
-    // This page's balances come from a Server Component (getEmployeeBalancesByFY
-    // in app/leave/admin/employees/page.tsx) — router.refresh() re-runs that
-    // fetch and re-renders with fresh props in place, without a full page
-    // reload/navigation, so every card's balances (not just the one the
-    // drawer was open for) stay in sync with what was just recorded.
-    router.refresh();
-  }
+  }, [loadViolationCounts]);
 
   // Filter options are derived from the data itself (departments/offices
   // are free text on the employees table, not a fixed enum) rather than
@@ -97,7 +75,6 @@ export default function EmployeeGrid({
   }, [employees, search, department, office, status]);
 
   const hasActiveFilters = !!(search || department || office || status);
-  const drawerEmployee = employees.find((e) => e.id === drawerEmployeeId);
 
   return (
     <div className="space-y-4">
@@ -175,30 +152,9 @@ export default function EmployeeGrid({
               employee={e}
               fyStartYear={fyStartYear}
               violationCount={violationCounts[e.id]}
-              onViewProfile={setProfileEmployeeId}
-              onRecordLeave={setDrawerEmployeeId}
             />
           ))}
         </div>
-      )}
-
-      {profileEmployeeId && (
-        <EmployeeModal
-          employeeId={profileEmployeeId}
-          refreshSignal={refreshSignal}
-          onClose={() => setProfileEmployeeId(null)}
-          onRecordLeave={setDrawerEmployeeId}
-          onViolationsChanged={loadViolationCounts}
-        />
-      )}
-
-      {drawerEmployeeId && (
-        <RecordLeaveDrawer
-          employeeId={drawerEmployeeId}
-          employeeName={drawerEmployee?.name}
-          onClose={() => setDrawerEmployeeId(null)}
-          onSuccess={handleDrawerSuccess}
-        />
       )}
     </div>
   );
