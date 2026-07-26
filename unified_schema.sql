@@ -31,10 +31,10 @@ create table if not exists employees (
   employee_code text not null unique,
   full_name text not null,
   email text unique,
-  role text not null check (role = any (array['employee'::text, 'tech_lead'::text, 'manager'::text, 'hr'::text, 'hr_super_admin'::text])),
+  role text not null check (role = any (array['employee'::text, 'lead'::text, 'manager'::text, 'hr'::text, 'hr_super_admin'::text])),
   department text not null,
   office text not null,
-  reporting_tech_lead_id uuid,
+  reporting_lead_id uuid,
   reporting_manager_id uuid,
   date_of_joining date,
   date_of_exit date,
@@ -47,7 +47,7 @@ create table if not exists employees (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   constraint employees_pkey primary key (id),
-  constraint employees_reporting_tech_lead_id_fkey foreign key (reporting_tech_lead_id) references employees(id),
+  constraint employees_reporting_lead_id_fkey foreign key (reporting_lead_id) references employees(id),
   constraint employees_reporting_manager_id_fkey foreign key (reporting_manager_id) references employees(id)
 );
 create index if not exists idx_employees_office on employees(office);
@@ -153,7 +153,7 @@ create table if not exists approval_steps (
   id uuid not null default gen_random_uuid(),
   leave_request_id uuid not null,
   approver_id uuid not null,
-  approver_role text not null check (approver_role = any (array['tech_lead'::text, 'manager'::text, 'hr'::text])),
+  approver_role text not null check (approver_role = any (array['lead'::text, 'manager'::text, 'hr'::text])),
   sequence_order integer not null,
   status text not null default 'pending'::text check (status = any (array['pending'::text, 'approved'::text, 'rejected'::text, 'skipped'::text])),
   comment text,

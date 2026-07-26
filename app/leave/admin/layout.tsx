@@ -8,7 +8,7 @@ import { createLeaveClient } from '@/lib/leaveSupabase/server';
 // v1 scope: any authenticated user in the leave-tracker Supabase project
 // IS the HR super admin (mirrors the existing dashboard's "single shared
 // workspace" model, kept intentionally simple for this first phase).
-// When we add tech_lead/manager/employee roles later, this is where a
+// When we add lead/manager/employee roles later, this is where a
 // role check gets added — swap the `if (!user)` below for a role lookup
 // against the `employees` table.
 export default async function LeaveAdminLayout({

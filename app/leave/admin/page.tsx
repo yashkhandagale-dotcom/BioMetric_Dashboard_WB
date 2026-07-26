@@ -15,7 +15,7 @@ import PolicyInfoButton from '@/components/leave/PolicyInfoButton';
 //     manually creates a row here.
 //   - The Adjust button (AdjustBalanceButton) grew a "Details" tab that
 //     covers what the Add Employee form used to (status, role, reporting
-//     tech lead / manager) — the only things a CSV can't supply — so
+//     lead / manager) — the only things a CSV can't supply — so
 //     there's no remaining reason to keep a second page around for it.
 //   - "Record Leave" and "Manage Employees" nav links here used to point
 //     to the exact same URL (/leave/admin/employees) under two different
@@ -38,7 +38,7 @@ export default async function LeaveAdminHome() {
     supabase
       .from('employees')
       .select(
-        'id, employee_code, full_name, department, office, role, employment_status, date_of_joining, reporting_tech_lead_id, reporting_manager_id'
+        'id, employee_code, full_name, department, office, role, employment_status, date_of_joining, reporting_lead_id, reporting_manager_id'
       )
       .order('full_name'),
     getEmployeeBalancesByFY(supabase, fyStartYear),
@@ -65,7 +65,7 @@ export default async function LeaveAdminHome() {
     const b = balancesById.get(e.id);
     const effectiveManagerId = managerIdByDept.get(e.department) ?? null;
     const effectiveManager = effectiveManagerId ? employeesById.get(effectiveManagerId) : undefined;
-    const techLead = e.reporting_tech_lead_id ? employeesById.get(e.reporting_tech_lead_id) : undefined;
+    const lead = e.reporting_lead_id ? employeesById.get(e.reporting_lead_id) : undefined;
     const reportingManager = e.reporting_manager_id ? employeesById.get(e.reporting_manager_id) : undefined;
 
     return {
@@ -80,8 +80,8 @@ export default async function LeaveAdminHome() {
       // Derived, not stored — reassigning a department's manager changes
       // this for every member automatically, with no per-employee write.
       effectiveManagerName: e.role === 'manager' ? null : effectiveManager?.full_name ?? null,
-      reportingTechLeadId: e.reporting_tech_lead_id,
-      techLeadName: e.role === 'employee' ? techLead?.full_name ?? null : null,
+      reportingLeadId: e.reporting_lead_id,
+      leadName: e.role === 'employee' ? lead?.full_name ?? null : null,
       reportingManagerId: e.reporting_manager_id,
       reportingManagerName: e.role === 'manager' ? reportingManager?.full_name ?? null : null,
       managedDepartments: e.role === 'manager' ? departmentsByManagerId.get(e.id) ?? [] : [],

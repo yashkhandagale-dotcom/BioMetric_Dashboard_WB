@@ -34,10 +34,10 @@ create table if not exists employees (
     full_name           text not null,
     email               text unique not null,
     role                text not null check (role in
-                            ('employee', 'tech_lead', 'manager', 'hr', 'hr_super_admin')),
+                            ('employee', 'lead', 'manager', 'hr', 'hr_super_admin')),
     department          text not null,
     office               text not null,
-    reporting_tech_lead_id uuid references employees(id),
+    reporting_lead_id uuid references employees(id),
     reporting_manager_id   uuid references employees(id),
     date_of_joining     date not null,
     date_of_exit        date,
@@ -161,13 +161,13 @@ create table if not exists leave_requests (
 );
 
 -- ---------------------------------------------------------------------
--- APPROVAL STEPS — sequential chain per request (tech lead -> manager -> HR)
+-- APPROVAL STEPS — sequential chain per request (lead -> manager -> HR)
 -- ---------------------------------------------------------------------
 create table if not exists approval_steps (
     id                  uuid primary key default gen_random_uuid(),
     leave_request_id    uuid not null references leave_requests(id),
     approver_id         uuid not null references employees(id),
-    approver_role        text not null check (approver_role in ('tech_lead', 'manager', 'hr')),
+    approver_role        text not null check (approver_role in ('lead', 'manager', 'hr')),
     sequence_order       integer not null,
     status               text not null default 'pending'
                             check (status in ('pending', 'approved', 'rejected', 'skipped')),
@@ -696,7 +696,7 @@ $$ language plpgsql;
 -- supabase/schema.sql: any authenticated user in THIS project has full
 -- read/write. Safe for v1 because this project's only users are HR
 -- super admins created manually in the Supabase dashboard (no self
--- signup). When employee/tech-lead/manager self-service logins are
+-- signup). When employee/lead/manager self-service logins are
 -- added later, these policies need to be tightened to check role and
 -- ownership (e.g. an employee can only see their own leave_requests) —
 -- do not carry this "authenticated = full access" model forward blindly.

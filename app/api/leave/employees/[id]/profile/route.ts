@@ -49,7 +49,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
         supabase
           .from('employees')
           .select(
-            'id, employee_code, full_name, email, role, department, office, employment_status, date_of_joining, notice_period_days, reporting_tech_lead_id, reporting_manager_id'
+            'id, employee_code, full_name, email, role, department, office, employment_status, date_of_joining, notice_period_days, reporting_lead_id, reporting_manager_id'
           )
           .eq('id', id)
           .maybeSingle(),
@@ -86,16 +86,16 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 
     // Hierarchy resolution — mirrors app/leave/admin/page.tsx's logic so
     // this modal never disagrees with the grid about who reports to whom.
-    // employee/tech_lead: effective manager is derived from department ->
+    // employee/lead: effective manager is derived from department ->
     // department_managers.manager_id (never employees.reporting_manager_id
     // — see supabase-leave/schema.sql's 006_department_managers.sql).
     // manager: shows the department(s) they manage plus who THEY report to.
     let effectiveManagerName: string | null = null;
-    let techLeadName: string | null = null;
+    let leadName: string | null = null;
     let reportingManagerName: string | null = null;
     let managedDepartments: string[] = [];
 
-    if (employee.role === 'employee' || employee.role === 'tech_lead') {
+    if (employee.role === 'employee' || employee.role === 'lead') {
       if (employee.department) {
         const { data: deptMgr } = await supabase
           .from('department_managers')
@@ -111,13 +111,13 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
           effectiveManagerName = mgr?.full_name ?? null;
         }
       }
-      if (employee.role === 'employee' && employee.reporting_tech_lead_id) {
+      if (employee.role === 'employee' && employee.reporting_lead_id) {
         const { data: tl } = await supabase
           .from('employees')
           .select('full_name')
-          .eq('id', employee.reporting_tech_lead_id)
+          .eq('id', employee.reporting_lead_id)
           .maybeSingle();
-        techLeadName = tl?.full_name ?? null;
+        leadName = tl?.full_name ?? null;
       }
     } else if (employee.role === 'manager') {
       const { data: depts } = await supabase
@@ -164,8 +164,8 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
         dateOfJoining: employee.date_of_joining,
         noticePeriodDays: employee.notice_period_days,
         effectiveManagerName,
-        techLeadId: employee.reporting_tech_lead_id,
-        techLeadName,
+        leadId: employee.reporting_lead_id,
+        leadName,
         reportingManagerId: employee.reporting_manager_id,
         reportingManagerName,
         managedDepartments,
@@ -187,11 +187,11 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 }
 
 // Updates the fields a CSV upload cannot supply — employment_status, role,
-// and reporting hierarchy (tech lead / manager). Department/office/full_name
+// and reporting hierarchy (lead / manager). Department/office/full_name
 // are owned by the CSV sync (lib/employeeStore.ts's ensureEmployeesFromAttendance)
 // now, so this intentionally does NOT touch those — this is "Adjust" tab #2
 // (Details), separate from the existing balance-adjustment tab.
-const ROLES = ['employee', 'tech_lead', 'manager', 'hr', 'hr_super_admin'];
+const ROLES = ['employee', 'lead', 'manager', 'hr', 'hr_super_admin'];
 const STATUSES = ['probation', 'active', 'notice_period', 'exited'];
 
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -209,7 +209,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const {
     role,
     employment_status,
-    reporting_tech_lead_id,
+    reporting_lead_id,
     reporting_manager_id,
     managed_departments, // string[] — only meaningful when role (new or existing) === 'manager'
   } = body;
@@ -246,44 +246,44 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
   // ── Hierarchy fields, gated by the RESOLVED role ──────────────────────
   // employee: department (owned by CSV sync, not editable here) +
-  //   reporting_tech_lead_id (from any tech_lead, company-wide — not
+  //   reporting_lead_id (from any lead, company-wide — not
   //   department-filtered, by design).
-  // tech_lead: no fields of their own here. No tech lead of their own,
+  // lead: no fields of their own here. No lead of their own,
   //   no manager field (their manager is derived from their department
   //   via department_managers).
-  // manager: no reporting_tech_lead_id. Instead reporting_manager_id
+  // manager: no reporting_lead_id. Instead reporting_manager_id
   //   (must be another employee with role=manager) and
   //   managed_departments (this manager's departments — can be several).
   // hr / hr_super_admin: none of the above apply; all cleared.
-  if (resolvedRole === 'employee' || resolvedRole === 'tech_lead') {
+  if (resolvedRole === 'employee' || resolvedRole === 'lead') {
     // Not applicable to these roles — always cleared, regardless of what
     // was sent, so a stale value from before a role change can't linger.
     update.reporting_manager_id = null;
 
     if (resolvedRole === 'employee') {
-      if (reporting_tech_lead_id !== undefined) {
-        if (reporting_tech_lead_id === id) {
+      if (reporting_lead_id !== undefined) {
+        if (reporting_lead_id === id) {
           return NextResponse.json({ error: 'An employee cannot report to themself.' }, { status: 400 });
         }
-        if (reporting_tech_lead_id) {
+        if (reporting_lead_id) {
           const { data: tl, error: tlErr } = await supabase
             .from('employees')
             .select('id, role')
-            .eq('id', reporting_tech_lead_id)
+            .eq('id', reporting_lead_id)
             .maybeSingle();
           if (tlErr) return NextResponse.json({ error: tlErr.message }, { status: 400 });
-          if (!tl || tl.role !== 'tech_lead') {
-            return NextResponse.json({ error: 'Reporting Tech Lead must be an employee with role = tech_lead.' }, { status: 400 });
+          if (!tl || tl.role !== 'lead') {
+            return NextResponse.json({ error: 'Reporting Lead must be an employee with role = lead.' }, { status: 400 });
           }
         }
-        update.reporting_tech_lead_id = reporting_tech_lead_id || null;
+        update.reporting_lead_id = reporting_lead_id || null;
       }
     } else {
-      // tech_lead: doesn't have one of their own
-      update.reporting_tech_lead_id = null;
+      // lead: doesn't have one of their own
+      update.reporting_lead_id = null;
     }
   } else if (resolvedRole === 'manager') {
-    update.reporting_tech_lead_id = null;
+    update.reporting_lead_id = null;
 
     if (reporting_manager_id !== undefined) {
       if (reporting_manager_id === id) {
@@ -337,7 +337,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     }
   } else {
     // hr / hr_super_admin
-    update.reporting_tech_lead_id = null;
+    update.reporting_lead_id = null;
     update.reporting_manager_id = null;
   }
 
@@ -349,7 +349,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
     .from('employees')
     .update(update)
     .eq('id', id)
-    .select('id, role, employment_status, department, reporting_tech_lead_id, reporting_manager_id')
+    .select('id, role, employment_status, department, reporting_lead_id, reporting_manager_id')
     .maybeSingle();
 
   if (error) {

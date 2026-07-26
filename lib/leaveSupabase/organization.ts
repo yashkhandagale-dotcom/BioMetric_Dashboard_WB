@@ -68,7 +68,7 @@ export type ManagerSummary = {
   reportingManagerName: string | null;
 };
 
-export type TechLeadSummary = {
+export type LeadSummary = {
   id: string;
   employeeCode: string;
   fullName: string;
@@ -77,7 +77,7 @@ export type TechLeadSummary = {
 
 export type ReportingHierarchy = {
   managers: ManagerSummary[];
-  techLeads: TechLeadSummary[];
+  leads: LeadSummary[];
 };
 
 export async function getReportingHierarchy(
@@ -85,15 +85,15 @@ export async function getReportingHierarchy(
 ): Promise<{ hierarchy: ReportingHierarchy | null; error: string | null }> {
   const [
     { data: managerRows, error: managerError },
-    { data: techLeadRows, error: techLeadError },
+    { data: leadRows, error: leadError },
     { data: deptManagers, error: deptError },
     { data: allEmployees, error: allError },
     { data: reportingTargets, error: targetsError },
   ] = await Promise.all([
     supabase.from('employees').select('id, employee_code, full_name, reporting_manager_id').eq('role', 'manager'),
-    supabase.from('employees').select('id, employee_code, full_name').eq('role', 'tech_lead'),
+    supabase.from('employees').select('id, employee_code, full_name').eq('role', 'lead'),
     supabase.from('department_managers').select('department, manager_id'),
-    supabase.from('employees').select('id, reporting_tech_lead_id').eq('role', 'employee'),
+    supabase.from('employees').select('id, reporting_lead_id').eq('role', 'employee'),
     // reporting_manager_id can point at any employee now (not just
     // role=manager — see the profile route's note on why), so resolving
     // its display name needs to look across everyone, not just the
@@ -101,7 +101,7 @@ export async function getReportingHierarchy(
     supabase.from('employees').select('id, full_name'),
   ]);
 
-  const firstError = managerError || techLeadError || deptError || allError || targetsError;
+  const firstError = managerError || leadError || deptError || allError || targetsError;
   if (firstError) return { hierarchy: null, error: firstError.message };
 
   const departmentsByManagerId = new Map<string, string[]>();
@@ -123,18 +123,104 @@ export async function getReportingHierarchy(
     reportingManagerName: m.reporting_manager_id ? namesById.get(m.reporting_manager_id) ?? null : null,
   }));
 
-  const techLeadCounts = new Map<string, number>();
+  const leadCounts = new Map<string, number>();
   for (const e of allEmployees ?? []) {
-    if (!e.reporting_tech_lead_id) continue;
-    techLeadCounts.set(e.reporting_tech_lead_id, (techLeadCounts.get(e.reporting_tech_lead_id) ?? 0) + 1);
+    if (!e.reporting_lead_id) continue;
+    leadCounts.set(e.reporting_lead_id, (leadCounts.get(e.reporting_lead_id) ?? 0) + 1);
   }
 
-  const techLeads: TechLeadSummary[] = (techLeadRows ?? []).map((t) => ({
+  const leads: LeadSummary[] = (leadRows ?? []).map((t) => ({
     id: t.id,
     employeeCode: t.employee_code,
     fullName: t.full_name,
-    managedEmployeeCount: techLeadCounts.get(t.id) ?? 0,
+    managedEmployeeCount: leadCounts.get(t.id) ?? 0,
   }));
 
-  return { hierarchy: { managers, techLeads }, error: null };
+  return { hierarchy: { managers, leads }, error: null };
+}
+
+// ── Org tree ──────────────────────────────────────────────────────────────
+// The flat `managers` + `leads` lists above are what the assignment tables
+// on the Organization page edit (each row needs its own dropdown), but they
+// don't show WHO reports to WHOM — that's why the page felt like two
+// unrelated tables instead of one organization chart. This builds an actual
+// nested tree instead.
+//
+// It deliberately does NOT hardcode "CEO / CTO / Delivery Head / Project
+// Manager" as separate roles. Those titles don't need their own `role`
+// value or column: `employees.role` already only needs to answer "who
+// approves this person's leave" (employee → lead → manager → hr), and
+// `reporting_manager_id` already accepts ANY employee as a target (see the
+// note in app/api/leave/organization/route.ts's POST handler) — so a
+// manager-role row can report to another manager-role row, any number of
+// levels deep, which is exactly how CEO → CTO → Delivery Head → Project
+// Manager → (department) Manager chains are represented here: they're all
+// `role = 'manager'`, distinguished only by where they sit in the
+// reporting_manager_id chain and what they're each called (full_name /
+// designation), not by a separate enum value per title.
+export type OrgTreeNode = {
+  id: string;
+  employeeCode: string;
+  fullName: string;
+  role: string;
+  department: string | null;
+  children: OrgTreeNode[];
+};
+
+export async function getOrgTree(
+  supabase: SupabaseClient
+): Promise<{ roots: OrgTreeNode[]; unassignedCount: number; error: string | null }> {
+  const { data: rows, error } = await supabase
+    .from('employees')
+    .select('id, employee_code, full_name, role, department, reporting_manager_id, reporting_lead_id')
+    .neq('employment_status', 'exited')
+    .order('full_name');
+  if (error) return { roots: [], unassignedCount: 0, error: error.message };
+
+  const nodesById = new Map<string, OrgTreeNode>();
+  for (const r of rows ?? []) {
+    nodesById.set(r.id, {
+      id: r.id,
+      employeeCode: r.employee_code,
+      fullName: r.full_name,
+      role: r.role,
+      department: r.department,
+      children: [],
+    });
+  }
+
+  // Parent for role='employee' rows is their lead (reporting_lead_id);
+  // for everyone else (lead/manager/hr) it's reporting_manager_id — an
+  // employee's leave chain climbs lead → manager → hr, so the tree should
+  // mirror that, not force every row through the same column.
+  const roots: OrgTreeNode[] = [];
+  let unassignedCount = 0;
+  for (const r of rows ?? []) {
+    const node = nodesById.get(r.id)!;
+    const parentId = r.role === 'employee' ? r.reporting_lead_id : r.reporting_manager_id;
+    const parent = parentId ? nodesById.get(parentId) : undefined;
+    if (parent) {
+      parent.children.push(node);
+    } else if (parentId && !parent) {
+      // Parent id set but points at someone exited/deleted — surface as
+      // its own root rather than silently dropping the employee.
+      roots.push(node);
+      unassignedCount += 1;
+    } else if (!parentId && r.role !== 'employee') {
+      roots.push(node);
+    } else {
+      // role='employee' with no reporting_lead_id set yet.
+      roots.push(node);
+      unassignedCount += 1;
+    }
+  }
+
+  const sortChildren = (n: OrgTreeNode) => {
+    n.children.sort((a, b) => a.fullName.localeCompare(b.fullName));
+    n.children.forEach(sortChildren);
+  };
+  roots.sort((a, b) => a.fullName.localeCompare(b.fullName));
+  roots.forEach(sortChildren);
+
+  return { roots, unassignedCount, error: null };
 }

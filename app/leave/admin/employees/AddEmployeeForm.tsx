@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 
-const ROLES = ['employee', 'tech_lead', 'manager', 'hr', 'hr_super_admin'];
+const ROLES = ['employee', 'lead', 'manager', 'hr', 'hr_super_admin'];
 
 type PersonOption = { id: string; full_name: string; employee_code: string };
 type DepartmentOption = { department: string; managerId: string | null; managerName: string | null };
@@ -17,14 +17,14 @@ export default function AddEmployeeForm() {
     department: '',
     office: '',
     date_of_joining: '',
-    reporting_tech_lead_id: '',
+    reporting_lead_id: '',
     reporting_manager_id: '',
   });
   const [managedDepartments, setManagedDepartments] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [warning, setWarning] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [techLeads, setTechLeads] = useState<PersonOption[]>([]);
+  const [leads, setLeads] = useState<PersonOption[]>([]);
   const [managers, setManagers] = useState<PersonOption[]>([]);
   const [departments, setDepartments] = useState<DepartmentOption[]>([]);
 
@@ -54,7 +54,7 @@ export default function AddEmployeeForm() {
         // Departments list just stays empty.
       }
     }
-    loadOptions('tech_lead', setTechLeads);
+    loadOptions('lead', setLeads);
     loadOptions('manager', setManagers);
     loadDepartments();
   }, []);
@@ -94,7 +94,7 @@ export default function AddEmployeeForm() {
     setForm({
       employee_code: '', full_name: '', email: '', role: 'employee',
       department: '', office: '', date_of_joining: '',
-      reporting_tech_lead_id: '', reporting_manager_id: '',
+      reporting_lead_id: '', reporting_manager_id: '',
     });
     setManagedDepartments([]);
     router.refresh();
@@ -132,14 +132,14 @@ export default function AddEmployeeForm() {
         <Field label="Date of Joining" value={form.date_of_joining} onChange={(v) => update('date_of_joining', v)} type="date" required />
         {form.role === 'employee' && (
           <div>
-            <label className="block text-xs text-slate-400 mb-1">Reporting Tech Lead</label>
+            <label className="block text-xs text-slate-400 mb-1">Reporting Lead</label>
             <select
-              value={form.reporting_tech_lead_id}
-              onChange={(e) => update('reporting_tech_lead_id', e.target.value)}
+              value={form.reporting_lead_id}
+              onChange={(e) => update('reporting_lead_id', e.target.value)}
               className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
             >
               <option value="">— None —</option>
-              {techLeads.map((p) => (
+              {leads.map((p) => (
                 <option key={p.id} value={p.id}>{p.full_name} ({p.employee_code})</option>
               ))}
             </select>

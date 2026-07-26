@@ -18,8 +18,8 @@ export type EmployeeWithBalances = {
   // Derived from the department's manager, not stored per-employee — see
   // supabase-leave/schema.sql's 006_department_managers.sql.
   effectiveManagerName?: string | null;
-  reportingTechLeadId: string | null;
-  techLeadName?: string | null;
+  reportingLeadId: string | null;
+  leadName?: string | null;
   reportingManagerId: string | null;
   reportingManagerName?: string | null;
   managedDepartments?: string[];
@@ -90,7 +90,7 @@ export default function EmployeeCard({
           fyStartYear={fyStartYear}
           currentRole={employee.role}
           currentStatus={employee.employmentStatus}
-          currentTechLeadId={employee.reportingTechLeadId}
+          currentLeadId={employee.reportingLeadId}
           currentManagerId={employee.reportingManagerId}
           currentManagedDepartments={employee.managedDepartments ?? []}
         />
@@ -109,7 +109,7 @@ function Balance({ label, value, amber }: { label: string; value: number; amber?
 }
 
 // Shows where this person sits in the org: (derived) manager for
-// employees/tech leads — department itself is already shown in the card
+// employees/leads — department itself is already shown in the card
 // header above — or the departments they manage + who they report to
 // for managers. Nothing here is editable — it's read-only, sourced from
 // the Adjust → Details tab.
@@ -126,11 +126,11 @@ function HierarchyLine({ employee }: { employee: EmployeeWithBalances }) {
     );
   }
 
-  if (employee.role === 'employee' || employee.role === 'tech_lead') {
+  if (employee.role === 'employee' || employee.role === 'lead') {
     return (
       <div className="text-xs text-slate-500 space-y-0.5">
         {employee.effectiveManagerName && <p>Manager: {employee.effectiveManagerName}</p>}
-        {employee.role === 'employee' && employee.techLeadName && <p>Tech Lead: {employee.techLeadName}</p>}
+        {employee.role === 'employee' && employee.leadName && <p>Lead: {employee.leadName}</p>}
       </div>
     );
   }

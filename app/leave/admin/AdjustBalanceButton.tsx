@@ -10,7 +10,7 @@ const CODES = [
 
 const ROLES = [
   { value: 'employee', label: 'Employee' },
-  { value: 'tech_lead', label: 'Tech Lead' },
+  { value: 'lead', label: 'Lead' },
   { value: 'manager', label: 'Manager' },
   { value: 'hr', label: 'HR' },
   { value: 'hr_super_admin', label: 'HR Super Admin' },
@@ -28,7 +28,7 @@ type DepartmentOption = { department: string; managerId: string | null; managerN
 
 // Single "Adjust" entry point per employee, two tabs:
 //  - Balance: unchanged from before (adjust SL/CL/PL with a reason, audited).
-//  - Details: status / role / reporting tech lead / reporting manager — the
+//  - Details: status / role / reporting lead / reporting manager — the
 //    fields CSV upload can't supply (see lib/employeeStore.ts's
 //    ensureEmployeesFromAttendance, which only ever sets employee_code,
 //    full_name, department, office, and a default role on first creation).
@@ -37,7 +37,7 @@ type DepartmentOption = { department: string; managerId: string | null; managerN
 //    HR fills in the rest for a person CSV already created.
 //  - Details also carries "Departments Managed" for managers now — see
 //    supabase-leave/schema.sql's 006_department_managers.sql. Department
-//    itself is not editable here (it's CSV-owned), so employee/tech_lead
+//    itself is not editable here (it's CSV-owned), so employee/lead
 //    rows have nothing group-related to set in this tab.
 
 export default function AdjustBalanceButton({
@@ -46,7 +46,7 @@ export default function AdjustBalanceButton({
   fyStartYear,
   currentRole,
   currentStatus,
-  currentTechLeadId,
+  currentLeadId,
   currentManagerId,
   currentManagedDepartments,
 }: {
@@ -55,7 +55,7 @@ export default function AdjustBalanceButton({
   fyStartYear: number;
   currentRole?: string;
   currentStatus?: string;
-  currentTechLeadId?: string | null;
+  currentLeadId?: string | null;
   currentManagerId?: string | null;
   currentManagedDepartments?: string[];
 }) {
@@ -73,10 +73,10 @@ export default function AdjustBalanceButton({
   // ── Details tab state ───────────────────────────────────────────────────
   const [role, setRole] = useState(currentRole ?? 'employee');
   const [status, setStatus] = useState(currentStatus ?? 'active');
-  const [techLeadId, setTechLeadId] = useState(currentTechLeadId ?? '');
+  const [leadId, setLeadId] = useState(currentLeadId ?? '');
   const [managerId, setManagerId] = useState(currentManagerId ?? '');
   const [managedDepartments, setManagedDepartments] = useState<string[]>(currentManagedDepartments ?? []);
-  const [techLeads, setTechLeads] = useState<PersonOption[]>([]);
+  const [leads, setLeads] = useState<PersonOption[]>([]);
   const [managers, setManagers] = useState<PersonOption[]>([]);
   const [departments, setDepartments] = useState<DepartmentOption[]>([]);
 
@@ -106,7 +106,7 @@ export default function AdjustBalanceButton({
         // Departments list just stays empty.
       }
     }
-    loadOptions('tech_lead', setTechLeads);
+    loadOptions('lead', setLeads);
     // Managers can only report to another manager (excluding themselves).
     loadOptions('manager', setManagers);
     loadDepartments();
@@ -161,7 +161,7 @@ export default function AdjustBalanceButton({
     setError(null);
     setSuccess(null);
 
-    if (techLeadId && techLeadId === employeeId) {
+    if (leadId && leadId === employeeId) {
       setError('An employee cannot report to themself.');
       return;
     }
@@ -174,7 +174,7 @@ export default function AdjustBalanceButton({
       employment_status: status,
     };
     if (role === 'employee') {
-      payload.reporting_tech_lead_id = techLeadId || null;
+      payload.reporting_lead_id = leadId || null;
     } else if (role === 'manager') {
       payload.reporting_manager_id = managerId || null;
       payload.managed_departments = managedDepartments;
@@ -336,14 +336,14 @@ export default function AdjustBalanceButton({
                 </div>
                 {role === 'employee' && (
                   <div>
-                    <label className="block text-xs text-slate-400 mb-1">Reporting Tech Lead</label>
+                    <label className="block text-xs text-slate-400 mb-1">Reporting Lead</label>
                     <select
-                      value={techLeadId}
-                      onChange={(e) => setTechLeadId(e.target.value)}
+                      value={leadId}
+                      onChange={(e) => setLeadId(e.target.value)}
                       className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
                     >
                       <option value="">— None —</option>
-                      {techLeads.map((p) => (
+                      {leads.map((p) => (
                         <option key={p.id} value={p.id}>{p.full_name} ({p.employee_code})</option>
                       ))}
                     </select>

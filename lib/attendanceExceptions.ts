@@ -4,7 +4,7 @@ import { isAbsent, isPresent, isWeeklyOff, isMissedPunchOut } from './useDashboa
 import { getPredefinedHolidays } from './predefinedHolidays';
 
 // Server-side (Leave Tracker) attendance-exception detection for the
-// "Today's Absentees" and "Possible Half Day / Missed Punch" accordions.
+// "Absentees" and "Half Day / Missed Punch" tabs.
 //
 // Deliberately reuses the Dashboard's existing status-classification
 // helpers (isAbsent/isPresent/isWeeklyOff/isMissedPunchOut from
@@ -20,6 +20,16 @@ import { getPredefinedHolidays } from './predefinedHolidays';
 // instead.
 const HALF_DAY_THRESHOLD_MINUTES = 5 * 60;
 
+// A date-range query used to be impossible to build without either
+// (a) looping the single-date logic and firing the same 6 queries once
+// PER DAY in the range (a 30-day range = 180 round trips — this is why
+// it was slow), or (b) re-deriving the classification rules a second
+// time inline. getAttendanceExceptions and getAttendanceExceptionsRange
+// below both go through the same classifyEmployeeDay() so there's one
+// place deciding "what counts as an absentee vs a half-day candidate",
+// and the range version fetches every table it needs exactly once for
+// the whole range, then classifies in memory per day.
+
 export type AbsenteeCandidate = {
   employeeId: string;
   employeeCode: string;
@@ -28,6 +38,7 @@ export type AbsenteeCandidate = {
   office: string;
   workingHours: string;
   status: string;
+  date: string;
 };
 
 export type HalfDayCandidate = {
@@ -41,12 +52,40 @@ export type HalfDayCandidate = {
   lastPunch: string | null;
   reason: string;
   status: string;
+  date: string;
 };
 
 export type ExceptionResult = {
   absentees: AbsenteeCandidate[];
   halfDayCandidates: HalfDayCandidate[];
   date: string;
+};
+
+export type ExceptionRangeResult = {
+  absentees: AbsenteeCandidate[];
+  halfDayCandidates: HalfDayCandidate[];
+  startDate: string;
+  endDate: string;
+};
+
+type EmployeeRow = {
+  id: string;
+  employee_code: string;
+  full_name: string;
+  department: string;
+  office: string;
+  employment_status: string;
+};
+
+type AttendanceRow = {
+  employee_code: string;
+  date?: string;
+  office_code: string;
+  in_time: string | null;
+  out_time: string | null;
+  duration: string | null;
+  status: string | null;
+  punch_count: number | null;
 };
 
 function toYMD(d: Date): string {
@@ -72,6 +111,123 @@ async function resolveDefaultDate(supabase: SupabaseClient): Promise<string> {
     .order('date', { ascending: false })
     .limit(1);
   return data?.[0]?.date ?? toYMD(new Date());
+}
+
+/**
+ * Classifies one employee, for one date, into absentee / half-day-candidate
+ * / neither. Shared by both the single-date and range queries so they can
+ * never disagree about the same day for the same employee. Excludes every
+ * edge case the requirement calls out — see getAttendanceExceptions below
+ * for the full list (weekly-off, holiday, approved leave, WFH/travel,
+ * no-punch-data, already-resolved — those are filtered by the caller
+ * BEFORE this runs; this only decides absent vs half-day vs fine).
+ */
+function classifyEmployeeDay(
+  emp: EmployeeRow,
+  date: string,
+  rec: AttendanceRow | undefined
+): { kind: 'absent'; row: AbsenteeCandidate } | { kind: 'half_day'; row: HalfDayCandidate } | null {
+  if (!rec) return null; // no punch data uploaded for this date yet — nothing to act on
+  if (isWeeklyOff(rec.status ?? '')) return null;
+
+  const workedMinutes = durationToMinutes(rec.duration ?? '');
+
+  if (isMissedPunchOut(rec.status ?? '')) {
+    return {
+      kind: 'half_day',
+      row: {
+        employeeId: emp.id,
+        employeeCode: emp.employee_code,
+        employeeName: emp.full_name,
+        department: emp.department,
+        office: emp.office,
+        workingHours: rec.duration ?? '--',
+        firstPunch: rec.in_time ?? null,
+        lastPunch: rec.out_time ?? null,
+        reason: 'Missed punch (out)',
+        status: rec.status ?? '',
+        date,
+      },
+    };
+  }
+
+  if (isAbsent(rec.status ?? '')) {
+    // Full absence with genuinely no punches at all stays a straight
+    // absentee — half-day review only applies when there WAS some
+    // punch activity (first punch to last punch) to evaluate.
+    if (!rec.in_time && !rec.out_time) {
+      return {
+        kind: 'absent',
+        row: {
+          employeeId: emp.id,
+          employeeCode: emp.employee_code,
+          employeeName: emp.full_name,
+          department: emp.department,
+          office: emp.office,
+          workingHours: rec.duration ?? '0:00',
+          status: rec.status ?? 'Absent',
+          date,
+        },
+      };
+    }
+    return {
+      kind: 'half_day',
+      row: {
+        employeeId: emp.id,
+        employeeCode: emp.employee_code,
+        employeeName: emp.full_name,
+        department: emp.department,
+        office: emp.office,
+        workingHours: rec.duration ?? '--',
+        firstPunch: rec.in_time ?? null,
+        lastPunch: rec.out_time ?? null,
+        reason: 'Only one punch recorded',
+        status: rec.status ?? '',
+        date,
+      },
+    };
+  }
+
+  if (isPresent(rec.status ?? '') && workedMinutes > 0 && workedMinutes <= HALF_DAY_THRESHOLD_MINUTES) {
+    return {
+      kind: 'half_day',
+      row: {
+        employeeId: emp.id,
+        employeeCode: emp.employee_code,
+        employeeName: emp.full_name,
+        department: emp.department,
+        office: emp.office,
+        workingHours: rec.duration ?? '--',
+        firstPunch: rec.in_time ?? null,
+        lastPunch: rec.out_time ?? null,
+        reason: 'First-to-last punch under 5 hours',
+        status: rec.status ?? '',
+        date,
+      },
+    };
+  }
+
+  return null;
+}
+
+function buildHolidayLookup(
+  employees: EmployeeRow[],
+  years: string[],
+  customHolidays: { office_code: string; date: string }[]
+): Map<string, Set<string>> {
+  const offices = new Set(employees.map((e) => e.office));
+  const holidayDatesByOffice = new Map<string, Set<string>>();
+  for (const office of offices) {
+    const dates = new Set<string>();
+    for (const year of years) {
+      for (const h of getPredefinedHolidays(office, year)) dates.add(h.date);
+    }
+    for (const h of customHolidays) {
+      if (h.office_code === office) dates.add(h.date);
+    }
+    holidayDatesByOffice.set(office, dates);
+  }
+  return holidayDatesByOffice;
 }
 
 /**
@@ -137,102 +293,163 @@ export async function getAttendanceExceptions(
     throw new Error(firstError.message);
   }
 
-  const attendanceByCode = new Map((attendanceRows ?? []).map((r) => [r.employee_code, r]));
+  const attendanceByCode = new Map((attendanceRows ?? []).map((r) => [r.employee_code, r as AttendanceRow]));
   const onApprovedLeave = new Set((approvedLeave ?? []).map((r) => r.employee_id));
-  // workforce_events rows are per-employee (see unified_schema.sql), so
-  // office_shutdown is exempted the same way as wfh/business_travel: it
-  // shows up as a row for every employee it applies to, not as a
-  // separate per-office lookup.
   const exemptEmployeeIds = new Set((workforceEvents ?? []).map((e) => e.employee_id));
   const alreadyResolved = new Set((resolved ?? []).map((r) => r.employee_id));
-
-  const officeYears = new Set((employees ?? []).map((e) => `${e.office}|${year}`));
-  const holidayDatesByOffice = new Map<string, Set<string>>();
-  for (const key of officeYears) {
-    const [office] = key.split('|');
-    const predefined = getPredefinedHolidays(office, year).map((h) => h.date);
-    const custom = (customHolidays ?? []).filter((h) => h.office_code === office).map((h) => h.date);
-    holidayDatesByOffice.set(office, new Set([...predefined, ...custom]));
-  }
+  const holidayDatesByOffice = buildHolidayLookup((employees ?? []) as EmployeeRow[], [year], customHolidays ?? []);
 
   const absentees: AbsenteeCandidate[] = [];
   const halfDayCandidates: HalfDayCandidate[] = [];
 
-  for (const emp of employees ?? []) {
+  for (const emp of (employees ?? []) as EmployeeRow[]) {
     if (alreadyResolved.has(emp.id)) continue;
     if (onApprovedLeave.has(emp.id)) continue;
     if (exemptEmployeeIds.has(emp.id)) continue;
     if (holidayDatesByOffice.get(emp.office)?.has(date)) continue;
 
-    const rec = attendanceByCode.get(emp.employee_code);
-    if (!rec) continue; // no punch data uploaded for this date yet — nothing to act on
-
-    if (isWeeklyOff(rec.status ?? '')) continue;
-
-    const workedMinutes = durationToMinutes(rec.duration ?? '');
-
-    if (isMissedPunchOut(rec.status ?? '')) {
-      halfDayCandidates.push({
-        employeeId: emp.id,
-        employeeCode: emp.employee_code,
-        employeeName: emp.full_name,
-        department: emp.department,
-        office: emp.office,
-        workingHours: rec.duration ?? '--',
-        firstPunch: rec.in_time ?? null,
-        lastPunch: rec.out_time ?? null,
-        reason: 'Missed punch (out)',
-        status: rec.status ?? '',
-      });
-      continue;
-    }
-
-    if (isAbsent(rec.status ?? '')) {
-      // Full absence with genuinely no punches at all stays a straight
-      // absentee — half-day review only applies when there WAS some
-      // punch activity (first punch to last punch) to evaluate.
-      if (!rec.in_time && !rec.out_time) {
-        absentees.push({
-          employeeId: emp.id,
-          employeeCode: emp.employee_code,
-          employeeName: emp.full_name,
-          department: emp.department,
-          office: emp.office,
-          workingHours: rec.duration ?? '0:00',
-          status: rec.status ?? 'Absent',
-        });
-      } else {
-        halfDayCandidates.push({
-          employeeId: emp.id,
-          employeeCode: emp.employee_code,
-          employeeName: emp.full_name,
-          department: emp.department,
-          office: emp.office,
-          workingHours: rec.duration ?? '--',
-          firstPunch: rec.in_time ?? null,
-          lastPunch: rec.out_time ?? null,
-          reason: 'Only one punch recorded',
-          status: rec.status ?? '',
-        });
-      }
-      continue;
-    }
-
-    if (isPresent(rec.status ?? '') && workedMinutes > 0 && workedMinutes <= HALF_DAY_THRESHOLD_MINUTES) {
-      halfDayCandidates.push({
-        employeeId: emp.id,
-        employeeCode: emp.employee_code,
-        employeeName: emp.full_name,
-        department: emp.department,
-        office: emp.office,
-        workingHours: rec.duration ?? '--',
-        firstPunch: rec.in_time ?? null,
-        lastPunch: rec.out_time ?? null,
-        reason: 'First-to-last punch under 5 hours',
-        status: rec.status ?? '',
-      });
-    }
+    const result = classifyEmployeeDay(emp, date, attendanceByCode.get(emp.employee_code));
+    if (!result) continue;
+    if (result.kind === 'absent') absentees.push(result.row);
+    else halfDayCandidates.push(result.row);
   }
 
   return { absentees, halfDayCandidates, date };
+}
+
+/**
+ * Same classification as getAttendanceExceptions, but for a whole
+ * start_date..end_date period in one batch of queries instead of one set
+ * of queries per day — this is the "from date to to date, overall
+ * absentees in that period" view. Every table involved (attendance_records,
+ * leave_requests, workforce_events, custom_holidays, attendance_exceptions)
+ * is fetched once for the full range, then classified day-by-day in memory,
+ * so a wide range costs one round trip per table, not one per day.
+ */
+export async function getAttendanceExceptionsRange(
+  supabase: SupabaseClient,
+  rangeStart: string,
+  rangeEnd: string
+): Promise<ExceptionRangeResult> {
+  const startDate = rangeStart <= rangeEnd ? rangeStart : rangeEnd;
+  const endDate = rangeStart <= rangeEnd ? rangeEnd : rangeStart;
+  const startYear = startDate.slice(0, 4);
+  const endYear = endDate.slice(0, 4);
+  const years = Array.from(
+    { length: Number(endYear) - Number(startYear) + 1 },
+    (_, i) => String(Number(startYear) + i)
+  );
+
+  const [
+    { data: employees, error: employeesError },
+    { data: attendanceRows, error: attendanceError },
+    { data: approvedLeave, error: leaveError },
+    { data: workforceEvents, error: eventsError },
+    { data: customHolidays, error: holidaysError },
+    { data: resolved, error: resolvedError },
+  ] = await Promise.all([
+    supabase
+      .from('employees')
+      .select('id, employee_code, full_name, department, office, employment_status')
+      .neq('employment_status', 'exited'),
+    supabase
+      .from('attendance_records')
+      .select('employee_code, date, office_code, in_time, out_time, duration, status, punch_count')
+      .gte('date', startDate)
+      .lte('date', endDate),
+    // Leave overlapping the range (not just leave fully inside it) — a
+    // request that started before the range and ends inside it (or vice
+    // versa) should still exempt the in-range days it covers.
+    supabase
+      .from('leave_requests')
+      .select('employee_id, start_date, end_date')
+      .eq('status', 'approved')
+      .lte('start_date', endDate)
+      .gte('end_date', startDate),
+    supabase
+      .from('workforce_events')
+      .select('employee_id, event_type, event_date')
+      .gte('event_date', startDate)
+      .lte('event_date', endDate),
+    supabase.from('custom_holidays').select('office_code, date, name').in('year', years),
+    supabase
+      .from('attendance_exceptions')
+      .select('employee_id, exception_date')
+      .gte('exception_date', startDate)
+      .lte('exception_date', endDate)
+      .neq('resolution', 'pending'),
+  ]);
+
+  const firstError = employeesError || attendanceError || leaveError || eventsError || holidaysError || resolvedError;
+  if (firstError) {
+    throw new Error(firstError.message);
+  }
+
+  const employeesList = (employees ?? []) as EmployeeRow[];
+  const holidayDatesByOffice = buildHolidayLookup(employeesList, years, customHolidays ?? []);
+
+  // Group per-day lookups once, then walk each date in the range using
+  // plain map reads — O(days × employees) in memory, zero extra round
+  // trips regardless of how wide the range is.
+  const attendanceByDateAndCode = new Map<string, Map<string, AttendanceRow>>();
+  for (const r of (attendanceRows ?? []) as Required<AttendanceRow>[]) {
+    const byCode = attendanceByDateAndCode.get(r.date) ?? new Map<string, AttendanceRow>();
+    byCode.set(r.employee_code, r);
+    attendanceByDateAndCode.set(r.date, byCode);
+  }
+
+  const leaveRangesByEmployee = new Map<string, { start: string; end: string }[]>();
+  for (const r of approvedLeave ?? []) {
+    const list = leaveRangesByEmployee.get(r.employee_id) ?? [];
+    list.push({ start: r.start_date, end: r.end_date });
+    leaveRangesByEmployee.set(r.employee_id, list);
+  }
+
+  const exemptByDate = new Map<string, Set<string>>();
+  for (const e of workforceEvents ?? []) {
+    const set = exemptByDate.get(e.event_date) ?? new Set<string>();
+    set.add(e.employee_id);
+    exemptByDate.set(e.event_date, set);
+  }
+
+  const resolvedByDate = new Map<string, Set<string>>();
+  for (const r of resolved ?? []) {
+    const set = resolvedByDate.get(r.exception_date) ?? new Set<string>();
+    set.add(r.employee_id);
+    resolvedByDate.set(r.exception_date, set);
+  }
+
+  const absentees: AbsenteeCandidate[] = [];
+  const halfDayCandidates: HalfDayCandidate[] = [];
+
+  let cursor = new Date(`${startDate}T00:00:00Z`);
+  const end = new Date(`${endDate}T00:00:00Z`);
+  while (cursor <= end) {
+    const date = toYMD(cursor);
+    const attendanceByCode = attendanceByDateAndCode.get(date);
+    const exemptToday = exemptByDate.get(date);
+    const resolvedToday = resolvedByDate.get(date);
+
+    for (const emp of employeesList) {
+      if (resolvedToday?.has(emp.id)) continue;
+      if (exemptToday?.has(emp.id)) continue;
+      if (holidayDatesByOffice.get(emp.office)?.has(date)) continue;
+      const empLeaveRanges = leaveRangesByEmployee.get(emp.id);
+      if (empLeaveRanges?.some((l) => l.start <= date && l.end >= date)) continue;
+
+      const result = classifyEmployeeDay(emp, date, attendanceByCode?.get(emp.employee_code));
+      if (!result) continue;
+      if (result.kind === 'absent') absentees.push(result.row);
+      else halfDayCandidates.push(result.row);
+    }
+
+    cursor = new Date(cursor.getTime() + 24 * 60 * 60 * 1000);
+  }
+
+  // Most-recent-day-first reads better for a multi-day review list than
+  // employee-order-within-day.
+  absentees.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
+  halfDayCandidates.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
+
+  return { absentees, halfDayCandidates, startDate, endDate };
 }

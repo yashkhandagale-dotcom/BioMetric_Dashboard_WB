@@ -25,7 +25,7 @@ export async function POST(req: NextRequest) {
     department,
     office,
     date_of_joining,
-    reporting_tech_lead_id,
+    reporting_lead_id,
     reporting_manager_id,
     notice_period_days,
   } = body;
@@ -46,7 +46,7 @@ export async function POST(req: NextRequest) {
       department,
       office,
       date_of_joining,
-      reporting_tech_lead_id: reporting_tech_lead_id || null,
+      reporting_lead_id: reporting_lead_id || null,
       reporting_manager_id: reporting_manager_id || null,
       notice_period_days: notice_period_days || 30,
       employment_status: 'probation',

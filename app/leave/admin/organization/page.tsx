@@ -11,25 +11,77 @@ type ManagerRow = {
   reportingManagerId: string | null;
   reportingManagerName: string | null;
 };
-type TechLeadRow = { id: string; employeeCode: string; fullName: string; managedEmployeeCount: number };
+type LeadRow = { id: string; employeeCode: string; fullName: string; managedEmployeeCount: number };
 type ManagerOption = { id: string; employee_code: string; full_name: string };
 type ReportingOption = { id: string; employee_code: string; full_name: string; role: string };
+type OrgTreeNode = {
+  id: string;
+  employeeCode: string;
+  fullName: string;
+  role: string;
+  department: string | null;
+  children: OrgTreeNode[];
+};
+
+const ROLE_LABEL: Record<string, string> = {
+  hr_super_admin: 'HR (Super Admin)',
+  hr: 'HR',
+  manager: 'Manager',
+  lead: 'Lead',
+  employee: 'Employee',
+};
+
+// Collapsed by default past the second level so a large org doesn't dump
+// hundreds of rows on screen at once — this is the piece that was missing
+// before: the two tables below show WHO can be assigned, this shows WHO
+// ACTUALLY REPORTS TO WHOM, nested, in one glance.
+function OrgTreeRow({ node, depth }: { node: OrgTreeNode; depth: number }) {
+  const [open, setOpen] = useState(depth < 2);
+  const hasChildren = node.children.length > 0;
+  return (
+    <div>
+      <div
+        className="flex items-center gap-2 py-1.5 rounded-lg hover:bg-slate-800/60 cursor-pointer"
+        style={{ paddingLeft: depth * 20 }}
+        onClick={() => hasChildren && setOpen((o) => !o)}
+      >
+        <span className="w-4 text-slate-500 text-xs">{hasChildren ? (open ? '▾' : '▸') : ''}</span>
+        <span className="text-white text-sm">{node.fullName}</span>
+        <span className="text-slate-500 text-xs">· {node.employeeCode}</span>
+        <span className="text-xs border border-slate-700 rounded-full px-2 py-0.5 text-slate-300">
+          {ROLE_LABEL[node.role] ?? node.role}
+        </span>
+        {node.department && <span className="text-xs text-slate-500">{node.department}</span>}
+        {hasChildren && <span className="text-xs text-slate-500 ml-auto pr-2">{node.children.length} direct</span>}
+      </div>
+      {open && hasChildren && (
+        <div>
+          {node.children.map((c) => (
+            <OrgTreeRow key={c.id} node={c} depth={depth + 1} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 // New, separate admin page — "Organization Management" — that moves
-// department-manager / tech-lead / reporting-manager assignment out of
+// department-manager / lead / reporting-manager assignment out of
 // the per-employee AdjustBalanceButton modal into one department-first
 // view, per the requirement. This does NOT replace AdjustBalanceButton
 // (still the right place to edit a single employee's own fields) — it's
 // an additional, bird's-eye view over the exact same data:
-// department_managers + employees.reporting_tech_lead_id /
+// department_managers + employees.reporting_lead_id /
 // reporting_manager_id. No new hierarchy model, no `teams` table.
 export default function OrganizationManagementPage() {
   const [departments, setDepartments] = useState<DepartmentRow[]>([]);
   const [managers, setManagers] = useState<ManagerRow[]>([]);
-  const [techLeads, setTechLeads] = useState<TechLeadRow[]>([]);
+  const [leads, setLeads] = useState<LeadRow[]>([]);
   const [managerOptions, setManagerOptions] = useState<ManagerOption[]>([]);
   const [reportingTargetOptions, setReportingTargetOptions] = useState<ReportingOption[]>([]);
-  const [techLeadOptions, setTechLeadOptions] = useState<{ id: string; full_name: string }[]>([]);
+  const [leadOptions, setLeadOptions] = useState<{ id: string; full_name: string }[]>([]);
+  const [orgTree, setOrgTree] = useState<OrgTreeNode[]>([]);
+  const [orgTreeUnassignedCount, setOrgTreeUnassignedCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [savingKey, setSavingKey] = useState<string | null>(null);
@@ -51,17 +103,19 @@ export default function OrganizationManagementPage() {
       }
       setDepartments(orgBody.departments ?? []);
       setManagers(orgBody.managers ?? []);
-      setTechLeads(orgBody.techLeads ?? []);
+      setLeads(orgBody.leads ?? []);
       setManagerOptions(orgBody.managerOptions ?? []);
       setReportingTargetOptions(orgBody.reportingTargetOptions ?? []);
+      setOrgTree(orgBody.orgTree ?? []);
+      setOrgTreeUnassignedCount(orgBody.orgTreeUnassignedCount ?? 0);
 
       const empText = await empRes.text();
       const empBody = empText ? JSON.parse(empText) : {};
       if (empRes.ok) {
-        // employees endpoint returns everyone — tech-lead dropdown only
-        // needs role=tech_lead, but that role isn't in this list's
-        // shape, so fall back to the techLeads summary we already have.
-        setTechLeadOptions((orgBody.techLeads ?? []).map((t: TechLeadRow) => ({ id: t.id, full_name: t.fullName })));
+        // employees endpoint returns everyone — lead dropdown only
+        // needs role=lead, but that role isn't in this list's
+        // shape, so fall back to the leads summary we already have.
+        setLeadOptions((orgBody.leads ?? []).map((t: LeadRow) => ({ id: t.id, full_name: t.fullName })));
       }
     } catch {
       setError('Could not reach the server to load organization data.');
@@ -105,7 +159,7 @@ export default function OrganizationManagementPage() {
           <a href="/leave/admin" className="text-xs text-slate-400 hover:text-white">← Back to Leave Management</a>
           <h1 className="text-xl font-semibold mt-1">Organization Management</h1>
           <p className="text-slate-500 text-xs mt-1">
-            Department managers, tech-lead assignment, and the manager reporting hierarchy.
+            Department managers, lead assignment, and the manager reporting hierarchy.
           </p>
         </div>
       </div>
@@ -129,6 +183,28 @@ export default function OrganizationManagementPage() {
         <p className="text-slate-500 text-sm">Loading…</p>
       ) : (
         <>
+          {/* ── Org Chart: read-only nested view of who reports to whom ── */}
+          <section className="bg-slate-800/40 border border-slate-700 rounded-xl p-4 space-y-2">
+            <div className="flex items-center justify-between">
+              <h2 className="text-white font-semibold text-sm">Org Chart</h2>
+              {orgTreeUnassignedCount > 0 && (
+                <span className="text-xs text-amber-300">
+                  {orgTreeUnassignedCount} {orgTreeUnassignedCount === 1 ? 'person' : 'people'} not yet placed in the chain
+                </span>
+              )}
+            </div>
+            <p className="text-slate-500 text-xs">
+              Click a row to expand. This is read-only — use the tables below, or each employee's Adjust panel, to
+              change who reports to whom.
+            </p>
+            <div className="max-h-[28rem] overflow-y-auto pr-1">
+              {orgTree.map((n) => (
+                <OrgTreeRow key={n.id} node={n} depth={0} />
+              ))}
+              {orgTree.length === 0 && <p className="text-slate-500 text-sm py-4 text-center">No employees yet.</p>}
+            </div>
+          </section>
+
           {/* ── Departments: assign / change manager ─────────────────── */}
           <section className="bg-slate-800/40 border border-slate-700 rounded-xl p-4 space-y-3">
             <h2 className="text-white font-semibold text-sm">Departments — Manager Assignment</h2>
@@ -139,7 +215,7 @@ export default function OrganizationManagementPage() {
                     <th className="text-left font-medium px-3 py-2">Department</th>
                     <th className="text-left font-medium px-3 py-2">Current Manager</th>
                     <th className="text-left font-medium px-3 py-2">Assign Manager</th>
-                    <th className="text-left font-medium px-3 py-2">Assign Tech Lead (bulk)</th>
+                    <th className="text-left font-medium px-3 py-2">Assign Lead (bulk)</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -171,15 +247,15 @@ export default function OrganizationManagementPage() {
                           disabled={savingKey === `dept-tl-${d.department}`}
                           onChange={(e) =>
                             post(
-                              { action: 'bulk_assign_tech_lead', department: d.department, tech_lead_id: e.target.value || null },
+                              { action: 'bulk_assign_lead', department: d.department, lead_id: e.target.value || null },
                               `dept-tl-${d.department}`
                             )
                           }
                           className="bg-slate-900 border border-slate-700 rounded-lg px-2 py-1 text-xs text-white"
                         >
-                          <option value="" disabled>Set tech lead for department…</option>
-                          <option value="">Clear tech lead</option>
-                          {techLeadOptions.map((t) => (
+                          <option value="" disabled>Set lead for department…</option>
+                          <option value="">Clear lead</option>
+                          {leadOptions.map((t) => (
                             <option key={t.id} value={t.id}>{t.full_name}</option>
                           ))}
                         </select>
@@ -195,7 +271,7 @@ export default function OrganizationManagementPage() {
               </table>
             </div>
             <p className="text-slate-500 text-xs">
-              "Assign Tech Lead (bulk)" sets every current employee-role member of that department's Reporting Tech
+              "Assign Lead (bulk)" sets every current employee-role member of that department's Reporting
               Lead in one action — the same field AdjustBalanceButton edits per person, just applied to the whole
               department at once.
             </p>
@@ -255,34 +331,34 @@ export default function OrganizationManagementPage() {
             </p>
           </section>
 
-          {/* ── Tech Leads: read-only summary ─────────────────────────── */}
+          {/* ── Leads: read-only summary ─────────────────────────── */}
           <section className="bg-slate-800/40 border border-slate-700 rounded-xl p-4 space-y-3">
-            <h2 className="text-white font-semibold text-sm">Tech Leads</h2>
+            <h2 className="text-white font-semibold text-sm">Leads</h2>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="text-slate-500 text-xs border-b border-slate-700">
-                    <th className="text-left font-medium px-3 py-2">Tech Lead</th>
+                    <th className="text-left font-medium px-3 py-2">Lead</th>
                     <th className="text-left font-medium px-3 py-2">Employees Reporting</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {techLeads.map((t) => (
+                  {leads.map((t) => (
                     <tr key={t.id} className="border-b border-slate-800 last:border-0">
                       <td className="px-3 py-2 text-white">{t.fullName} <span className="text-slate-500">· {t.employeeCode}</span></td>
                       <td className="px-3 py-2 text-slate-300">{t.managedEmployeeCount}</td>
                     </tr>
                   ))}
-                  {techLeads.length === 0 && (
+                  {leads.length === 0 && (
                     <tr>
-                      <td colSpan={2} className="px-3 py-6 text-center text-slate-500">No tech leads yet.</td>
+                      <td colSpan={2} className="px-3 py-6 text-center text-slate-500">No leads yet.</td>
                     </tr>
                   )}
                 </tbody>
               </table>
             </div>
             <p className="text-slate-500 text-xs">
-              Per-employee tech lead assignment (one at a time) is still available from each employee's Adjust →
+              Per-employee lead assignment (one at a time) is still available from each employee's Adjust →
               Details tab — this page adds the bulk, department-level action above it, it doesn't replace it.
             </p>
           </section>

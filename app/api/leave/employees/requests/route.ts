@@ -194,7 +194,7 @@ export async function POST(req: NextRequest) {
   }
 
   // S1-3: synthetic approval_steps row so the audit trail reads
-  // consistently even though no real tech-lead -> manager -> HR chain
+  // consistently even though no real lead -> manager -> HR chain
   // ran for this hr_manual entry.
   let hrEmployeeId: string | null = null;
   const { data: hrEmployee } = await service

@@ -1,14 +1,26 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createLeaveClient } from '@/lib/leaveSupabase/server';
-import { getAttendanceExceptions } from '@/lib/attendanceExceptions';
+import { getAttendanceExceptions, getAttendanceExceptionsRange } from '@/lib/attendanceExceptions';
 
-// Backs the "Today's Absentees" and "Possible Half Day / Missed Punch"
-// accordions on the Leave Management page. All the actual classification
-// logic lives in lib/attendanceExceptions.ts (kept out of the route so it
-// can be unit-tested without an HTTP round trip).
+// Backs the Absentees and Half Day / Missed Punch tabs on the Leave
+// Tracker. All the actual classification logic lives in
+// lib/attendanceExceptions.ts (kept out of the route so it can be
+// unit-tested without an HTTP round trip).
 //
-// Optional ?date=YYYY-MM-DD overrides "today" — used when HR reviews a
-// past date instead of the current one. Defaults to server "today".
+// Two query shapes:
+//   ?date=YYYY-MM-DD              — single day (defaults to the latest
+//                                    date that actually has attendance
+//                                    data if omitted).
+//   ?start_date=...&end_date=...  — a period; returns every absentee/
+//                                    half-day row across that whole range
+//                                    in one response, each tagged with its
+//                                    own `date`. Takes priority over
+//                                    `date` if both are present. This
+//                                    fetches every table it needs ONCE for
+//                                    the whole range (see
+//                                    getAttendanceExceptionsRange), not
+//                                    once per day, so a wide range doesn't
+//                                    mean a slow load.
 export async function GET(req: NextRequest) {
   const supabase = await createLeaveClient();
   const {
@@ -18,9 +30,15 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
   }
 
+  const startDateParam = req.nextUrl.searchParams.get('start_date') || undefined;
+  const endDateParam = req.nextUrl.searchParams.get('end_date') || undefined;
   const dateParam = req.nextUrl.searchParams.get('date') || undefined;
 
   try {
+    if (startDateParam && endDateParam) {
+      const result = await getAttendanceExceptionsRange(supabase, startDateParam, endDateParam);
+      return NextResponse.json(result);
+    }
     const result = await getAttendanceExceptions(supabase, dateParam);
     return NextResponse.json(result);
   } catch (err) {

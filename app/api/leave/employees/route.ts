@@ -2,8 +2,8 @@
 import { createLeaveClient, createLeaveServiceClient } from '@/lib/leaveSupabase/server';
 import { createServiceClient as createDashboardServiceClient } from '@/lib/supabase/server';
 
-// Used by AddEmployeeForm to populate the "Reporting Tech Lead" / "Reporting
-// Manager" dropdowns via GET /api/leave/employees?role=tech_lead|manager.
+// Used by AddEmployeeForm to populate the "Reporting Lead" / "Reporting
+// Manager" dropdowns via GET /api/leave/employees?role=lead|manager.
 // This was previously missing here (only POST existed), which made the
 // dropdown fetch 405.
 //
@@ -20,7 +20,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
     }
 
-    const role = req.nextUrl.searchParams.get('role'); // 'tech_lead' | 'manager' | null (= all)
+    const role = req.nextUrl.searchParams.get('role'); // 'lead' | 'manager' | null (= all)
     let query = sessionClient
       .from('employees')
       .select('id, full_name, employee_code, role, department, office')
@@ -57,7 +57,7 @@ export async function POST(req: NextRequest) {
     department,
     office,
     date_of_joining,
-    reporting_tech_lead_id,
+    reporting_lead_id,
     reporting_manager_id,
     managed_departments, // string[] — only used when role === 'manager'
     notice_period_days,
@@ -83,7 +83,7 @@ export async function POST(req: NextRequest) {
       department,
       office,
       date_of_joining,
-      reporting_tech_lead_id: role === 'employee' ? reporting_tech_lead_id || null : null,
+      reporting_lead_id: role === 'employee' ? reporting_lead_id || null : null,
       reporting_manager_id: role === 'manager' ? reporting_manager_id || null : null,
       notice_period_days: notice_period_days || 30,
       employment_status: 'probation',

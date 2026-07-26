@@ -6,6 +6,7 @@ import AbsenteesPanel from '@/components/leave/AbsenteesPanel';
 import HalfDayPanel from '@/components/leave/HalfDayPanel';
 import RecordLeaveDrawer from '@/components/leave/RecordLeaveDrawer';
 import { exportRowsAsCSV } from '@/lib/exportData';
+import AttendanceTableSkeleton from '@/components/leave/AttendanceTableSkeleton';
 
 type EmployeeOption = { id: string; full_name: string; employee_code: string; department: string; office: string };
 
@@ -41,6 +42,11 @@ export default function LeaveTrackerPage() {
   // the same free-text box).
   const [attendanceSearch, setAttendanceSearch] = useState('');
   const [attendanceDate, setAttendanceDate] = useState('');
+  // Defaults to the same value as attendanceDate (single-day mode). Once
+  // the user picks a different end date, AbsenteesPanel/HalfDayPanel
+  // switch to period mode and ask for the whole range in one request —
+  // see lib/attendanceExceptions.ts's getAttendanceExceptionsRange.
+  const [attendanceEndDate, setAttendanceEndDate] = useState('');
 
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
@@ -154,13 +160,20 @@ export default function LeaveTrackerPage() {
           <a href="/leave/admin" className="text-xs text-slate-400 hover:text-white">← Back to balances</a>
           <h1 className="text-xl font-semibold mt-1">Leave Tracker</h1>
         </div>
-        <button
-          type="button"
-          onClick={() => setRecordLeaveOpen(true)}
-          className="bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
-        >
-          + Record Leave
-        </button>
+        <div className="text-right">
+          <button
+            type="button"
+            onClick={() => setRecordLeaveOpen(true)}
+            className="bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+          >
+            + Record Leave
+          </button>
+          {tab !== 'history' && (
+            <p className="text-[11px] text-slate-500 mt-1 max-w-[220px]">
+              For any employee. To act on a row already listed below, use that row's own "Record Leave" button instead.
+            </p>
+          )}
+        </div>
       </div>
 
       {employeesError && (
@@ -220,7 +233,7 @@ export default function LeaveTrackerPage() {
           {tab !== 'history' ? (
             <>
               <div>
-                <label className="block text-xs text-slate-400 mb-1">Date</label>
+                <label className="block text-xs text-slate-400 mb-1">From Date</label>
                 <input
                   type="date"
                   value={attendanceDate}
@@ -228,7 +241,18 @@ export default function LeaveTrackerPage() {
                   className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
                 />
               </div>
-              <div className="sm:col-span-2 lg:col-span-3">
+              <div>
+                <label className="block text-xs text-slate-400 mb-1">To Date</label>
+                <input
+                  type="date"
+                  value={attendanceEndDate}
+                  min={attendanceDate || undefined}
+                  onChange={(e) => setAttendanceEndDate(e.target.value)}
+                  placeholder="Same as From Date"
+                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+                />
+              </div>
+              <div className="sm:col-span-2 lg:col-span-2">
                 <label className="block text-xs text-slate-400 mb-1">Employee Search</label>
                 <input
                   type="text"
@@ -238,6 +262,17 @@ export default function LeaveTrackerPage() {
                   className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-500"
                 />
               </div>
+              {attendanceEndDate && attendanceEndDate !== attendanceDate && (
+                <div className="sm:col-span-2 lg:col-span-6 -mt-1">
+                  <button
+                    type="button"
+                    onClick={() => setAttendanceEndDate('')}
+                    className="text-xs text-slate-400 hover:text-white"
+                  >
+                    ✕ Clear "To Date" (back to a single day)
+                  </button>
+                </div>
+              )}
             </>
           ) : (
             <>
@@ -321,6 +356,7 @@ export default function LeaveTrackerPage() {
       {tab === 'absentees' && (
         <AbsenteesPanel
           date={attendanceDate}
+          endDate={attendanceEndDate}
           department={department}
           office={office}
           search={attendanceSearch}
@@ -331,6 +367,7 @@ export default function LeaveTrackerPage() {
       {tab === 'half_days' && (
         <HalfDayPanel
           date={attendanceDate}
+          endDate={attendanceEndDate}
           department={department}
           office={office}
           search={attendanceSearch}
@@ -345,8 +382,14 @@ export default function LeaveTrackerPage() {
               {error}
             </div>
           )}
-          <p className="text-xs text-slate-500">{rows.length} record(s)</p>
-          <LeaveHistoryTable rows={department || office ? rows.filter((r) => (!department || r.department === department) && (!office || r.office === office)) : rows} />
+          {loading ? (
+            <AttendanceTableSkeleton columns={7} />
+          ) : (
+            <>
+              <p className="text-xs text-slate-500">{rows.length} record(s)</p>
+              <LeaveHistoryTable rows={department || office ? rows.filter((r) => (!department || r.department === department) && (!office || r.office === office)) : rows} />
+            </>
+          )}
         </>
       )}
 
