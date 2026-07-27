@@ -10,16 +10,19 @@ import AttendanceTableSkeleton from './AttendanceTableSkeleton';
 // Tracker (app/leave/admin/history/page.tsx).
 //
 // Date handling: this app's attendance_records come from batch CSV
-// uploads (see lib/attendanceExceptions.ts's resolveDefaultDate), so
-// there is no dependable "today". `date` is the single-day mode; when
-// `endDate` is also passed (and differs from `date`), this switches to
-// range mode and asks the API for the whole period in one request (see
-// getAttendanceExceptionsRange) instead of one request per day — each
-// row then shows which date it belongs to. When the parent hasn't picked
-// a date yet (empty string) and we're in single-day mode, this fetches
-// with no ?date param, lets the server resolve the latest uploaded date,
-// and reports it back via onResolvedDate so the date picker fills in
-// with a real value instead of staying blank.
+// uploads, so there is no dependable "today". `date` is the single-day
+// mode; when `endDate` is also passed (and differs from `date`), this
+// switches to range mode and asks the API for the whole period in one
+// request (see getAttendanceExceptionsRange) instead of one request per
+// day — each row then shows which date it belongs to. When the parent
+// hasn't picked a date yet at all (empty string), this fetches with no
+// params, and the server returns every pending row across the WHOLE
+// uploaded history (see getAttendanceExceptionsAllPending) — that's the
+// "show me everything HR hasn't marked yet" default the Leave Tracker
+// should open on, not just one day. onResolvedDate is now effectively
+// unused in that state (the all-pending response has no single `date`
+// to report back) — intentionally, so the date pickers stay blank
+// instead of narrowing the view to one day behind the scenes.
 //
 // Note on "Team": there's no separate team concept in this codebase —
 // Department is the grouping. See lib/attendanceExceptions.ts's header
@@ -39,7 +42,15 @@ export default function AbsenteesPanel({
   search: string;
   onResolvedDate: (date: string) => void;
 }) {
-  const isRange = !!endDate && endDate !== date;
+  // `isRange` decides the query shape sent to the server (explicit
+  // start_date/end_date). Empty `date` is a separate case — "HR hasn't
+  // picked one yet" — which fetches with no params at all and gets back
+  // every pending row across the whole uploaded history (see
+  // getAttendanceExceptionsAllPending). Both cases can return rows
+  // spanning many dates, so `isMultiDate` covers display concerns (the
+  // per-row Date column, the period label) for either one.
+  const isRange = !!date && !!endDate && endDate !== date;
+  const isMultiDate = !date || isRange;
 
   const [rows, setRows] = useState<AbsenteeCandidate[]>([]);
   const [loading, setLoading] = useState(false);
@@ -108,8 +119,8 @@ export default function AbsenteesPanel({
     }
   }
 
-  const periodLabel = isRange ? `${date} → ${endDate}` : date || '—';
-  const columnCount = isRange ? 6 : 5;
+  const periodLabel = !date ? 'all pending dates' : isRange ? `${date} → ${endDate}` : date;
+  const columnCount = isMultiDate ? 6 : 5;
 
   if (loading) {
     return (
@@ -133,7 +144,7 @@ export default function AbsenteesPanel({
 
       {filtered.length === 0 ? (
         <div className="bg-slate-800/40 border border-slate-700 rounded-xl px-4 py-10 text-center text-slate-500 text-sm">
-          No absentees to review for this {isRange ? 'period' : 'date'}
+          No absentees to review for this {isMultiDate ? 'period' : 'date'}
           {department || office || search ? ' matching your filters' : ''}.
         </div>
       ) : (
@@ -141,7 +152,7 @@ export default function AbsenteesPanel({
           <table className="w-full text-sm">
             <thead>
               <tr className="text-slate-500 text-xs border-b border-slate-700">
-                {isRange && <th className="text-left font-medium px-4 py-2">Date</th>}
+                {isMultiDate && <th className="text-left font-medium px-4 py-2">Date</th>}
                 <th className="text-left font-medium px-4 py-2">Employee</th>
                 <th className="text-left font-medium px-4 py-2">Department</th>
                 <th className="text-left font-medium px-4 py-2">Office</th>
@@ -153,7 +164,7 @@ export default function AbsenteesPanel({
             <tbody>
               {filtered.map((r) => (
                 <tr key={`${r.employeeId}-${r.date}`} className="border-b border-slate-800 last:border-0">
-                  {isRange && <td className="px-4 py-2 text-slate-300">{r.date}</td>}
+                  {isMultiDate && <td className="px-4 py-2 text-slate-300">{r.date}</td>}
                   <td className="px-4 py-2 text-white">
                     {r.employeeName}
                     <span className="text-slate-500"> · {r.employeeCode}</span>

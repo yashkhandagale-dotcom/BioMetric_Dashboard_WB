@@ -1,16 +1,27 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createLeaveClient } from '@/lib/leaveSupabase/server';
-import { getAttendanceExceptions, getAttendanceExceptionsRange } from '@/lib/attendanceExceptions';
+import {
+  getAttendanceExceptions,
+  getAttendanceExceptionsRange,
+  getAttendanceExceptionsAllPending,
+} from '@/lib/attendanceExceptions';
 
 // Backs the Absentees and Half Day / Missed Punch tabs on the Leave
 // Tracker. All the actual classification logic lives in
 // lib/attendanceExceptions.ts (kept out of the route so it can be
 // unit-tested without an HTTP round trip).
 //
-// Two query shapes:
-//   ?date=YYYY-MM-DD              — single day (defaults to the latest
-//                                    date that actually has attendance
-//                                    data if omitted).
+// Three query shapes:
+//   (no params)                   — HR hasn't picked a date yet. Returns
+//                                    every pending absentee/half-day row
+//                                    across the WHOLE uploaded history
+//                                    (see getAttendanceExceptionsAllPending),
+//                                    not just the latest single day —
+//                                    once HR records a leave for a row it
+//                                    drops out here into Leave History, so
+//                                    this is meant to surface everything
+//                                    still unresolved.
+//   ?date=YYYY-MM-DD              — single day.
 //   ?start_date=...&end_date=...  — a period; returns every absentee/
 //                                    half-day row across that whole range
 //                                    in one response, each tagged with its
@@ -37,6 +48,12 @@ export async function GET(req: NextRequest) {
   try {
     if (startDateParam && endDateParam) {
       const result = await getAttendanceExceptionsRange(supabase, startDateParam, endDateParam);
+      return NextResponse.json(result);
+    }
+    if (!dateParam) {
+      // No date picked yet — show every pending row across the whole
+      // uploaded history, not just the latest single day.
+      const result = await getAttendanceExceptionsAllPending(supabase);
       return NextResponse.json(result);
     }
     const result = await getAttendanceExceptions(supabase, dateParam);

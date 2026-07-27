@@ -1,5 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import { durationToMinutes } from './parseCSV';
+import { durationToMinutes, isPunchTimeValid } from './parseCSV';
 import { isAbsent, isPresent, isWeeklyOff, isMissedPunchOut } from './useDashboardData';
 import { getPredefinedHolidays } from './predefinedHolidays';
 
@@ -155,7 +155,21 @@ function classifyEmployeeDay(
     // Full absence with genuinely no punches at all stays a straight
     // absentee — half-day review only applies when there WAS some
     // punch activity (first punch to last punch) to evaluate.
-    if (!rec.in_time && !rec.out_time) {
+    //
+    // IMPORTANT: this must use the same punch-validity check the CSV
+    // importer uses (isPunchTimeValid), not a plain truthiness test on
+    // rec.in_time/out_time. The importer stores whatever raw string was
+    // in the CSV's in/out columns — for a genuinely absent row that's
+    // often a placeholder like "0:00", "--", or "-", not an empty string
+    // (lib/storage.ts only nulls out a truly empty string). A naive
+    // `!rec.in_time` check treats "0:00" as truthy ("there's a punch"),
+    // which was silently reclassifying almost every real absence as a
+    // half-day "only one punch recorded" candidate — that's why the
+    // Dashboard's absent count and the Leave Tracker's Absentees count
+    // could disagree so drastically for the same employee/period.
+    const hasInPunch = isPunchTimeValid(rec.in_time ?? '');
+    const hasOutPunch = isPunchTimeValid(rec.out_time ?? '');
+    if (!hasInPunch && !hasOutPunch) {
       return {
         kind: 'absent',
         row: {
@@ -315,6 +329,35 @@ export async function getAttendanceExceptions(
   }
 
   return { absentees, halfDayCandidates, date };
+}
+
+/**
+ * Used when the Leave Tracker first loads and HR hasn't picked a date
+ * yet. The old behavior defaulted to just the single latest uploaded
+ * date (resolveDefaultDate) — but the whole point of the Absentees/Half
+ * Days tabs is "everything HR hasn't marked yet" (once HR records a
+ * leave for a row, it drops out here and shows up in Leave History
+ * instead — see attendance_exceptions.resolution above). Limiting that
+ * to one day meant the vast majority of unresolved rows across the
+ * uploaded months were invisible until HR happened to pick a wide date
+ * range manually. This instead spans the full range of uploaded
+ * attendance data and reuses getAttendanceExceptionsRange (one batch of
+ * queries, not one per day) so the default view really is "everything
+ * pending," full stop.
+ */
+export async function getAttendanceExceptionsAllPending(
+  supabase: SupabaseClient
+): Promise<ExceptionRangeResult> {
+  const [{ data: earliestRow }, latestDate] = await Promise.all([
+    supabase.from('attendance_records').select('date').order('date', { ascending: true }).limit(1),
+    resolveDefaultDate(supabase),
+  ]);
+  const earliestDate = earliestRow?.[0]?.date;
+  if (!earliestDate) {
+    // No attendance data uploaded at all yet — nothing to show.
+    return { absentees: [], halfDayCandidates: [], startDate: latestDate, endDate: latestDate };
+  }
+  return getAttendanceExceptionsRange(supabase, earliestDate, latestDate);
 }
 
 /**

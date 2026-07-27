@@ -37,6 +37,7 @@ export default function RecordLeaveForm({
   presetDate,
   presetIsHalfDay,
   presetLeaveTypeCode,
+  lockHalfDay,
   onSuccess,
 }: {
   presetEmployeeId?: string;
@@ -48,6 +49,14 @@ export default function RecordLeaveForm({
   presetDate?: string;
   presetIsHalfDay?: boolean;
   presetLeaveTypeCode?: 'SL' | 'CL' | 'PL' | 'LWP';
+  // When true, this row was already classified as a half-day case (see
+  // lib/attendanceExceptions.ts's classifyEmployeeDay) — the punches
+  // themselves proved it's a half day, so the "Half day" toggle is locked
+  // on and can't be unchecked here. Without this, HR could open the same
+  // form from the Half Day tab and still record a full-day leave (with an
+  // end date) over what the system already determined was a half day,
+  // which double-counts against the wrong leave duration.
+  lockHalfDay?: boolean;
   onSuccess?: (result: SubmitResult) => void;
 }) {
   const [employees, setEmployees] = useState<EmployeeOption[]>([]);
@@ -55,7 +64,7 @@ export default function RecordLeaveForm({
   const [employeeId, setEmployeeId] = useState<string>('');
 
   const [leaveTypeCode, setLeaveTypeCode] = useState<'SL' | 'CL' | 'PL' | 'LWP'>(presetLeaveTypeCode ?? 'SL');
-  const [isHalfDay, setIsHalfDay] = useState(presetIsHalfDay ?? false);
+  const [isHalfDay, setIsHalfDay] = useState(lockHalfDay ? true : presetIsHalfDay ?? false);
   const [halfDaySession, setHalfDaySession] = useState<'AM' | 'PM'>('AM');
   const [startDate, setStartDate] = useState(presetDate ?? '');
   const [endDate, setEndDate] = useState('');
@@ -245,9 +254,15 @@ export default function RecordLeaveForm({
             </select>
           </div>
           <div className="flex items-end pb-2">
-            <label className="flex items-center gap-2 text-sm text-slate-300">
-              <input type="checkbox" checked={isHalfDay} onChange={(e) => setIsHalfDay(e.target.checked)} />
+            <label className={`flex items-center gap-2 text-sm ${lockHalfDay ? 'text-slate-500' : 'text-slate-300'}`}>
+              <input
+                type="checkbox"
+                checked={isHalfDay}
+                disabled={lockHalfDay}
+                onChange={(e) => setIsHalfDay(e.target.checked)}
+              />
               Half day
+              {lockHalfDay && <span className="text-[11px] text-slate-500">(punches confirm this is a half day)</span>}
             </label>
           </div>
         </div>

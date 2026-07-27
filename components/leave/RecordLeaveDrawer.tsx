@@ -15,6 +15,7 @@ export default function RecordLeaveDrawer({
   presetDate,
   presetIsHalfDay,
   presetLeaveTypeCode,
+  lockHalfDay,
   title,
   onClose,
   onSuccess,
@@ -30,6 +31,10 @@ export default function RecordLeaveDrawer({
   presetDate?: string;
   presetIsHalfDay?: boolean;
   presetLeaveTypeCode?: 'SL' | 'CL' | 'PL' | 'LWP';
+  // Passed by HalfDayPanel — locks the "Half day" toggle on so a row
+  // already classified as a half-day can't be recorded as a full-day
+  // leave from this drawer. See RecordLeaveForm's lockHalfDay prop.
+  lockHalfDay?: boolean;
   title?: string;
   onClose: () => void;
   onSuccess: (result: SubmitResult) => void;
@@ -85,6 +90,7 @@ export default function RecordLeaveDrawer({
             presetDate={presetDate}
             presetIsHalfDay={presetIsHalfDay}
             presetLeaveTypeCode={presetLeaveTypeCode}
+            lockHalfDay={lockHalfDay}
             onSuccess={handleFormSuccess}
           />
         </div>

@@ -33,7 +33,15 @@ export default function HalfDayPanel({
   search: string;
   onResolvedDate: (date: string) => void;
 }) {
-  const isRange = !!endDate && endDate !== date;
+  // `isRange` decides the query shape sent to the server (explicit
+  // start_date/end_date). Empty `date` is a separate case — "HR hasn't
+  // picked one yet" — which fetches with no params at all and gets back
+  // every pending row across the whole uploaded history (see
+  // getAttendanceExceptionsAllPending). Both cases can return rows
+  // spanning many dates, so `isMultiDate` covers display concerns (the
+  // per-row Date column, the period label) for either one.
+  const isRange = !!date && !!endDate && endDate !== date;
+  const isMultiDate = !date || isRange;
 
   const [rows, setRows] = useState<HalfDayCandidate[]>([]);
   const [loading, setLoading] = useState(false);
@@ -102,8 +110,8 @@ export default function HalfDayPanel({
     }
   }
 
-  const periodLabel = isRange ? `${date} → ${endDate}` : date || '—';
-  const columnCount = isRange ? 8 : 7;
+  const periodLabel = !date ? 'all pending dates' : isRange ? `${date} → ${endDate}` : date;
+  const columnCount = isMultiDate ? 8 : 7;
 
   if (loading) {
     return (
@@ -127,7 +135,7 @@ export default function HalfDayPanel({
 
       {filtered.length === 0 ? (
         <div className="bg-slate-800/40 border border-slate-700 rounded-xl px-4 py-10 text-center text-slate-500 text-sm">
-          No half-day or missed-punch candidates for this {isRange ? 'period' : 'date'}
+          No half-day or missed-punch candidates for this {isMultiDate ? 'period' : 'date'}
           {department || office || search ? ' matching your filters' : ''}.
         </div>
       ) : (
@@ -135,7 +143,7 @@ export default function HalfDayPanel({
           <table className="w-full text-sm">
             <thead>
               <tr className="text-slate-500 text-xs border-b border-slate-700">
-                {isRange && <th className="text-left font-medium px-4 py-2">Date</th>}
+                {isMultiDate && <th className="text-left font-medium px-4 py-2">Date</th>}
                 <th className="text-left font-medium px-4 py-2">Employee</th>
                 <th className="text-left font-medium px-4 py-2">Department</th>
                 <th className="text-left font-medium px-4 py-2">Office</th>
@@ -149,7 +157,7 @@ export default function HalfDayPanel({
             <tbody>
               {filtered.map((r) => (
                 <tr key={`${r.employeeId}-${r.date}`} className="border-b border-slate-800 last:border-0">
-                  {isRange && <td className="px-4 py-2 text-slate-300">{r.date}</td>}
+                  {isMultiDate && <td className="px-4 py-2 text-slate-300">{r.date}</td>}
                   <td className="px-4 py-2 text-white">
                     {r.employeeName}
                     <span className="text-slate-500"> · {r.employeeCode}</span>
@@ -188,6 +196,8 @@ export default function HalfDayPanel({
           employeeId={drawerRow.employeeId}
           employeeName={drawerRow.employeeName}
           presetDate={drawerRow.date}
+          presetIsHalfDay
+          lockHalfDay
           onClose={() => {
             setDrawerEmployeeId(null);
             setDrawerDate('');

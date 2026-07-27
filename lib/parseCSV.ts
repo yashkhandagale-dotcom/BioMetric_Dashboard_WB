@@ -81,7 +81,7 @@ export function normalizeDate(raw: string): string {
   return s;
 }
 
-function isPunchTimeValid(timeStr: string): boolean {
+export function isPunchTimeValid(timeStr: string): boolean {
   if (!timeStr) return false;
   const normalized = timeStr.trim();
   // Handle various empty/null representations
