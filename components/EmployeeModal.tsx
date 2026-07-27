@@ -50,7 +50,7 @@ export default function EmployeeModal({ employee, onClose, readOnly = false }: E
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
             {[
               { label: 'Present Days', value: employee.presentDays, color: 'text-emerald-400' },
-              { label: 'Absent Days', value: employee.absentDays, color: 'text-red-400' },
+              { label: 'On Leave Days', value: employee.absentDays, color: 'text-red-400' },
               { label: 'Attendance', value: `${rate}%`, color: 'text-white' },
               { label: 'Late Count', value: employee.lateCount, color: 'text-amber-400' },
               { label: 'Early Exits', value: employee.earlyExitCount, color: 'text-amber-400' },

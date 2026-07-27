@@ -111,7 +111,7 @@ export default function PolicyInfoButton() {
                 <h4 className="text-white font-medium mb-2">Attendance Rules</h4>
                 <ul className="text-xs list-disc pl-4 space-y-1">
                   <li><span className="text-white">Present</span> — normal punch-in/out for the day, worked minutes above the half-day threshold.</li>
-                  <li><span className="text-white">Absent</span> — no valid punch activity for the day, and no approved leave, WFH, holiday, or weekly-off covering it.</li>
+                  <li><span className="text-white">Unmarked Leave</span> — no valid punch activity for the day, and no approved leave, WFH, holiday, or weekly-off covering it.</li>
                   <li><span className="text-white">Late Coming / Early Leaving</span> — in-time after or out-time before the office's standard shift window; tracked as an attendance note on the record, not a separate leave/half-day category by itself.</li>
                 </ul>
               </section>
@@ -120,7 +120,7 @@ export default function PolicyInfoButton() {
                 <h4 className="text-white font-medium mb-2">Half Day Rules</h4>
                 <p className="text-xs">
                   If the gap between an employee's first and last punch for the day is 5 hours or less, the day is
-                  <span className="text-white"> not</span> automatically marked absent — it surfaces under "Possible
+                  <span className="text-white"> not</span> automatically left as unmarked leave — it surfaces under "Possible
                   Half Day / Missed Punch" for HR to review and, if appropriate, mark as a half-day leave (Half
                   Sick / Casual / Paid Leave — i.e. the normal leave type with the half-day flag set).
                 </p>

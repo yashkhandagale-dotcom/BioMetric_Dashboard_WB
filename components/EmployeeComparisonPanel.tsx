@@ -189,7 +189,7 @@ const STATUS_COLOR: Record<EffectiveStatus, string> = {
 };
 
 const STATUS_LABEL: Record<EffectiveStatus, string> = {
-  present: 'Present', absent: 'Absent', missed_punch_out: 'Missed Punch Out',
+  present: 'Present', absent: 'Unmarked Leave', missed_punch_out: 'Missed Punch Out',
   leave_planned: 'Planned Leave', leave_casual: 'Casual Leave', leave_sick: 'Sick Leave',
   leave_lwp: 'LWP', half_day: 'Half Day', weeklyoff: 'Weekly Off', holiday: 'Holiday',
   wfh: 'WFH', business_travel: 'Business Travel', office_shutdown: 'Office Shutdown',

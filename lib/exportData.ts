@@ -1,13 +1,11 @@
 import * as XLSX from 'xlsx';
 import Papa from 'papaparse';
-import { AttendanceRecord, EmployeeSummary, LeaveRecord, LeaveType, Thresholds } from './types';
+import { AttendanceRecord, EmployeeSummary, LeaveRecord, Thresholds } from './types';
 import { durationToMinutes } from './parseCSV';
 import { getLateMinutes, getEarlyMinutes, computeProductivityLostMinutes, targetShiftMinutes } from './useDashboardData';
 import { DEFAULT_THRESHOLDS } from './settings';
+import { leaveLabelFor, UNMARKED_LEAVE_LABEL } from './leaveLabels';
 
-const LEAVE_LABELS: Record<LeaveType, string> = {
-  planned: 'Planned Leave', casual: 'Casual Leave', sick: 'Sick Leave', lwp: 'LWP', half_day: 'Half Day',
-};
 function buildLeaveLookup(leaveRecords: LeaveRecord[] = []): Map<string, LeaveRecord> {
   const m = new Map<string, LeaveRecord>();
   for (const l of leaveRecords) m.set(`${l.employeeCode}__${l.date}`, l);
@@ -128,7 +126,7 @@ export function exportExcel(
     { Metric: 'Shift Timing', Value: `${minsToTimeStr(thresholds.shiftStartMinutes)} – ${minsToTimeStr(thresholds.shiftEndMinutes)} (${target} effective mins, excl. 1h lunch, ${thresholds.graceMinutes}min grace)` },
     { Metric: 'Total Late Arrivals', Value: lateRecords.length },
     { Metric: 'Total Early Exits', Value: earlyRecords.length },
-    { Metric: 'Total Absent Days', Value: absentCount },
+    { Metric: 'Total On Leave Days', Value: absentCount },
   ];
   const ws1 = XLSX.utils.json_to_sheet(execSummaryRows);
   applyHeaderStyle(ws1);
@@ -158,7 +156,7 @@ export function exportExcel(
       Office: emp.officeCode,
       'Late Count': lateCount,
       'Early Exit Count': earlyCount,
-      'Absent Days': absentDays,
+      'On Leave Days': absentDays,
       Flags: flags.join(', '),
     });
   }
@@ -197,7 +195,7 @@ export function exportExcel(
       'Avg Hours/Day': v.presentCount > 0 ? `${(v.totalMins / v.presentCount / 60).toFixed(2)}h` : '—',
       'Late Count': v.lateCount,
       'Early Exit Count': v.earlyCount,
-      'Absent Days': v.absent,
+      'On Leave Days': v.absent,
       Status: colorStatus(rate),
     };
   }).sort((a, b) => parseFloat(a['Attendance %']) - parseFloat(b['Attendance %']));
@@ -217,7 +215,7 @@ export function exportExcel(
       Department: emp.department,
       Office: emp.officeCode,
       'Present Days': emp.presentDays,
-      'Absent Days': emp.absentDays,
+      'On Leave Days': emp.absentDays,
       'Late Count': emp.lateCount,
       'Early Exit Count': emp.earlyExitCount,
       'Planned Leave': emp.plannedLeaveCount,
@@ -239,15 +237,15 @@ export function exportExcel(
   const detailRows = records.map(r => {
     const lateMin = lateMinsFor(r, thresholds);
     const earlyMin = earlyMinsFor(r, thresholds);
+    const leave = leaveLookup.get(`${r.employeeCode}__${r.date}`);
     const flags: string[] = [];
-    if (isAbsent(r.status)) flags.push('Absent');
+    if (isAbsent(r.status) && !leave) flags.push(UNMARKED_LEAVE_LABEL);
     if (lateMin > 0) flags.push('Late Arrival');
     if (earlyMin > 0) flags.push('Early Exit');
     if ((!r.outTime || r.outTime === '--' || r.outTime === '') && isPresent(r.status)) flags.push('No Out-Punch');
-    const leave = leaveLookup.get(`${r.employeeCode}__${r.date}`);
     const displayStatus = leave
-      ? (leave.leaveType === 'half_day' && leave.halfDayLeaveType ? `Half Day — ${LEAVE_LABELS[leave.halfDayLeaveType]}` : LEAVE_LABELS[leave.leaveType])
-      : r.status;
+      ? `On Leave — ${leaveLabelFor(leave.leaveType, leave.halfDayLeaveType)}`
+      : (isAbsent(r.status) ? UNMARKED_LEAVE_LABEL : r.status);
     return {
       Date: r.date,
       'Employee Code': r.employeeCode,
@@ -286,12 +284,12 @@ export function exportCSV(
   const rows = records.map(r => {
     const lateMin = lateMinsFor(r, thresholds);
     const earlyMin = earlyMinsFor(r, thresholds);
+    const leave = leaveLookup.get(`${r.employeeCode}__${r.date}`);
     const flags: string[] = [];
     if (lateMin > 0) flags.push('Late Arrival');
     if (earlyMin > 0) flags.push('Early Exit');
-    if (isAbsent(r.status)) flags.push('Absent');
+    if (isAbsent(r.status) && !leave) flags.push(UNMARKED_LEAVE_LABEL);
     if ((!r.outTime || r.outTime === '--') && isPresent(r.status)) flags.push('No Out-Punch');
-    const leave = leaveLookup.get(`${r.employeeCode}__${r.date}`);
     return {
       Date: r.date,
       'Employee Code': r.employeeCode,
@@ -300,7 +298,7 @@ export function exportCSV(
       Office: r.officeCode,
       'In Time': r.inTime,
       'Out Time': r.outTime,
-      Status: r.status,
+      Status: leave ? `On Leave — ${leaveLabelFor(leave.leaveType, leave.halfDayLeaveType)}` : (isAbsent(r.status) ? UNMARKED_LEAVE_LABEL : r.status),
       'Late By (computed)': lateMin > 0 ? minsToHHMM(lateMin) : '',
       'Early By (computed)': earlyMin > 0 ? minsToHHMM(earlyMin) : '',
       Duration: r.duration,

@@ -68,7 +68,7 @@ export default function InsightsStrip({ summaries, dailyTrend, deptAttendance, r
       }
       const topAbsentee = summaries.filter(s => s.department === dept).sort((a, b) => b.absentDays - a.absentDays)[0];
       if (topAbsentee && topAbsentee.absentDays > 0) {
-        result.push({ icon: '👤', text: `Top absentee in ${dept}: ${topAbsentee.employeeName} with ${topAbsentee.absentDays} absent days.`, type: 'info' });
+        result.push({ icon: '👤', text: `Most days on leave in ${dept}: ${topAbsentee.employeeName} with ${topAbsentee.absentDays} day${topAbsentee.absentDays === 1 ? '' : 's'}.`, type: 'info' });
       }
     } else if (selectedDepts.length >= 2) {
       const sorted = [...deptAttendance.filter(d => selectedDepts.includes(d.department))].sort((a, b) => b.rate - a.rate);

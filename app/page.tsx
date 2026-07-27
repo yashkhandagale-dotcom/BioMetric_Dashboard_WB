@@ -777,6 +777,7 @@ function HRDashboard() {
                     graceMinutes={thresholds.graceMinutes}
                     shiftStartMinutes={thresholds.shiftStartMinutes}
                     shiftEndMinutes={thresholds.shiftEndMinutes}
+                    leaveMap={leaveMap}
                   />
                   <DayDeptLateChart
                     data={dayDeptSnapshots}
@@ -884,6 +885,7 @@ function HRDashboard() {
                     graceMinutes={thresholds.graceMinutes}
                     shiftStartMinutes={thresholds.shiftStartMinutes}
                     shiftEndMinutes={thresholds.shiftEndMinutes}
+                    leaveMap={leaveMap}
                   />
                 )}
 

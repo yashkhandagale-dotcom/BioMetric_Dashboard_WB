@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import { X, Clock, LogOut, LogIn, TrendingUp, Zap, AlertTriangle, Info, Tag, Edit2, Trash2, RotateCcw } from 'lucide-react';
-import { EmployeeSummary, Holiday, LeaveType, LeaveRecord } from '@/lib/types';
+import { EmployeeSummary, Holiday, LeaveRecord } from '@/lib/types';
 import { getLateMinutes, getEarlyMinutes } from '@/lib/useDashboardData';
 import { DEFAULT_THRESHOLDS } from '@/lib/settings';
 import { durationToMinutes } from '@/lib/parseCSV';
@@ -11,6 +11,7 @@ import {
   deleteEmployee, restoreEmployee, isEmployeeDeleted,
 } from '@/lib/employeeStore';
 import { PersonalHeatmap } from './Charts';
+import { LEAVE_COLORS, leaveLabelFor, UNMARKED_LEAVE_LABEL } from '@/lib/leaveLabels';
 
 interface EmployeePanelProps {
   employee: EmployeeSummary | null;
@@ -45,27 +46,9 @@ function minsToTimeStr(minsFromMidnight: number): string {
   return `${h12}:${m.toString().padStart(2, '0')} ${ampm}`;
 }
 
-const LEAVE_LABELS: Record<LeaveType, string> = {
-  planned: 'Planned Leave',
-  casual: 'Casual Leave',
-  sick: 'Sick Leave',
-  lwp: 'LWP',
-  half_day: 'Half Day',
-};
-
-const LEAVE_COLORS: Record<LeaveType, string> = {
-  planned: 'bg-blue-500/20 text-blue-400',
-  casual: 'bg-cyan-500/20 text-cyan-400',
-  sick: 'bg-violet-500/20 text-violet-400',
-  lwp: 'bg-orange-500/20 text-orange-400',
-  half_day: 'bg-amber-500/20 text-amber-400',
-};
-
 function getStatusBadge(status: string, isShortDay: boolean | undefined, lateMin: number, earlyMin: number, leave?: LeaveRecord) {
   if (leave) {
-    const label = leave.leaveType === 'half_day' && leave.halfDayLeaveType
-      ? `Half Day — ${LEAVE_LABELS[leave.halfDayLeaveType]}`
-      : LEAVE_LABELS[leave.leaveType];
+    const label = leaveLabelFor(leave.leaveType, leave.halfDayLeaveType);
     return <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${LEAVE_COLORS[leave.leaveType]}`}>{label}</span>;
   }
   if (isShortDay) return <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-orange-500/20 text-orange-400">Short Day</span>;
@@ -80,7 +63,7 @@ function getStatusBadge(status: string, isShortDay: boolean | undefined, lateMin
     }
     return <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-500/20 text-emerald-400">Present</span>;
   }
-  if (s.includes('absent')) return <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-red-500/20 text-red-400">Absent</span>;
+  if (s.includes('absent')) return <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-red-500/20 text-red-400">{UNMARKED_LEAVE_LABEL}</span>;
   if (s.includes('weeklyoff')) return <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-slate-600/50 text-slate-400">Weekly Off</span>;
   return <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-slate-700 text-slate-300">{status}</span>;
 }
@@ -224,7 +207,7 @@ employee, onClose, readOnly, leaveReadOnly, holidays = [], graceMinutes = DEFAUL
           <div className="px-5 pb-4">
             <h4 className="text-slate-400 text-xs font-semibold uppercase tracking-wide mb-2">Attendance Pattern</h4>
             <div className="bg-slate-800/50 rounded-xl border border-slate-700/50 p-3">
-              <PersonalHeatmap records={records} />
+              <PersonalHeatmap records={records} leaveMap={leaveMap} />
             </div>
           </div>
 

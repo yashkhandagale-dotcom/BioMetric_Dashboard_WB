@@ -90,16 +90,16 @@ export default function KPICards({ kpi, thresholds = DEFAULT_THRESHOLDS, viewMod
       },
     },
     {
-      label: 'Absent',
+      label: 'On Leave',
       value: `${kpi.absentCount}`,
-      sub: `${kpi.unexplainedAbsentCount} unexplained · ${kpi.plannedLeaveCount + kpi.casualLeaveCount + kpi.sickLeaveCount} on leave`,
+      sub: `${kpi.unexplainedAbsentCount} unmarked · ${kpi.plannedLeaveCount + kpi.casualLeaveCount + kpi.sickLeaveCount} marked`,
       status: getStatus(kpi.absenteeismRate, t.absenteeismRateGreen, t.absenteeismRateAmber, true),
       filter: 'absent',
       info: {
-        title: 'Absent Today',
-        description: 'Employees absent today. Names are clickable in the employee table below.',
-        formula: 'Count of absent employees for the selected date',
-        example: '21 absent — click the card to filter the table',
+        title: 'On Leave Today',
+        description: 'Employees not present today — shown as marked (HR has recorded a leave type for that day) or unmarked (no leave recorded yet). Names are clickable in the employee table below.',
+        formula: 'Count of employees not present for the selected date',
+        example: '21 on leave — click the card to filter the table',
       },
     },
     {

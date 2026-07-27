@@ -174,7 +174,7 @@ export default function AbsenteesPanel({
                   <td className="px-4 py-2 text-slate-300">{r.workingHours}</td>
                   <td className="px-4 py-2">
                     <span className="border border-red-500/30 bg-red-900/30 text-red-300 rounded-full px-2 py-0.5 text-xs">
-                      {r.status || 'Absent'}
+                      Unmarked Leave
                     </span>
                   </td>
                   <td className="px-4 py-2">

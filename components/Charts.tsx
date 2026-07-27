@@ -13,10 +13,11 @@ import {
   ChevronDown,
   ChevronUp
 } from 'lucide-react';
-import { DailyTrend, DeptAttendance, HoursDistribution, AttendanceRecord, DayDeptSnapshot, Holiday, OfficeAttendance } from '@/lib/types';
+import { DailyTrend, DeptAttendance, HoursDistribution, AttendanceRecord, DayDeptSnapshot, Holiday, OfficeAttendance, LeaveRecord } from '@/lib/types';
 import { durationToMinutes, minutesToHHMM } from '@/lib/parseCSV';
-import { isPresent, isAbsent, isWeeklyOff, SHIFT_MINUTES, computeLateMinutes, computeEarlyMinutes, getLateMinutes, getEarlyMinutes, computeProductivityLostMinutes, targetShiftMinutes } from '@/lib/useDashboardData';
+import { isPresent, isAbsent, isWeeklyOff, SHIFT_MINUTES, computeLateMinutes, computeEarlyMinutes, getLateMinutes, getEarlyMinutes, computeProductivityLostMinutes, targetShiftMinutes, leaveKey } from '@/lib/useDashboardData';
 import { isHoliday } from '@/lib/holidays';
+import { leaveLabelFor, UNMARKED_LEAVE_LABEL } from '@/lib/leaveLabels';
 import InfoTooltip from './InfoTooltip';
 
 function rateColor(rate: number): string {
@@ -443,7 +444,7 @@ export function DeptAttendanceChart({ data, allRecords, selectedDepts, highlight
                 <div className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs shadow-xl">
                   <p className="text-slate-300 font-semibold mb-1.5">{label}</p>
                   <p className="text-emerald-400">Present: <strong>{present}d</strong></p>
-                  <p className="text-red-400">Absent: <strong>{absent}d</strong></p>
+                  <p className="text-red-400">On Leave: <strong>{absent}d</strong></p>
                   <p className="text-slate-400 mt-1 pt-1 border-t border-slate-700">Rate: <strong style={{ color: rateColor(parseFloat(rate)) }}>{rate}%</strong></p>
                 </div>
               );
@@ -452,7 +453,7 @@ export function DeptAttendanceChart({ data, allRecords, selectedDepts, highlight
             <Bar dataKey="present" name="Present" stackId="a" fill="#34d399">
               <LabelList dataKey="present" position="insideRight" style={{ fontSize: 9, fill: '#064e3b' }} formatter={(v: any) => v > 0 ? v : ''} />
             </Bar>
-            <Bar dataKey="absent" name="Absent" stackId="a" fill="#f87171" radius={[0, 3, 3, 0]}>
+            <Bar dataKey="absent" name="On Leave" stackId="a" fill="#f87171" radius={[0, 3, 3, 0]}>
               <LabelList dataKey="absent" position="right" style={{ fontSize: 9, fill: '#94a3b8' }} formatter={(v: any) => v > 0 ? v : ''} />
             </Bar>
           </BarChart>
@@ -904,12 +905,18 @@ export function HoursDistributionChart({ data, allRecords, selectedDepts }: {
 
 // ── Per-Employee Heatmap ──────────────────────────────────────────────────────
 export function PersonalHeatmap({
-  records, graceMinutes = 10, shiftStartMinutes, shiftEndMinutes,
+  records, graceMinutes = 10, shiftStartMinutes, shiftEndMinutes, leaveMap,
 }: {
   records: AttendanceRecord[];
   graceMinutes?: number;
   shiftStartMinutes?: number;
   shiftEndMinutes?: number;
+  // employeeCode__date -> LeaveRecord, synced in from the Leave Tracker.
+  // When present for a day, that day is "On Leave" (with its type); when
+  // absent for a day with no leave record, it's "Unmarked Leave" — same
+  // absent/present business logic as before, just labeled by whether HR
+  // has actually recorded something for it yet.
+  leaveMap?: Map<string, LeaveRecord>;
 }) {
   const [tooltip, setTooltip] = useState<{ r: AttendanceRecord; x: number; y: number } | null>(null);
   const sorted = useMemo(() => [...records].sort((a, b) => a.date.localeCompare(b.date)), [records]);
@@ -920,7 +927,8 @@ export function PersonalHeatmap({
     <div>
       <div className="flex flex-wrap gap-0.5">
         {sorted.map((r) => {
-          const status = getCellStatus(r, graceMinutes, shiftStartMinutes, shiftEndMinutes);
+          const leave = leaveMap?.get(leaveKey(r.employeeCode, r.date));
+          const status = getCellStatus(r, graceMinutes, shiftStartMinutes, shiftEndMinutes, leave);
           const color = STATUS_COLORS_CELL[status] || '#334155';
           return (
             <div
@@ -934,23 +942,31 @@ export function PersonalHeatmap({
         })}
       </div>
       <div className="flex flex-wrap gap-3 mt-2">
-        {Object.entries({ present: 'Present', late: 'Late', earlyexit: 'Early Exit', absent: 'Absent', shortday: 'Short Day', weeklyoff: 'Weekly Off', holiday: 'Holiday' }).map(([k, label]) => (
+        {Object.entries({ present: 'Present', late: 'Late', earlyexit: 'Early Exit', on_leave: 'On Leave', absent: UNMARKED_LEAVE_LABEL, shortday: 'Short Day', weeklyoff: 'Weekly Off', holiday: 'Holiday' }).map(([k, label]) => (
           <div key={k} className="flex items-center gap-1">
             <div className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ backgroundColor: STATUS_COLORS_CELL[k] + '90' }} />
             <span className="text-slate-500 text-[9px]">{label}</span>
           </div>
         ))}
       </div>
-      {tooltip && (
-        <div
-          className="fixed z-50 bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-xs shadow-2xl pointer-events-none"
-          style={{ left: tooltip.x + 12, top: tooltip.y - 20 }}
-        >
-          <p className="text-white font-medium">{tooltip.r.date}</p>
-          <p className="text-slate-300">In: {tooltip.r.inTime || '—'} · Out: {tooltip.r.outTime || '—'}</p>
-          <p className="text-slate-400">{tooltip.r.status}</p>
-        </div>
-      )}
+      {tooltip && (() => {
+        const leave = leaveMap?.get(leaveKey(tooltip.r.employeeCode, tooltip.r.date));
+        const statusLine = leave
+          ? `On Leave — ${leaveLabelFor(leave.leaveType, leave.halfDayLeaveType)}`
+          : tooltip.r.status.toLowerCase().includes('absent')
+            ? UNMARKED_LEAVE_LABEL
+            : tooltip.r.status;
+        return (
+          <div
+            className="fixed z-50 bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-xs shadow-2xl pointer-events-none"
+            style={{ left: tooltip.x + 12, top: tooltip.y - 20 }}
+          >
+            <p className="text-white font-medium">{tooltip.r.date}</p>
+            <p className="text-slate-300">In: {tooltip.r.inTime || '—'} · Out: {tooltip.r.outTime || '—'}</p>
+            <p className="text-slate-400">{statusLine}</p>
+          </div>
+        );
+      })()}
     </div>
   );
 }
@@ -959,7 +975,14 @@ export const STATUS_COLORS_CELL: Record<string, string> = {
   present: '#34d399',
   late: '#fbbf24',
   earlyexit: '#60a5fa',
+  // 'absent' here means "unmarked leave" — an absent day nobody has
+  // recorded a leave for yet. Kept as the key 'absent' internally (so it
+  // still falls back correctly wherever a leave record isn't looked up),
+  // but always labeled "Unmarked Leave" to the user — see UNMARKED_LEAVE_LABEL.
   absent: '#f87171',
+  // A day HR has marked a leave for — distinct color from unmarked so the
+  // two are visually distinguishable at a glance.
+  on_leave: '#38bdf8',
   missed_punch_out: '#d97706',
   weeklyoff: '#334155',
   shortday: '#f97316',
@@ -970,8 +993,13 @@ export function getCellStatus(
   r: AttendanceRecord,
   graceMinutes: number = 10,
   shiftStartMinutes?: number,
-  shiftEndMinutes?: number
+  shiftEndMinutes?: number,
+  leave?: LeaveRecord
 ): string {
+  // Leave takes priority over everything else, same as the day-wise
+  // status badge in EmployeePanel.tsx — a marked leave is the most
+  // specific, most authoritative thing known about that day.
+  if (leave) return 'on_leave';
   if (r.isShortDay) return 'shortday';
   const s = r.status.toLowerCase();
   if (s.includes('weeklyoff')) return 'weeklyoff';
@@ -985,13 +1013,14 @@ export function getCellStatus(
 }
 
 export function AttendanceHeatmap({
-  records, onCellClick, graceMinutes = 10, shiftStartMinutes, shiftEndMinutes,
+  records, onCellClick, graceMinutes = 10, shiftStartMinutes, shiftEndMinutes, leaveMap,
 }: {
   records: AttendanceRecord[];
   onCellClick?: (emp: string, date: string) => void;
   graceMinutes?: number;
   shiftStartMinutes?: number;
   shiftEndMinutes?: number;
+  leaveMap?: Map<string, LeaveRecord>;
 }) {
   const [tooltip, setTooltip] = useState<{ r: AttendanceRecord; x: number; y: number } | null>(null);
   const [expandedHeatmap, setExpandedHeatmap] = useState(false);
@@ -1091,7 +1120,8 @@ export function AttendanceHeatmap({
               </div>
               {visibleDates.map(date => {
                 const r = cellMap.get(`${emp.code}_${date}`);
-                const status = r ? getCellStatus(r, graceMinutes, shiftStartMinutes, shiftEndMinutes) : 'absent';
+                const leave = r ? leaveMap?.get(leaveKey(r.employeeCode, r.date)) : undefined;
+                const status = r ? getCellStatus(r, graceMinutes, shiftStartMinutes, shiftEndMinutes, leave) : 'absent';
                 const color = STATUS_COLORS_CELL[status] || '#334155';
                 return (
                   <div
@@ -1132,7 +1162,7 @@ export function AttendanceHeatmap({
 )}
 
       <div className="flex flex-wrap gap-3 mt-3">
-        {Object.entries({ present: 'Present', late: 'Late', earlyexit: 'Early Exit', absent: 'Absent', shortday: 'Short Day', weeklyoff: 'Weekly Off', holiday: 'Holiday' }).map(([k, label]) => (
+        {Object.entries({ present: 'Present', late: 'Late', earlyexit: 'Early Exit', on_leave: 'On Leave', absent: UNMARKED_LEAVE_LABEL, shortday: 'Short Day', weeklyoff: 'Weekly Off', holiday: 'Holiday' }).map(([k, label]) => (
           <div key={k} className="flex items-center gap-1">
             <div className="w-3 h-3 rounded-sm flex-shrink-0" style={{ backgroundColor: STATUS_COLORS_CELL[k] + '90' }} />
             <span className="text-slate-500 text-[10px]">{label}</span>
@@ -1140,17 +1170,25 @@ export function AttendanceHeatmap({
         ))}
       </div>
 
-      {tooltip && (
-        <div
-          className="fixed z-50 bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-xs shadow-2xl pointer-events-none"
-          style={{ left: tooltip.x + 12, top: tooltip.y - 20 }}
-        >
-          <p className="text-white font-medium">{tooltip.r.employeeName}</p>
-          <p className="text-slate-400">{tooltip.r.date}</p>
-          <p className="text-slate-300">In: {tooltip.r.inTime || '—'} · Out: {tooltip.r.outTime || '—'}</p>
-          <p className="text-slate-400">{tooltip.r.status}</p>
-        </div>
-      )}
+      {tooltip && (() => {
+        const leave = leaveMap?.get(leaveKey(tooltip.r.employeeCode, tooltip.r.date));
+        const statusLine = leave
+          ? `On Leave — ${leaveLabelFor(leave.leaveType, leave.halfDayLeaveType)}`
+          : tooltip.r.status.toLowerCase().includes('absent')
+            ? UNMARKED_LEAVE_LABEL
+            : tooltip.r.status;
+        return (
+          <div
+            className="fixed z-50 bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-xs shadow-2xl pointer-events-none"
+            style={{ left: tooltip.x + 12, top: tooltip.y - 20 }}
+          >
+            <p className="text-white font-medium">{tooltip.r.employeeName}</p>
+            <p className="text-slate-400">{tooltip.r.date}</p>
+            <p className="text-slate-300">In: {tooltip.r.inTime || '—'} · Out: {tooltip.r.outTime || '—'}</p>
+            <p className="text-slate-400">{statusLine}</p>
+          </div>
+        );
+      })()}
     </div>
   );
 }
@@ -1184,7 +1222,7 @@ function EmployeeAttendanceRow({
 
 // ── Attendance Today ──────────────────────────────────────────────────────────
 export function DayDeptAttendanceChart({
-  data, onDeptClick, allRecords, graceMinutes = 10, shiftStartMinutes, shiftEndMinutes,
+  data, onDeptClick, allRecords, graceMinutes = 10, shiftStartMinutes, shiftEndMinutes, leaveMap,
 }: {
   data: DayDeptSnapshot[];
   onDeptClick?: (dept: string) => void;
@@ -1192,6 +1230,7 @@ export function DayDeptAttendanceChart({
   graceMinutes?: number;
   shiftStartMinutes?: number;
   shiftEndMinutes?: number;
+  leaveMap?: Map<string, LeaveRecord>;
 }) {
   const [drillDept, setDrillDept] = useState<string | null>(null);
 
@@ -1213,7 +1252,7 @@ export function DayDeptAttendanceChart({
             </button>
           )}
           <h3 className="text-white font-semibold text-sm">{activeDept} — Attendance</h3>
-          <span className="text-slate-500 text-xs ml-auto">{present.length} present · {absent.length} absent</span>
+          <span className="text-slate-500 text-xs ml-auto">{present.length} present · {absent.length} on leave</span>
         </div>
         <div className="space-y-1 max-h-[240px] overflow-y-auto">
           {present.map(r => (
@@ -1222,12 +1261,17 @@ export function DayDeptAttendanceChart({
               graceMinutes={graceMinutes} shiftStartMinutes={shiftStartMinutes} shiftEndMinutes={shiftEndMinutes}
             />
           ))}
-          {absent.map(r => (
-            <div key={r.employeeCode} className="flex items-center justify-between py-2 px-3 rounded-lg bg-red-500/10">
-              <span className="text-white text-xs font-medium">{r.employeeName || r.employeeCode}</span>
-              <span className="text-red-400 text-xs">Absent</span>
-            </div>
-          ))}
+          {absent.map(r => {
+            const leave = leaveMap?.get(leaveKey(r.employeeCode, r.date));
+            return (
+              <div key={r.employeeCode} className="flex items-center justify-between py-2 px-3 rounded-lg bg-red-500/10">
+                <span className="text-white text-xs font-medium">{r.employeeName || r.employeeCode}</span>
+                <span className="text-red-400 text-xs">
+                  {leave ? `On Leave — ${leaveLabelFor(leave.leaveType, leave.halfDayLeaveType)}` : UNMARKED_LEAVE_LABEL}
+                </span>
+              </div>
+            );
+          })}
           {present.length === 0 && absent.length === 0 && (
             <p className="text-slate-500 text-sm text-center py-6">No records for this team today</p>
           )}

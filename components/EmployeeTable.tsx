@@ -94,7 +94,7 @@ export default function EmployeeTable({ summaries, onEmployeeClick }: EmployeeTa
               <TH col="department" label="Department" />
               <TH col="officeCode" label="Office" />
               <TH col="presentDays" label="Present" />
-              <TH col="absentDays" label="Absent" />
+              <TH col="absentDays" label="On Leave" />
               <TH col="lateCount" label="Late" />
               <TH col="earlyExitCount" label="Early Exit" />
               <th className="px-3 py-2.5 text-left text-xs font-medium text-slate-400 whitespace-nowrap">Flags</th>
