@@ -20,6 +20,41 @@ import { getPredefinedHolidays } from './predefinedHolidays';
 // instead.
 const HALF_DAY_THRESHOLD_MINUTES = 5 * 60;
 
+// Supabase/PostgREST caps a single .select() response at 1000 rows unless
+// you explicitly page through it with .range(). getAttendanceExceptionsRange
+// fetches attendance_records for the WHOLE org across a wide date range in
+// one shot (e.g. 91 days x full headcount = 7,500+ rows for a single
+// quarter) - well past that cap. Because the original query had no
+// .order() either, whichever ~1000 rows PostgREST happened to return first
+// was silently kept and everything else dropped, with no error surfaced
+// anywhere. That's why the Dashboard's absent count and the Leave
+// Tracker's Absentees count could disagree so drastically for the same
+// employee/period: the Dashboard reads the full CSV-backed data per month,
+// but the Tracker's range query was quietly missing most of the period.
+// Same exposure applies to every other org-wide/range select below
+// (employees, leave_requests, workforce_events, custom_holidays,
+// attendance_exceptions) once the org or the range is big enough - page
+// all of them through selectAllRows rather than fixing attendance_records
+// alone. Mirrors the selectAllRows helper in lib/storage.ts.
+const SELECT_PAGE_SIZE = 1000;
+
+async function selectAllRows<T>(
+  buildQuery: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>
+): Promise<{ data: T[]; error: { message: string } | null }> {
+  const all: T[] = [];
+  let from = 0;
+  for (;;) {
+    const to = from + SELECT_PAGE_SIZE - 1;
+    const { data, error } = await buildQuery(from, to);
+    if (error) return { data: all, error };
+    const page = data ?? [];
+    all.push(...page);
+    if (page.length < SELECT_PAGE_SIZE) break; // last page
+    from += SELECT_PAGE_SIZE;
+  }
+  return { data: all, error: null };
+}
+
 // A date-range query used to be impossible to build without either
 // (a) looping the single-date logic and firing the same 6 queries once
 // PER DAY in the range (a 30-day range = 180 round trips — this is why
@@ -280,10 +315,13 @@ export async function getAttendanceExceptions(
     { data: customHolidays, error: holidaysError },
     { data: resolved, error: resolvedError },
   ] = await Promise.all([
-    supabase
-      .from('employees')
-      .select('id, employee_code, full_name, department, office, employment_status')
-      .neq('employment_status', 'exited'),
+    selectAllRows<EmployeeRow>((from, to) =>
+      supabase
+        .from('employees')
+        .select('id, employee_code, full_name, department, office, employment_status')
+        .neq('employment_status', 'exited')
+        .range(from, to)
+    ),
     supabase
       .from('attendance_records')
       .select('employee_code, office_code, in_time, out_time, duration, status, punch_count')
@@ -391,36 +429,53 @@ export async function getAttendanceExceptionsRange(
     { data: customHolidays, error: holidaysError },
     { data: resolved, error: resolvedError },
   ] = await Promise.all([
-    supabase
-      .from('employees')
-      .select('id, employee_code, full_name, department, office, employment_status')
-      .neq('employment_status', 'exited'),
-    supabase
-      .from('attendance_records')
-      .select('employee_code, date, office_code, in_time, out_time, duration, status, punch_count')
-      .gte('date', startDate)
-      .lte('date', endDate),
+    selectAllRows<EmployeeRow>((from, to) =>
+      supabase
+        .from('employees')
+        .select('id, employee_code, full_name, department, office, employment_status')
+        .neq('employment_status', 'exited')
+        .range(from, to)
+    ),
+    selectAllRows<Required<AttendanceRow>>((from, to) =>
+      supabase
+        .from('attendance_records')
+        .select('employee_code, date, office_code, in_time, out_time, duration, status, punch_count')
+        .gte('date', startDate)
+        .lte('date', endDate)
+        .range(from, to)
+    ),
     // Leave overlapping the range (not just leave fully inside it) — a
     // request that started before the range and ends inside it (or vice
     // versa) should still exempt the in-range days it covers.
-    supabase
-      .from('leave_requests')
-      .select('employee_id, start_date, end_date')
-      .eq('status', 'approved')
-      .lte('start_date', endDate)
-      .gte('end_date', startDate),
-    supabase
-      .from('workforce_events')
-      .select('employee_id, event_type, event_date')
-      .gte('event_date', startDate)
-      .lte('event_date', endDate),
-    supabase.from('custom_holidays').select('office_code, date, name').in('year', years),
-    supabase
-      .from('attendance_exceptions')
-      .select('employee_id, exception_date')
-      .gte('exception_date', startDate)
-      .lte('exception_date', endDate)
-      .neq('resolution', 'pending'),
+    selectAllRows<{ employee_id: string; start_date: string; end_date: string }>((from, to) =>
+      supabase
+        .from('leave_requests')
+        .select('employee_id, start_date, end_date')
+        .eq('status', 'approved')
+        .lte('start_date', endDate)
+        .gte('end_date', startDate)
+        .range(from, to)
+    ),
+    selectAllRows<{ employee_id: string; event_type: string; event_date: string }>((from, to) =>
+      supabase
+        .from('workforce_events')
+        .select('employee_id, event_type, event_date')
+        .gte('event_date', startDate)
+        .lte('event_date', endDate)
+        .range(from, to)
+    ),
+    selectAllRows<{ office_code: string; date: string; name: string }>((from, to) =>
+      supabase.from('custom_holidays').select('office_code, date, name').in('year', years).range(from, to)
+    ),
+    selectAllRows<{ employee_id: string; exception_date: string }>((from, to) =>
+      supabase
+        .from('attendance_exceptions')
+        .select('employee_id, exception_date')
+        .gte('exception_date', startDate)
+        .lte('exception_date', endDate)
+        .neq('resolution', 'pending')
+        .range(from, to)
+    ),
   ]);
 
   const firstError = employeesError || attendanceError || leaveError || eventsError || holidaysError || resolvedError;
