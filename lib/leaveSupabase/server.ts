@@ -4,17 +4,21 @@ import { cookies } from 'next/headers';
 
 // Server Components / Route Handlers under app/leave/** only.
 //
-// Post-DB-merge: same Supabase project as lib/supabase/server.ts now, kept
-// on its own cookie name ("sb-leave-auth") so a Leave Tracker session and a
-// Dashboard session stay independent in the same browser — see
-// lib/leaveSupabase/client.ts for the full reasoning and the open question
-// about role-based access this raised.
+// This is the Leave Tracker's OWN Supabase project — NEXT_PUBLIC_LEAVE_SUPABASE_URL
+// / NEXT_PUBLIC_LEAVE_SUPABASE_ANON_KEY, not the dashboard's
+// NEXT_PUBLIC_SUPABASE_URL. These two used to point at the same
+// (merged) project — see old PROGRESS.md entries — but .env.local now
+// has them split back into separate projects (LEAVE_-prefixed vs plain),
+// and this file had fallen out of sync with that, silently pointing the
+// entire Leave Tracker app at the dashboard's project instead of its own.
+// Fixed here: bulk-created employee auth accounts live in the
+// LEAVE-prefixed project, so that's the one this must use.
 export async function createLeaveClient() {
   const cookieStore = await cookies();
 
   return createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    process.env.NEXT_PUBLIC_LEAVE_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_LEAVE_SUPABASE_ANON_KEY!,
     {
       cookieOptions: { name: 'sb-leave-auth' },
       cookies: {
@@ -37,14 +41,13 @@ export async function createLeaveClient() {
 
 // Service-role client — bypasses RLS. Use only inside app/leave/api/*
 // route handlers, e.g. for scheduled jobs like the 25-March annual reset.
-// Never import into client-side code. Same project as the Dashboard's
-// service client (lib/supabase/server.ts:createServiceClient) now — both
-// bypass RLS on the same unified DB, so both can technically touch any
-// table. Keep using the right one for the right app anyway, for clarity.
+// Never import into client-side code. Uses the Leave Tracker project's
+// OWN service role key (LEAVE_SUPABASE_SERVICE_ROLE_KEY) — see note above
+// on createLeaveClient for why this must not be the dashboard's key/URL.
 export function createLeaveServiceClient() {
   return createSupabaseJsClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    process.env.NEXT_PUBLIC_LEAVE_SUPABASE_URL!,
+    process.env.LEAVE_SUPABASE_SERVICE_ROLE_KEY!,
     { auth: { autoRefreshToken: false, persistSession: false } }
   );
 }

@@ -1,25 +1,26 @@
 import { createBrowserClient } from '@supabase/ssr';
 
-// Post-DB-merge: this now points at the SAME Supabase project as
-// lib/supabase/client.ts (see unified_schema.sql / PROGRESS.md for why).
-// Kept as its own file — rather than just re-exporting the main client —
-// so the Leave Tracker's session stays on its OWN cookie name
-// ("sb-leave-auth") instead of colliding with the Dashboard's
-// ("sb-dashboard-auth"). Sharing one project means sharing one
-// `auth.users` table, but this keeps the two apps' *sessions* independent:
-// logging into one does not silently log you into the other.
+// This is the Leave Tracker's OWN Supabase project — NEXT_PUBLIC_LEAVE_SUPABASE_URL
+// / NEXT_PUBLIC_LEAVE_SUPABASE_ANON_KEY, not the dashboard's
+// NEXT_PUBLIC_SUPABASE_URL/ANON_KEY. These two apps' projects were merged
+// at one point (see old PROGRESS.md entries), but .env.local now has them
+// split back into separate projects — this file had fallen out of sync
+// with that split, silently sending the Leave Tracker's login requests to
+// the dashboard's project instead of its own. Kept as its own file —
+// rather than just re-exporting the main client — so the Leave Tracker's
+// session stays on its OWN cookie name ("sb-leave-auth") instead of
+// colliding with the Dashboard's ("sb-dashboard-auth").
 //
-// OPEN QUESTION (flagged, not decided here): now that both apps share one
-// auth pool, should a Leave Tracker login (an ordinary employee) also be
-// allowed into the Dashboard? Right now, no — middleware.ts only checks
-// "is there a session", not role, so if an employee ever obtained a
-// Dashboard session cookie they'd get in. Since sessions are kept separate
-// here, this isn't currently reachable, but if that ever changes, add a
-// role check (employees.role via auth_user_id) to middleware.ts first.
+// OPEN QUESTION (flagged, not decided here): now that the two projects
+// are confirmed separate again, is a shared `auth.users` pool even a
+// design option going forward, or should these always be treated as two
+// fully independent identity systems? Worth settling before Sprint D
+// (notifications/email), since email-based user matching assumed shared
+// identity in earlier drafts.
 export function createLeaveClient() {
   return createBrowserClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    process.env.NEXT_PUBLIC_LEAVE_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_LEAVE_SUPABASE_ANON_KEY!,
     { cookieOptions: { name: 'sb-leave-auth' } }
   );
 }

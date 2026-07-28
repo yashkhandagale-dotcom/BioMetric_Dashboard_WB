@@ -4,8 +4,23 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { createLeaveClient } from '@/lib/leaveSupabase/client';
 
 // Deliberately its own login, on the leave-tracker's own Supabase project.
-// A dashboard HR login and a leave-tracker super-admin login are unrelated
-// accounts, even if the same human uses both.
+// A dashboard HR login and a leave-tracker's employee/lead/manager/HR
+// login are unrelated accounts, even if the same human uses both.
+//
+// Sprint A: this used to always send everyone to /leave/admin (the old
+// "any authenticated user is HR super admin" model). Now it looks up the
+// signed-in user's employees.role and redirects to that role's home route
+// (see lib/leaveSupabase/getCurrentEmployee.ts:homeRouteForRole) — unless
+// `?next=` was set (e.g. someone hit a deep link while logged out and got
+// bounced here), in which case that takes priority, same as before.
+const ROLE_HOME: Record<string, string> = {
+  hr: '/leave/admin',
+  hr_super_admin: '/leave/admin',
+  manager: '/leave/approvals',
+  lead: '/leave/team',
+  employee: '/leave/me',
+};
+
 function LeaveLoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -19,13 +34,33 @@ function LeaveLoginForm() {
     setError(null);
     setLoading(true);
     const supabase = createLeaveClient();
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    setLoading(false);
+    const { data: signInData, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) {
+      setLoading(false);
       setError(error.message);
       return;
     }
-    const next = searchParams.get('next') || '/leave/admin';
+
+    let next = searchParams.get('next');
+    if (!next) {
+      const { data: employeeRow } = await supabase
+        .from('employees')
+        .select('role')
+        .eq('auth_user_id', signInData.user.id)
+        .maybeSingle();
+
+      if (!employeeRow) {
+        setLoading(false);
+        setError(
+          "This account isn't linked to an employee record yet. Ask HR to link it, then try again."
+        );
+        await supabase.auth.signOut();
+        return;
+      }
+      next = ROLE_HOME[employeeRow.role] || '/leave/me';
+    }
+
+    setLoading(false);
     router.replace(next);
     router.refresh();
   }
@@ -39,7 +74,7 @@ function LeaveLoginForm() {
           </div>
           <div>
             <h1 className="text-white font-semibold text-sm">Leave Tracker</h1>
-            <p className="text-slate-500 text-xs">WonderBiz Technologies · HR Super Admin</p>
+            <p className="text-slate-500 text-xs">WonderBiz Technologies</p>
           </div>
         </div>
 
@@ -80,7 +115,7 @@ function LeaveLoginForm() {
           </button>
         </form>
         <p className="text-slate-600 text-xs text-center mt-4">
-          Separate login from the attendance dashboard. Accounts are created by an admin in the leave-tracker&apos;s Supabase dashboard.
+          Separate login from the attendance dashboard. New here? HR invites you from the employee record — check your email for the invite link to set a password.
         </p>
       </div>
     </div>
