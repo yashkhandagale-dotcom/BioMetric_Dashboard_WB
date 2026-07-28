@@ -38,7 +38,7 @@ const HALF_DAY_THRESHOLD_MINUTES = 5 * 60;
 // alone. Mirrors the selectAllRows helper in lib/storage.ts.
 const SELECT_PAGE_SIZE = 1000;
 
-async function selectAllRows<T>(
+export async function selectAllRows<T>(
   buildQuery: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>
 ): Promise<{ data: T[]; error: { message: string } | null }> {
   const all: T[] = [];
@@ -259,7 +259,7 @@ function classifyEmployeeDay(
   return null;
 }
 
-function buildHolidayLookup(
+export function buildHolidayLookup(
   employees: EmployeeRow[],
   years: string[],
   customHolidays: { office_code: string; date: string }[]

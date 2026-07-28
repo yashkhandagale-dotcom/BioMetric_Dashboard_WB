@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createLeaveClient } from '@/lib/leaveSupabase/server';
 import { TrackerLeaveTypeCode } from '@/lib/leaveSupabase/leaveTypeMap';
+import { selectAllRows } from '@/lib/attendanceExceptions';
 
 // D3-2: backs the Leave History page's table + CSV export. Filters
 // compose (department + date range together, etc — Day 3 AC) because
@@ -13,6 +14,21 @@ import { TrackerLeaveTypeCode } from '@/lib/leaveSupabase/leaveTypeMap';
 // the embedded `employees` resource directly — that keeps this query's
 // behavior simple and predictable rather than depending on PostgREST's
 // embedded-filter (`!inner`) semantics.
+//
+// Calendar reuse (leave-tracker-calendar task): the month calendar needs
+// "every request that overlaps this month" (start_date <= monthEnd AND
+// end_date >= monthStart), which is a different comparison than this
+// route's existing table-view semantics of "every request that *started*
+// in this window" (start_date >= X AND start_date <= Y). Rather than
+// change the existing behavior (the History tab's Start/End Date filters
+// already rely on it), an explicit `range_mode=overlap` opt-in switches
+// to the overlap comparison; omitted/any other value keeps the original
+// behavior so no existing caller changes shape.
+//
+// Also pages the leave_requests query through selectAllRows (the same
+// helper lib/attendanceExceptions.ts uses) — a plain .select() caps at
+// 1000 rows, and a month/quarter-wide org query here is exactly the kind
+// of wide-range query that bug already bit once for attendance_records.
 
 type HistoryRow = {
   id: string;
@@ -45,6 +61,7 @@ export async function GET(req: NextRequest) {
   const office = params.get('office') || undefined;
   const employeeId = params.get('employee_id') || undefined;
   const leaveTypeCode = (params.get('leave_type_code') || undefined) as TrackerLeaveTypeCode | undefined;
+  const rangeMode = params.get('range_mode') || undefined; // 'overlap' | undefined
 
   try {
     let employeeIds: string[] | null = null;
@@ -81,24 +98,36 @@ export async function GET(req: NextRequest) {
       leaveTypeId = lt.id;
     }
 
-    let query = supabase
-      .from('leave_requests')
-      .select(
+    const { data, error } = await selectAllRows<HistoryRow>((from, to) => {
+      let query = supabase
+        .from('leave_requests')
+        .select(
+          `
+          id, start_date, end_date, is_half_day, half_day_session, total_days,
+          status, source, is_lwp_override, applied_on,
+          employees ( id, full_name, employee_code, department, office ),
+          leave_types ( code, display_name )
         `
-        id, start_date, end_date, is_half_day, half_day_session, total_days,
-        status, source, is_lwp_override, applied_on,
-        employees ( id, full_name, employee_code, department, office ),
-        leave_types ( code, display_name )
-      `
-      )
-      .order('start_date', { ascending: false });
+        )
+        .order('start_date', { ascending: false })
+        .range(from, to);
 
-    if (startDate) query = query.gte('start_date', startDate);
-    if (endDate) query = query.lte('start_date', endDate);
-    if (employeeIds) query = query.in('employee_id', employeeIds);
-    if (leaveTypeId) query = query.eq('leave_type_id', leaveTypeId);
+      if (rangeMode === 'overlap') {
+        // Overlap comparison: any request that touches the window at
+        // all, not just ones that started inside it — a request that
+        // started in June and runs into July must still show up on
+        // July's calendar.
+        if (endDate) query = query.lte('start_date', endDate);
+        if (startDate) query = query.gte('end_date', startDate);
+      } else {
+        if (startDate) query = query.gte('start_date', startDate);
+        if (endDate) query = query.lte('start_date', endDate);
+      }
+      if (employeeIds) query = query.in('employee_id', employeeIds);
+      if (leaveTypeId) query = query.eq('leave_type_id', leaveTypeId);
 
-    const { data, error } = await query.returns<HistoryRow[]>();
+      return query.returns<HistoryRow[]>();
+    });
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }

@@ -1,12 +1,17 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import LeaveHistoryTable, { LeaveHistoryRow } from '@/components/leave/LeaveHistoryTable';
 import AbsenteesPanel from '@/components/leave/AbsenteesPanel';
 import HalfDayPanel from '@/components/leave/HalfDayPanel';
 import RecordLeaveDrawer from '@/components/leave/RecordLeaveDrawer';
+import LeaveCalendar from '@/components/leave/LeaveCalendar';
+import CalendarDayDrawer from '@/components/leave/CalendarDayDrawer';
 import { exportRowsAsCSV } from '@/lib/exportData';
 import AttendanceTableSkeleton from '@/components/leave/AttendanceTableSkeleton';
+import type { AbsenteeCandidate, HalfDayCandidate } from '@/lib/attendanceExceptions';
+import { currentMonthKey, mergeCalendarDay, monthBounds } from '@/lib/leaveCalendar';
+import type { CalendarDayEntry } from '@/lib/leaveCalendar';
 
 type EmployeeOption = { id: string; full_name: string; employee_code: string; department: string; office: string };
 
@@ -17,35 +22,29 @@ const LEAVE_TYPES = [
   { code: 'LWP', label: 'Leave Without Pay' },
 ];
 
+type View = 'calendar' | 'table';
 type Tab = 'absentees' | 'half_days' | 'history';
 
-// Leave Tracker — formerly just "Leave History". Per feedback, this is
-// now the single home for everything that isn't a balances view:
-// Absentees, Half Days, and Leave History share one Department/Office/
-// Search filter bar and one "+ Record Leave" entry point, instead of
-// Absentees/Half Days living as accordions on the balances page and
-// Leave History living separately. "Team" in the original ask maps to
-// Department here — see lib/attendanceExceptions.ts's header comment
-// for why there's no separate team table.
+// Leave Tracker. The month calendar (below) is now the primary view —
+// see the Leave Tracker Calendar brief. The original Absentees / Half
+// Days / Leave History tabs are preserved as-is, reachable via the
+// "Table view" toggle, since HR still needs the flat table for bulk
+// actions/export (exportRowsAsCSV stays wired to History exactly as
+// before). "Team" in the original ask maps to Department here — see
+// lib/attendanceExceptions.ts's header comment for why there's no
+// separate team table.
 export default function LeaveTrackerPage() {
+  const [view, setView] = useState<View>('calendar');
   const [tab, setTab] = useState<Tab>('absentees');
 
   const [employees, setEmployees] = useState<EmployeeOption[]>([]);
   const [employeesError, setEmployeesError] = useState<string | null>(null);
 
-  // Shared across all three tabs.
+  // Shared across all three table-view tabs.
   const [department, setDepartment] = useState('');
   const [office, setOffice] = useState('');
-  // Absentees/Half Days: free-text name/code match + one date. Leave
-  // History keeps its own date range + exact employee/leave-type filters
-  // below (different shape, server-side query — not worth forcing into
-  // the same free-text box).
   const [attendanceSearch, setAttendanceSearch] = useState('');
   const [attendanceDate, setAttendanceDate] = useState('');
-  // Defaults to the same value as attendanceDate (single-day mode). Once
-  // the user picks a different end date, AbsenteesPanel/HalfDayPanel
-  // switch to period mode and ask for the whole range in one request —
-  // see lib/attendanceExceptions.ts's getAttendanceExceptionsRange.
   const [attendanceEndDate, setAttendanceEndDate] = useState('');
 
   const [startDate, setStartDate] = useState('');
@@ -58,6 +57,19 @@ export default function LeaveTrackerPage() {
   const [error, setError] = useState<string | null>(null);
 
   const [recordLeaveOpen, setRecordLeaveOpen] = useState(false);
+
+  // ── Calendar-specific state ─────────────────────────────────────────
+  const [monthKey, setMonthKey] = useState(currentMonthKey());
+  const [calendarDepartment, setCalendarDepartment] = useState('');
+  const [calendarSearch, setCalendarSearch] = useState('');
+  const [calendarLoading, setCalendarLoading] = useState(true);
+  const [calendarError, setCalendarError] = useState<string | null>(null);
+  const [calendarRefreshSignal, setCalendarRefreshSignal] = useState(0);
+  const [calendarAbsentees, setCalendarAbsentees] = useState<AbsenteeCandidate[]>([]);
+  const [calendarHalfDays, setCalendarHalfDays] = useState<HalfDayCandidate[]>([]);
+  const [calendarLeave, setCalendarLeave] = useState<LeaveHistoryRow[]>([]);
+  const [calendarHolidays, setCalendarHolidays] = useState<Map<string, string[]>>(new Map());
+  const [openDay, setOpenDay] = useState<string | null>(null);
 
   useEffect(() => {
     async function loadEmployees() {
@@ -113,9 +125,76 @@ export default function LeaveTrackerPage() {
   }
 
   useEffect(() => {
-    if (tab === 'history') fetchHistory();
+    if (tab === 'history' && view === 'table') fetchHistory();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab]);
+  }, [tab, view]);
+
+  // ── Calendar data load: one request per data source per month, per
+  // brief section 1.6 — NOT re-fetched on department/employee-search
+  // changes, which filter the already-fetched month client-side (the
+  // same convention AbsenteesPanel/HalfDayPanel already use for their
+  // Department/Office/Search filters).
+  const loadCalendarMonth = useCallback(async () => {
+    setCalendarLoading(true);
+    setCalendarError(null);
+    try {
+      const { start, end } = monthBounds(monthKey);
+      const [exceptionsRes, leaveRes, holidaysRes] = await Promise.all([
+        fetch(`/api/leave/attendance/exceptions?start_date=${start}&end_date=${end}`),
+        fetch(`/api/leave/history?start_date=${start}&end_date=${end}&range_mode=overlap`),
+        fetch(`/api/leave/holidays?start_date=${start}&end_date=${end}`),
+      ]);
+
+      const [exceptionsBody, leaveBody, holidaysBody] = await Promise.all([
+        exceptionsRes.json(),
+        leaveRes.json(),
+        holidaysRes.json(),
+      ]);
+
+      if (!exceptionsRes.ok) throw new Error(exceptionsBody.error || 'Could not load attendance exceptions.');
+      if (!leaveRes.ok) throw new Error(leaveBody.error || 'Could not load leave requests.');
+      if (!holidaysRes.ok) throw new Error(holidaysBody.error || 'Could not load holidays.');
+
+      setCalendarAbsentees(exceptionsBody.absentees ?? []);
+      setCalendarHalfDays(exceptionsBody.halfDayCandidates ?? []);
+      setCalendarLeave(leaveBody.requests ?? []);
+
+      const holidayMap = new Map<string, string[]>();
+      for (const h of holidaysBody.holidays ?? []) {
+        holidayMap.set(h.date, [h.name]);
+      }
+      setCalendarHolidays(holidayMap);
+    } catch (err) {
+      setCalendarError(err instanceof Error ? err.message : 'Could not reach the server to load the calendar.');
+    } finally {
+      setCalendarLoading(false);
+    }
+  }, [monthKey]);
+
+  useEffect(() => {
+    if (view === 'calendar') loadCalendarMonth();
+  }, [view, loadCalendarMonth, calendarRefreshSignal]);
+
+  const { start: monthStart, end: monthEnd } = monthBounds(monthKey);
+
+  const mergedByDate = useMemo(
+    () => mergeCalendarDay(monthStart, monthEnd, calendarLeave, calendarAbsentees, calendarHalfDays),
+    [monthStart, monthEnd, calendarLeave, calendarAbsentees, calendarHalfDays]
+  );
+
+  const filteredDayMap = useMemo(() => {
+    const q = calendarSearch.trim().toLowerCase();
+    const out = new Map<string, CalendarDayEntry[]>();
+    for (const [date, byEmployee] of mergedByDate) {
+      const entries = Array.from(byEmployee.values()).filter((e) => {
+        if (calendarDepartment && e.department !== calendarDepartment) return false;
+        if (q && !e.employeeName.toLowerCase().includes(q) && !e.employeeCode.toLowerCase().includes(q)) return false;
+        return true;
+      });
+      if (entries.length > 0) out.set(date, entries);
+    }
+    return out;
+  }, [mergedByDate, calendarDepartment, calendarSearch]);
 
   function handleClearHistoryFilters() {
     setStartDate('');
@@ -145,6 +224,16 @@ export default function LeaveTrackerPage() {
     exportRowsAsCSV(csvRows, `${parts.join('_')}.csv`);
   }
 
+  // Used by the calendar's day drawer "View full record" action — jumps
+  // to the Table view's History tab, pre-filtered to that one employee,
+  // since there's no separate per-employee profile page in this app (see
+  // brief section 1.4's note to reuse existing row-click behavior).
+  function viewEmployeeInHistory(id: string) {
+    setEmployeeId(id);
+    setView('table');
+    setTab('history');
+  }
+
   const historyHasActiveFilters = !!(startDate || endDate || employeeId || leaveTypeCode);
 
   const TABS: { key: Tab; label: string }[] = [
@@ -168,9 +257,9 @@ export default function LeaveTrackerPage() {
           >
             + Record Leave
           </button>
-          {tab !== 'history' && (
+          {!(view === 'table' && tab === 'history') && (
             <p className="text-[11px] text-slate-500 mt-1 max-w-[220px]">
-              For any employee. To act on a row already listed below, use that row's own "Record Leave" button instead.
+              For any employee. To act on a row already listed below, use that row&apos;s own action instead.
             </p>
           )}
         </div>
@@ -182,212 +271,305 @@ export default function LeaveTrackerPage() {
         </div>
       )}
 
-      {/* Tabs */}
+      {/* Calendar / Table view toggle */}
       <div className="flex gap-1 border-b border-slate-700">
-        {TABS.map((t) => (
-          <button
-            key={t.key}
-            type="button"
-            onClick={() => setTab(t.key)}
-            className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
-              tab === t.key
-                ? 'border-emerald-500 text-white'
-                : 'border-transparent text-slate-400 hover:text-white'
-            }`}
-          >
-            {t.label}
-          </button>
-        ))}
+        <button
+          type="button"
+          onClick={() => setView('calendar')}
+          className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
+            view === 'calendar' ? 'border-emerald-500 text-white' : 'border-transparent text-slate-400 hover:text-white'
+          }`}
+        >
+          Calendar
+        </button>
+        <button
+          type="button"
+          onClick={() => setView('table')}
+          className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
+            view === 'table' ? 'border-emerald-500 text-white' : 'border-transparent text-slate-400 hover:text-white'
+          }`}
+        >
+          Table view
+        </button>
       </div>
 
-      {/* Shared Department/Office filter, used by all three tabs */}
-      <div className="bg-slate-800/40 border border-slate-700 rounded-xl p-4 space-y-3">
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
-          <div>
-            <label className="block text-xs text-slate-400 mb-1">Department</label>
-            <select
-              value={department}
-              onChange={(e) => setDepartment(e.target.value)}
-              className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
-            >
-              <option value="">All</option>
-              {departments.map((d) => (
-                <option key={d} value={d}>{d}</option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="block text-xs text-slate-400 mb-1">Office</label>
-            <select
-              value={office}
-              onChange={(e) => setOffice(e.target.value)}
-              className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
-            >
-              <option value="">All</option>
-              {offices.map((o) => (
-                <option key={o} value={o}>{o}</option>
-              ))}
-            </select>
-          </div>
-
-          {tab !== 'history' ? (
-            <>
+      {view === 'calendar' && (
+        <>
+          <div className="bg-slate-800/40 border border-slate-700 rounded-xl p-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
               <div>
-                <label className="block text-xs text-slate-400 mb-1">From Date</label>
-                <input
-                  type="date"
-                  value={attendanceDate}
-                  onChange={(e) => setAttendanceDate(e.target.value)}
+                <label className="block text-xs text-slate-400 mb-1">Department (team)</label>
+                <select
+                  value={calendarDepartment}
+                  onChange={(e) => setCalendarDepartment(e.target.value)}
                   className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
-                />
+                >
+                  <option value="">All departments</option>
+                  {departments.map((d) => (
+                    <option key={d} value={d}>{d}</option>
+                  ))}
+                </select>
               </div>
-              <div>
-                <label className="block text-xs text-slate-400 mb-1">To Date</label>
-                <input
-                  type="date"
-                  value={attendanceEndDate}
-                  min={attendanceDate || undefined}
-                  onChange={(e) => setAttendanceEndDate(e.target.value)}
-                  placeholder="Same as From Date"
-                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
-                />
-              </div>
-              <div className="sm:col-span-2 lg:col-span-2">
-                <label className="block text-xs text-slate-400 mb-1">Employee Search</label>
+              <div className="sm:col-span-2 lg:col-span-3">
+                <label className="block text-xs text-slate-400 mb-1">Employee search</label>
                 <input
                   type="text"
-                  value={attendanceSearch}
-                  onChange={(e) => setAttendanceSearch(e.target.value)}
-                  placeholder="Search by name or employee code…"
+                  value={calendarSearch}
+                  onChange={(e) => setCalendarSearch(e.target.value)}
+                  placeholder="Search by name or employee code to narrow to one person's month…"
                   className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-500"
                 />
               </div>
-              {attendanceEndDate && attendanceEndDate !== attendanceDate && (
-                <div className="sm:col-span-2 lg:col-span-6 -mt-1">
-                  <button
-                    type="button"
-                    onClick={() => setAttendanceEndDate('')}
-                    className="text-xs text-slate-400 hover:text-white"
-                  >
-                    ✕ Clear "To Date" (back to a single day)
-                  </button>
-                </div>
-              )}
-            </>
-          ) : (
-            <>
-              <div>
-                <label className="block text-xs text-slate-400 mb-1">Start Date</label>
-                <input
-                  type="date"
-                  value={startDate}
-                  onChange={(e) => setStartDate(e.target.value)}
-                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
-                />
-              </div>
-              <div>
-                <label className="block text-xs text-slate-400 mb-1">End Date</label>
-                <input
-                  type="date"
-                  value={endDate}
-                  onChange={(e) => setEndDate(e.target.value)}
-                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
-                />
-              </div>
-              <div>
-                <label className="block text-xs text-slate-400 mb-1">Employee</label>
-                <select
-                  value={employeeId}
-                  onChange={(e) => setEmployeeId(e.target.value)}
-                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
-                >
-                  <option value="">All</option>
-                  {employees.map((e) => (
-                    <option key={e.id} value={e.id}>
-                      {e.full_name} ({e.employee_code})
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs text-slate-400 mb-1">Leave Type</label>
-                <select
-                  value={leaveTypeCode}
-                  onChange={(e) => setLeaveTypeCode(e.target.value)}
-                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
-                >
-                  <option value="">All</option>
-                  {LEAVE_TYPES.map((lt) => (
-                    <option key={lt.code} value={lt.code}>{lt.label}</option>
-                  ))}
-                </select>
-              </div>
-            </>
-          )}
-        </div>
-
-        {tab === 'history' && (
-          <div className="flex items-center gap-3 pt-1">
-            <button
-              type="button"
-              onClick={fetchHistory}
-              disabled={loading}
-              className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
-            >
-              {loading ? 'Loading…' : 'Apply Filters'}
-            </button>
-            {historyHasActiveFilters && (
-              <button type="button" onClick={handleClearHistoryFilters} className="text-xs text-slate-400 hover:text-white">
-                Clear filters
-              </button>
-            )}
-            <button
-              type="button"
-              onClick={handleExportCSV}
-              disabled={rows.length === 0}
-              className="ml-auto border border-slate-700 hover:border-slate-500 disabled:opacity-40 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
-            >
-              Export CSV
-            </button>
+            </div>
           </div>
-        )}
-      </div>
 
-      {tab === 'absentees' && (
-        <AbsenteesPanel
-          date={attendanceDate}
-          endDate={attendanceEndDate}
-          department={department}
-          office={office}
-          search={attendanceSearch}
-          onResolvedDate={setAttendanceDate}
-        />
-      )}
-
-      {tab === 'half_days' && (
-        <HalfDayPanel
-          date={attendanceDate}
-          endDate={attendanceEndDate}
-          department={department}
-          office={office}
-          search={attendanceSearch}
-          onResolvedDate={setAttendanceDate}
-        />
-      )}
-
-      {tab === 'history' && (
-        <>
-          {error && (
+          {calendarError && (
             <div className="bg-red-900/30 border border-red-500/30 text-red-300 text-xs rounded-lg px-3 py-2">
-              {error}
+              {calendarError}
             </div>
           )}
-          {loading ? (
-            <AttendanceTableSkeleton columns={7} />
+
+          {calendarLoading ? (
+            <AttendanceTableSkeleton columns={7} rows={5} />
+          ) : filteredDayMap.size === 0 && (calendarDepartment || calendarSearch) ? (
+            <div className="bg-slate-800/40 border border-slate-700 rounded-xl px-4 py-10 text-center text-slate-500 text-sm">
+              No leave, half-day, or unrecorded-absence activity this month matching your filters.
+            </div>
           ) : (
+            <LeaveCalendar
+              monthKey={monthKey}
+              onMonthChange={setMonthKey}
+              dayMap={filteredDayMap}
+              holidaysByDate={calendarHolidays}
+              onDayClick={setOpenDay}
+            />
+          )}
+
+          {openDay && (
+            <CalendarDayDrawer
+              date={openDay}
+              entries={filteredDayMap.get(openDay) ?? []}
+              onClose={() => setOpenDay(null)}
+              onResolved={() => {
+                setOpenDay(null);
+                setCalendarRefreshSignal((s) => s + 1);
+              }}
+              onViewInHistory={viewEmployeeInHistory}
+            />
+          )}
+        </>
+      )}
+
+      {view === 'table' && (
+        <>
+          {/* Tabs */}
+          <div className="flex gap-1 border-b border-slate-700">
+            {TABS.map((t) => (
+              <button
+                key={t.key}
+                type="button"
+                onClick={() => setTab(t.key)}
+                className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
+                  tab === t.key
+                    ? 'border-emerald-500 text-white'
+                    : 'border-transparent text-slate-400 hover:text-white'
+                }`}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Shared Department/Office filter, used by all three tabs */}
+          <div className="bg-slate-800/40 border border-slate-700 rounded-xl p-4 space-y-3">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+              <div>
+                <label className="block text-xs text-slate-400 mb-1">Department</label>
+                <select
+                  value={department}
+                  onChange={(e) => setDepartment(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+                >
+                  <option value="">All</option>
+                  {departments.map((d) => (
+                    <option key={d} value={d}>{d}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs text-slate-400 mb-1">Office</label>
+                <select
+                  value={office}
+                  onChange={(e) => setOffice(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+                >
+                  <option value="">All</option>
+                  {offices.map((o) => (
+                    <option key={o} value={o}>{o}</option>
+                  ))}
+                </select>
+              </div>
+
+              {tab !== 'history' ? (
+                <>
+                  <div>
+                    <label className="block text-xs text-slate-400 mb-1">From Date</label>
+                    <input
+                      type="date"
+                      value={attendanceDate}
+                      onChange={(e) => setAttendanceDate(e.target.value)}
+                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-slate-400 mb-1">To Date</label>
+                    <input
+                      type="date"
+                      value={attendanceEndDate}
+                      min={attendanceDate || undefined}
+                      onChange={(e) => setAttendanceEndDate(e.target.value)}
+                      placeholder="Same as From Date"
+                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+                    />
+                  </div>
+                  <div className="sm:col-span-2 lg:col-span-2">
+                    <label className="block text-xs text-slate-400 mb-1">Employee Search</label>
+                    <input
+                      type="text"
+                      value={attendanceSearch}
+                      onChange={(e) => setAttendanceSearch(e.target.value)}
+                      placeholder="Search by name or employee code…"
+                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-500"
+                    />
+                  </div>
+                  {attendanceEndDate && attendanceEndDate !== attendanceDate && (
+                    <div className="sm:col-span-2 lg:col-span-6 -mt-1">
+                      <button
+                        type="button"
+                        onClick={() => setAttendanceEndDate('')}
+                        className="text-xs text-slate-400 hover:text-white"
+                      >
+                        ✕ Clear &quot;To Date&quot; (back to a single day)
+                      </button>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <>
+                  <div>
+                    <label className="block text-xs text-slate-400 mb-1">Start Date</label>
+                    <input
+                      type="date"
+                      value={startDate}
+                      onChange={(e) => setStartDate(e.target.value)}
+                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-slate-400 mb-1">End Date</label>
+                    <input
+                      type="date"
+                      value={endDate}
+                      onChange={(e) => setEndDate(e.target.value)}
+                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-slate-400 mb-1">Employee</label>
+                    <select
+                      value={employeeId}
+                      onChange={(e) => setEmployeeId(e.target.value)}
+                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+                    >
+                      <option value="">All</option>
+                      {employees.map((e) => (
+                        <option key={e.id} value={e.id}>
+                          {e.full_name} ({e.employee_code})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs text-slate-400 mb-1">Leave Type</label>
+                    <select
+                      value={leaveTypeCode}
+                      onChange={(e) => setLeaveTypeCode(e.target.value)}
+                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+                    >
+                      <option value="">All</option>
+                      {LEAVE_TYPES.map((lt) => (
+                        <option key={lt.code} value={lt.code}>{lt.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                </>
+              )}
+            </div>
+
+            {tab === 'history' && (
+              <div className="flex items-center gap-3 pt-1">
+                <button
+                  type="button"
+                  onClick={fetchHistory}
+                  disabled={loading}
+                  className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+                >
+                  {loading ? 'Loading…' : 'Apply Filters'}
+                </button>
+                {historyHasActiveFilters && (
+                  <button type="button" onClick={handleClearHistoryFilters} className="text-xs text-slate-400 hover:text-white">
+                    Clear filters
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={handleExportCSV}
+                  disabled={rows.length === 0}
+                  className="ml-auto border border-slate-700 hover:border-slate-500 disabled:opacity-40 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+                >
+                  Export CSV
+                </button>
+              </div>
+            )}
+          </div>
+
+          {tab === 'absentees' && (
+            <AbsenteesPanel
+              date={attendanceDate}
+              endDate={attendanceEndDate}
+              department={department}
+              office={office}
+              search={attendanceSearch}
+              onResolvedDate={setAttendanceDate}
+            />
+          )}
+
+          {tab === 'half_days' && (
+            <HalfDayPanel
+              date={attendanceDate}
+              endDate={attendanceEndDate}
+              department={department}
+              office={office}
+              search={attendanceSearch}
+              onResolvedDate={setAttendanceDate}
+            />
+          )}
+
+          {tab === 'history' && (
             <>
-              <p className="text-xs text-slate-500">{rows.length} record(s)</p>
-              <LeaveHistoryTable rows={department || office ? rows.filter((r) => (!department || r.department === department) && (!office || r.office === office)) : rows} />
+              {error && (
+                <div className="bg-red-900/30 border border-red-500/30 text-red-300 text-xs rounded-lg px-3 py-2">
+                  {error}
+                </div>
+              )}
+              {loading ? (
+                <AttendanceTableSkeleton columns={7} />
+              ) : (
+                <>
+                  <p className="text-xs text-slate-500">{rows.length} record(s)</p>
+                  <LeaveHistoryTable rows={department || office ? rows.filter((r) => (!department || r.department === department) && (!office || r.office === office)) : rows} />
+                </>
+              )}
             </>
           )}
         </>
@@ -398,7 +580,8 @@ export default function LeaveTrackerPage() {
           onClose={() => setRecordLeaveOpen(false)}
           onSuccess={() => {
             setRecordLeaveOpen(false);
-            if (tab === 'history') fetchHistory();
+            if (view === 'table' && tab === 'history') fetchHistory();
+            if (view === 'calendar') setCalendarRefreshSignal((s) => s + 1);
           }}
         />
       )}
