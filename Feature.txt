@@ -1,0 +1,32 @@
+HR will be able to check absentes filter by month and team and also search by employees
+and then for each ansentees they will record leave of that day(whatever type of leave , same thing which is getting done in record leave)
+
+so the each emp card on main page of leave tracker will dont have record leave button as we will be doing it in above way
+we can do one thing merge this with leave history only , so both things will be in one place , less confusion 
+
+in the absence how we will track half days right?
+so for any emp if the working hours of a day is 5 hrsor less that hours 
+edge cases are there
+1) a emp punch in and last punch out is 5 hrs or less than 5hrs 
+so in this case will be shown to HR in anohter accordian dropdown like isithalfday? orthatsmissedpunch?
+so HR will mark it as a halfday of whatever type has been taken and rest calculation 
+or if a missed punch then she will mark it accrdoinlgy
+
+and for the manager assign to departments and techlead assign to departments
+a techlead can be assignn to multiple departments
+a manager can be assign to multiple departments
+a team can have one or more employees
+a manager doesnt have a tech lead
+a manager will also have a reporting manager
+every emp will have a manager 
+every team will have a manager 
+NOTE: we can just create a diff page or sepraste for this thing 
+like assigning managers and techleads to departments and all , so it will be easy na 
+so the adjust option will only have one editable section that is status rest will be only info like role and tech lead and manager
+a techlead will only hve manager (cuz himself cant have a techlead na )
+so manage this relatoins properly
+
+so need of record leave button on each emp and view profile now , cuz we are handling all this things separtely so its feasible 
+
+also need to add a info button or somethings so when HR will clcick on it , it will show whats the leave policy , what are rules and how leaves are calculated and WHAT DO u mean by violations and all
+A ERROR currently coming : Could not find the table 'public.department_managers' in the schema cache

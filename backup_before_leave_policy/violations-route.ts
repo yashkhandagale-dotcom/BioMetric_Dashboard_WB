@@ -1,8 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createLeaveClient, createLeaveServiceClient } from '@/lib/leaveSupabase/server';
-import { addMonths } from '@/lib/leavePolicy';
-import { durationToMinutes } from '@/lib/parseCSV';
-import { HALF_DAY_THRESHOLD_MINUTES } from '@/lib/attendanceExceptions';
 
 // D4-1..D4-4: every violation here is *derived*, not stored — there is no
 // violations table (matches the Sprint Tracker's own framing: "the policy
@@ -21,8 +18,7 @@ export type ViolationType =
   | 'lwp_conversion'
   | 'missing_certificate'
   | 'early_probation_pl'
-  | 'negative_balance'
-  | 'half_day_shortfall';
+  | 'negative_balance';
 
 type Violation = {
   id: string;
@@ -40,6 +36,12 @@ type Violation = {
 };
 
 type EmployeeRow = { id: string; full_name: string; employee_code: string; date_of_joining: string };
+
+function addMonths(dateStr: string, months: number): Date {
+  const d = new Date(`${dateStr}T00:00:00Z`);
+  d.setUTCMonth(d.getUTCMonth() + months);
+  return d;
+}
 
 export async function GET(req: NextRequest) {
   const supabase = await createLeaveClient();
@@ -153,16 +155,6 @@ export async function GET(req: NextRequest) {
     // accrual withholds PL accrual entirely until month 4). Resolvable
     // via Adjust Balance if HR decides to correct it (deep link below);
     // otherwise it's a record HR reviews and may knowingly accept.
-    //
-    // LEGACY-ONLY as of the leave-policy-violation-rules prompt (2b):
-    // probation-period leave of ANY type is now auto-converted to LWP at
-    // recording time (see getAutoLwpConversionReason in
-    // lib/leavePolicy.ts, wired into app/api/leave/employees/requests/
-    // route.ts) instead of being surfaced here as an after-the-fact
-    // advisory flag. New rows will show up under lwp_conversion instead —
-    // this block is kept only so historical rows recorded before that
-    // change still render correctly. Do not expect new early_probation_pl
-    // entries going forward.
     // ---------------------------------------------------------------
     let plQuery = supabase
       .from('leave_requests')
@@ -241,66 +233,6 @@ export async function GET(req: NextRequest) {
         leaveBalanceId: r.id,
         leaveTypeCode: lt.code,
       });
-    }
-
-    // ---------------------------------------------------------------
-    // 3a (leave-policy-violation-rules prompt): half-day minimum-hours
-    // cross-check. Trace: an approved half-day leave_requests row whose
-    // attendance_records row for that same date (matched by
-    // employee_code + date, same keys attendanceExceptions.ts already
-    // uses) shows fewer than HALF_DAY_THRESHOLD_MINUTES worked on the
-    // non-leave half of the day — the exact same half-day classification
-    // threshold used elsewhere, reused here rather than reclassifying
-    // punch data independently. Naturally a POST-HOC check (attendance
-    // data usually lands after the leave is already recorded), which is
-    // why this lives here rather than in the synchronous recording path.
-    // Not resolvable via a one-click fix — HR reviews the underlying
-    // attendance record/leave entry directly.
-    // ---------------------------------------------------------------
-    let halfDayLeaveQuery = supabase
-      .from('leave_requests')
-      .select(
-        `
-        id, start_date, total_days,
-        employees ( id, full_name, employee_code ),
-        leave_types ( code )
-      `
-      )
-      .eq('is_half_day', true)
-      .eq('status', 'approved');
-    if (employeeIdFilter) halfDayLeaveQuery = halfDayLeaveQuery.eq('employee_id', employeeIdFilter);
-    const { data: halfDayRows, error: halfDayError } = await halfDayLeaveQuery;
-    if (halfDayError) return NextResponse.json({ error: halfDayError.message }, { status: 400 });
-
-    for (const r of halfDayRows ?? []) {
-      const emp = (r as any).employees;
-      const lt = (r as any).leave_types as { code: string } | null;
-      if (!emp) continue;
-
-      const { data: attendanceRow, error: attendanceError } = await supabase
-        .from('attendance_records')
-        .select('duration, status')
-        .eq('employee_code', emp.employee_code)
-        .eq('date', r.start_date)
-        .maybeSingle();
-      if (attendanceError || !attendanceRow) continue; // no punch data uploaded for this date yet — nothing to check
-
-      const workedMinutes = durationToMinutes(attendanceRow.duration ?? '');
-      if (workedMinutes < HALF_DAY_THRESHOLD_MINUTES) {
-        violations.push({
-          id: `halfday:${r.id}`,
-          type: 'half_day_shortfall',
-          severity: 'medium',
-          employeeId: emp.id,
-          employeeName: emp.full_name,
-          employeeCode: emp.employee_code,
-          summary: `Half-day ${lt?.code ?? ''} on ${r.start_date} — only ${workedMinutes} worked minute(s) on the non-leave half`,
-          detail: `Half-day leave expects at least ${HALF_DAY_THRESHOLD_MINUTES} worked minutes on the non-leave half of the day; attendance shows ${attendanceRow.status ?? 'no status'} with duration ${attendanceRow.duration ?? '--'}.`,
-          occurredOn: r.start_date,
-          leaveRequestId: r.id,
-          leaveTypeCode: lt?.code,
-        });
-      }
     }
 
     violations.sort((a, b) => (a.occurredOn < b.occurredOn ? 1 : -1));

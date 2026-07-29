@@ -1,4 +1,3 @@
--- ═══════════════════════════════════════════════════════════════════════════
 -- Migration: 0009_missing_leave_balance_functions.sql
 -- Run this in the SQL Editor of your live (unified) Supabase project.
 --
@@ -9,8 +8,8 @@
 -- fn_annual_leave_reset, etc.) that supabase-leave/schema.sql defines.
 -- Those functions got dropped during the merge from two separate Supabase
 -- projects (Dashboard + Leave Tracker) into one unified project, and
--- unified_schema.sql was never updated to carry them over.
---
+-- sql was never updated to carry them over.
+
 -- The app calls these via `service.rpc('fn_debit_leave_on_approval', ...)`
 -- (see app/api/leave/employees/requests/route.ts) and equivalents for the
 -- other 5 functions the app calls (fn_prorate_new_joiner,

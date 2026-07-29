@@ -4,12 +4,7 @@ import { useEffect, useState } from 'react';
 import AdjustBalanceButton from '@/app/leave/admin/AdjustBalanceButton';
 import { getFYStartYear } from '@/lib/leaveSupabase/fyHelpers';
 
-type ViolationType =
-  | 'lwp_conversion'
-  | 'missing_certificate'
-  | 'early_probation_pl'
-  | 'negative_balance'
-  | 'half_day_shortfall';
+type ViolationType = 'lwp_conversion' | 'missing_certificate' | 'early_probation_pl' | 'negative_balance';
 
 type Violation = {
   id: string;
@@ -27,11 +22,10 @@ type Violation = {
 };
 
 const TYPE_LABELS: Record<ViolationType, string> = {
-  lwp_conversion: 'LWP Conversions (probation/notice/balance shortfall)',
+  lwp_conversion: 'LWP Conversions (notice/balance shortfall)',
   missing_certificate: 'Missing Medical Certificates',
-  early_probation_pl: 'Probation-Period PL Taken Early (legacy — pre-auto-LWP records)',
+  early_probation_pl: 'Probation-Period PL Taken Early',
   negative_balance: 'Negative / Over-Drawn Balances',
-  half_day_shortfall: 'Half-Day Attendance Shortfall',
 };
 
 const CURRENT_FY_START_YEAR = getFYStartYear();

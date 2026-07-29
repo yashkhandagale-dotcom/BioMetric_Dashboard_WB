@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createLeaveClient, createLeaveServiceClient } from '@/lib/leaveSupabase/server';
 import { TrackerLeaveTypeCode } from '@/lib/leaveSupabase/leaveTypeMap';
-import { checkCombiningLeaves, getAutoLwpConversionReason } from '@/lib/leavePolicy';
 
 const VALID_CODES: TrackerLeaveTypeCode[] = ['SL', 'CL', 'PL', 'LWP'];
 
@@ -24,15 +23,6 @@ function daysBetweenInclusive(start: string, end: string): number {
 // leave_requests but were never written, so GET /api/leave/violations
 // would otherwise have nothing to detect for this category. This is a
 // bug fix to the column D4-1 is defined against, not a contract change.
-//
-// 2a/2b/2c (leave-policy-violation-rules prompt): combining-leaves
-// adjacency, probation-period auto-LWP (now any leave type, not just
-// PL — see lib/leavePolicy.ts's getAutoLwpConversionReason), and
-// notice-period auto-LWP all hook in here, since this is still the only
-// live leave-insertion path. The actual check logic lives in
-// lib/leavePolicy.ts as small importable functions (not inlined here) so
-// the future employee self-apply / manager-approval routes can call the
-// same functions without duplicating policy logic.
 export async function POST(req: NextRequest) {
   const sessionClient = await createLeaveClient();
   const { data: { user } } = await sessionClient.auth.getUser();
@@ -86,9 +76,7 @@ export async function POST(req: NextRequest) {
 
   const { data: employee, error: empError } = await service
     .from('employees')
-    .select(
-      'id, employee_code, office, full_name, date_of_joining, employment_status, date_of_exit, notice_period_days'
-    )
+    .select('id, employee_code, office, full_name')
     .eq('id', employee_id)
     .single();
   if (empError || !employee) {
@@ -132,50 +120,11 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // 2a — combining-leaves adjacency. Advisory only, checked against the
-  // ORIGINALLY requested leave type (not whatever 2b/2c below might
-  // convert it to) — an SL-turned-LWP during probation adjacent to a PL
-  // is still worth flagging, per the finalized ordering.
-  const combiningNote = await checkCombiningLeaves(
-    service,
-    employee_id,
-    employee.office,
-    leaveType.code,
-    start_date,
-    effectiveEndDate
-  );
-  if (combiningNote) policy_notes.push(combiningNote);
-
-  // 2b/2c — probation-period and notice-period leave auto-convert to LWP
-  // at recording time; submission is never blocked. Probation is checked
-  // first (see getAutoLwpConversionReason). If triggered, this swaps in
-  // the LWP leave type BEFORE insert, same mechanism as the pre-existing
-  // insufficient-balance conversion below, which does it post-insert.
-  let leaveTypeForInsert = leaveType;
-  let autoLwpReason: string | null = null;
-  let autoLwpTypeRow: typeof leaveType | null = null;
-
-  if (leaveType.code !== 'LWP') {
-    autoLwpReason = getAutoLwpConversionReason(employee, start_date);
-  }
-  if (autoLwpReason) {
-    const { data: lwpType, error: lwpFetchError } = await service
-      .from('leave_types')
-      .select('id, code, requires_certificate_after_days')
-      .eq('code', 'LWP')
-      .single();
-    if (!lwpFetchError && lwpType) {
-      autoLwpTypeRow = lwpType;
-      leaveTypeForInsert = lwpType;
-      policy_notes.push(`${autoLwpReason} — recorded as LWP instead of ${leaveType.code}.`);
-    }
-  }
-
   const { data: created, error: insertError } = await service
     .from('leave_requests')
     .insert({
       employee_id,
-      leave_type_id: leaveTypeForInsert.id,
+      leave_type_id: leaveType.id,
       start_date,
       end_date: effectiveEndDate,
       is_half_day: !!is_half_day,
@@ -184,8 +133,6 @@ export async function POST(req: NextRequest) {
       reason,
       status: 'approved',
       source: 'hr_manual',
-      is_lwp_override: !!(autoLwpReason && autoLwpTypeRow),
-      lwp_override_reason: autoLwpReason && autoLwpTypeRow ? autoLwpReason : null,
     })
     .select()
     .single();
@@ -199,14 +146,14 @@ export async function POST(req: NextRequest) {
   // to LWP (which draws from no pool, so it always succeeds) and HR is
   // told why. Only a genuine second failure (e.g. no LWP balance row
   // provisioned at all) falls back to rejecting and undoing the insert.
-  let finalLeaveType = leaveTypeForInsert;
-  let convertedToLwp = !!(autoLwpReason && autoLwpTypeRow);
+  let finalLeaveType = leaveType;
+  let convertedToLwp = false;
 
   let { error: debitError } = await service.rpc('fn_debit_leave_on_approval', {
     p_leave_request_id: created.id,
   });
 
-  if (debitError && finalLeaveType.code !== 'LWP') {
+  if (debitError && leaveType.code !== 'LWP') {
     const { data: lwpType, error: lwpError } = await service
       .from('leave_types')
       .select('id, code, requires_certificate_after_days')
@@ -219,7 +166,7 @@ export async function POST(req: NextRequest) {
         .update({
           leave_type_id: lwpType.id,
           is_lwp_override: true,
-          lwp_override_reason: `Insufficient ${finalLeaveType.code} balance at time of recording — auto-converted to LWP.`,
+          lwp_override_reason: `Insufficient ${leaveType.code} balance at time of recording — auto-converted to LWP.`,
         })
         .eq('id', created.id);
 
@@ -228,12 +175,11 @@ export async function POST(req: NextRequest) {
           p_leave_request_id: created.id,
         });
         if (!retry.error) {
-          const priorCode = finalLeaveType.code;
           finalLeaveType = lwpType;
           convertedToLwp = true;
           debitError = null;
           policy_notes.push(
-            `Insufficient ${priorCode} balance — recorded as LWP instead.`
+            `Insufficient ${leaveType.code} balance — recorded as LWP instead.`
           );
         } else {
           debitError = retry.error;

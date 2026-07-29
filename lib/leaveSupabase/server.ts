@@ -4,21 +4,29 @@ import { cookies } from 'next/headers';
 
 // Server Components / Route Handlers under app/leave/** only.
 //
-// This is the Leave Tracker's OWN Supabase project — NEXT_PUBLIC_LEAVE_SUPABASE_URL
-// / NEXT_PUBLIC_LEAVE_SUPABASE_ANON_KEY, not the dashboard's
-// NEXT_PUBLIC_SUPABASE_URL. These two used to point at the same
-// (merged) project — see old PROGRESS.md entries — but .env.local now
-// has them split back into separate projects (LEAVE_-prefixed vs plain),
-// and this file had fallen out of sync with that, silently pointing the
-// entire Leave Tracker app at the dashboard's project instead of its own.
-// Fixed here: bulk-created employee auth accounts live in the
-// LEAVE-prefixed project, so that's the one this must use.
+// Post-Sprint-2 pivot (see PROGRESS.md, "Post-Sprint-2 pivot: single-DB
+// architecture"): the Dashboard and Leave Tracker were merged onto ONE
+// Supabase project, with ONE set of env vars — NEXT_PUBLIC_SUPABASE_URL /
+// NEXT_PUBLIC_SUPABASE_ANON_KEY (see .env.example, which only defines
+// those, and lib/supabase/server.ts which already reads them correctly).
+//
+// This file had drifted from that: it was reading NEXT_PUBLIC_LEAVE_
+// SUPABASE_URL / NEXT_PUBLIC_LEAVE_SUPABASE_ANON_KEY, which do not exist
+// anywhere in .env.example or in the actual deployed env — those names
+// belonged to the pre-pivot split-project setup and were never removed
+// from here when the pivot landed. That undefined URL/key is why every
+// Leave Tracker auth call (sign-in, getUser, the employees lookup) was
+// failing while the Dashboard's own login kept working fine — it reads
+// the correct unified vars via lib/supabase/server.ts. Fixed here to read
+// the same unified vars; the distinct `sb-leave-auth` cookie name below
+// is unrelated to this bug and stays as-is (that's what keeps the two
+// apps' sessions from colliding, per PROGRESS.md point 5).
 export async function createLeaveClient() {
   const cookieStore = await cookies();
 
   return createServerClient(
-    process.env.NEXT_PUBLIC_LEAVE_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_LEAVE_SUPABASE_ANON_KEY!,
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
       cookieOptions: { name: 'sb-leave-auth' },
       cookies: {
@@ -41,13 +49,14 @@ export async function createLeaveClient() {
 
 // Service-role client — bypasses RLS. Use only inside app/leave/api/*
 // route handlers, e.g. for scheduled jobs like the 25-March annual reset.
-// Never import into client-side code. Uses the Leave Tracker project's
-// OWN service role key (LEAVE_SUPABASE_SERVICE_ROLE_KEY) — see note above
-// on createLeaveClient for why this must not be the dashboard's key/URL.
+// Never import into client-side code. Same unified-project fix as
+// createLeaveClient above: uses SUPABASE_SERVICE_ROLE_KEY (the one
+// service role key for the single merged project), not a LEAVE_-prefixed
+// key that no longer exists anywhere in the deployed env.
 export function createLeaveServiceClient() {
   return createSupabaseJsClient(
-    process.env.NEXT_PUBLIC_LEAVE_SUPABASE_URL!,
-    process.env.LEAVE_SUPABASE_SERVICE_ROLE_KEY!,
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
     { auth: { autoRefreshToken: false, persistSession: false } }
   );
 }

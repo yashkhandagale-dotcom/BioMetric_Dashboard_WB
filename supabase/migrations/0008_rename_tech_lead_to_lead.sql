@@ -14,6 +14,9 @@
 -- being gone).
 -- ═══════════════════════════════════════════════════════════════════════════
 
+
+
+
 -- 1. Rename the column (structure only — no data loss, no cast needed).
 alter table employees
   rename column reporting_tech_lead_id to reporting_lead_id;

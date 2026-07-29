@@ -18,10 +18,7 @@ import { getPredefinedHolidays } from './predefinedHolidays';
 // HALF_DAY_THRESHOLD_MINUTES matches the requirement: first-punch to
 // last-punch <= 5 hours means "don't auto-mark absent, flag for review"
 // instead.
-// Exported so the leave-violations half-day cross-check (3a in the
-// leave-policy-violation-rules prompt) can reuse the exact same
-// threshold rather than hardcoding a second "5 hours" constant.
-export const HALF_DAY_THRESHOLD_MINUTES = 5 * 60;
+const HALF_DAY_THRESHOLD_MINUTES = 5 * 60;
 
 // Supabase/PostgREST caps a single .select() response at 1000 rows unless
 // you explicitly page through it with .range(). getAttendanceExceptionsRange
