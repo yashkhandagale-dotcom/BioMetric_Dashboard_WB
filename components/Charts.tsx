@@ -19,6 +19,7 @@ import { isPresent, isAbsent, isWeeklyOff, SHIFT_MINUTES, computeLateMinutes, co
 import { isHoliday } from '@/lib/holidays';
 import { leaveLabelFor, UNMARKED_LEAVE_LABEL } from '@/lib/leaveLabels';
 import InfoTooltip from './InfoTooltip';
+import { useTrendChartLayout, useGranularityOverride, TrendGranularity } from '@/lib/chartLayout';
 
 function rateColor(rate: number): string {
   if (rate >= 80) return '#34d399';
@@ -67,6 +68,40 @@ function SortToggle({ mode, onChange }: { mode: SortMode; onChange: (m: SortMode
   );
 }
 
+// Daily/Weekly/Monthly toggle for trend charts. `null` = Auto (granularity
+// picked from point count by useTrendChartLayout). Auto is the default so
+// nothing changes for short ranges; this just lets a user force a coarser
+// view, or force Daily back on for a long range if they want to scroll
+// instead of aggregate.
+function GranularityToggle({ value, onChange, active }: {
+  value: TrendGranularity | null;
+  onChange: (v: TrendGranularity | null) => void;
+  active: TrendGranularity;
+}) {
+  const options: { key: TrendGranularity | null; label: string }[] = [
+    { key: null, label: 'Auto' },
+    { key: 'daily', label: 'Daily' },
+    { key: 'weekly', label: 'Weekly' },
+    { key: 'monthly', label: 'Monthly' },
+  ];
+  return (
+    <div className="flex items-center gap-1 flex-wrap">
+      {options.map(o => (
+        <button
+          key={o.label}
+          onClick={() => onChange(o.key)}
+          title={o.key === null ? `Auto (currently ${active})` : undefined}
+          className={`px-2 py-0.5 rounded text-[10px] font-medium transition-colors ${
+            value === o.key ? 'bg-blue-600 text-white' : 'bg-slate-700 text-slate-400 hover:text-white'
+          }`}
+        >
+          {o.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 // ── Daily Attendance Trend ────────────────────────────────────────────────────
 export function DailyTrendChart({ data, selectedDepts, onDateClick, selectedDate }: {
   data: DailyTrend[];
@@ -89,6 +124,17 @@ export function DailyTrendChart({ data, selectedDepts, onDateClick, selectedDate
   useEffect(() => {
     return () => { if (clickTimerRef.current) clearTimeout(clickTimerRef.current); };
   }, []);
+
+  // Fixes the "chart becomes unreadable once many months are selected" bug:
+  // past a threshold, points are aggregated to weekly/monthly buckets; below
+  // it, the chart scrolls horizontally instead of squeezing every day into a
+  // fixed width. See lib/chartLayout.ts for the thresholds/reasoning.
+  const { override: granularityOverride, setOverride: setGranularityOverride } = useGranularityOverride();
+  const { data: chartData, granularity, minWidth, isAggregated } = useTrendChartLayout(data, {
+    averageKeys: ['attendanceRate'],
+    sumKeys: ['presentCount', 'totalCount', 'lateCount', 'earlyExitCount', 'shortDayCount'],
+    forceGranularity: granularityOverride,
+  });
 
   // Custom tooltip — hover-only now; no interactive elements inside it.
   const CustomTooltip = ({ active, payload, label }: any) => {
@@ -120,18 +166,18 @@ export function DailyTrendChart({ data, selectedDepts, onDateClick, selectedDate
   };
 
  function handleChartClick(e: any) {
-  console.log("CLICK", e);
+  // Aggregated (weekly/monthly) points represent a range of days, not one
+  // day — drill-in and the absentee modal only make sense at daily
+  // granularity, so this is a deliberate no-op rather than a bug.
+  if (isAggregated) return;
 
   const index = Number(e?.activeTooltipIndex);
 
-  if (Number.isNaN(index) || index < 0 || index >= data.length) {
-    console.log("Invalid index");
+  if (Number.isNaN(index) || index < 0 || index >= chartData.length) {
     return;
   }
 
-  const payload = data[index];
-
-  console.log("Payload:", payload);
+  const payload = chartData[index];
 
   const rawDate = payload.rawDate ?? payload.date;
   const absentees = payload.absentees ?? [];
@@ -149,8 +195,6 @@ export function DailyTrendChart({ data, selectedDepts, onDateClick, selectedDate
     }
 
     lastClickRef.current = null;
-
-    console.log("Opening modal", absentees.length);
 
     if (absentees.length) {
       setAbsentModal({
@@ -178,14 +222,17 @@ export function DailyTrendChart({ data, selectedDepts, onDateClick, selectedDate
   return (
     <>
       <div className="bg-slate-800 rounded-xl border border-slate-700 p-4 min-h-[280px]">
-        <div className="flex items-start justify-between mb-1">
+        <div className="flex items-start justify-between mb-1 flex-wrap gap-2">
           <div>
             <h3 className="text-white font-semibold text-sm">Daily Attendance Trend</h3>
             <ChartSubtitle selectedDepts={selectedDepts} />
           </div>
-          <InfoTooltip title="Daily Attendance Trend" description="Daily attendance rate = present employees ÷ scheduled employees for that day. Holidays excluded. Double-click a date point to see the full absentee list for that day." formula="Present ÷ (Scheduled - WeeklyOff - Holidays) × 100" />
+          <div className="flex items-center gap-2">
+            <GranularityToggle value={granularityOverride} onChange={setGranularityOverride} active={granularity} />
+            <InfoTooltip title="Daily Attendance Trend" description="Daily attendance rate = present employees ÷ scheduled employees for that day. Holidays excluded. Past ~45 days the chart auto-switches to weekly averages, and past ~6 months to monthly, so it stays readable at any range — use the toggle to override. Double-click a date point to see the full absentee list for that day (daily view only)." formula="Present ÷ (Scheduled - WeeklyOff - Holidays) × 100" />
+          </div>
         </div>
-        {data.length === 0
+        {chartData.length === 0
           ? <div className="h-48 flex items-center justify-center text-slate-500 text-sm">No data</div>
           : (
             <>
@@ -195,39 +242,47 @@ export function DailyTrendChart({ data, selectedDepts, onDateClick, selectedDate
                   Showing: {selectedDate.slice(5)} · click another point to switch, click same to clear
                 </p>
               )}
-              <p className="text-slate-600 text-[10px] mb-1">Hover a point to see absentees · double-click to see the full absentee list</p>
-              <ResponsiveContainer width="100%" height={200}>
-                <LineChart
-                  data={data}
-                  margin={{ top: 5, right: 10, left: -20, bottom: 5 }}
-                  onClick={handleChartClick}
-                  style={{ cursor: onDateClick ? 'pointer' : 'default' }}
-                >
-                  <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-                  <XAxis dataKey="date" tick={{ fontSize: 10, fill: '#64748b' }} interval="preserveStartEnd" />
-                  <YAxis domain={[0, 100]} tick={{ fontSize: 10, fill: '#64748b' }} unit="%" />
-                  <ReferenceLine y={80} stroke="#34d399" strokeDasharray="4 2" strokeOpacity={0.6} />
-                  <ReferenceLine y={70} stroke="#fbbf24" strokeDasharray="4 2" strokeOpacity={0.6} />
-                  {selectedDate && (
-                    <ReferenceLine x={selectedDate.slice(5)} stroke="#60a5fa" strokeWidth={2} strokeDasharray="4 2" label={{ value: '▼', fill: '#60a5fa', fontSize: 10 }} />
-                  )}
-                  <Tooltip
-                    content={<CustomTooltip />}
-                    wrapperStyle={{ pointerEvents: 'auto', zIndex: 50 }}
-                  />
-                  <Line
-                    type="monotone" dataKey="attendanceRate" name="Attendance %" stroke="#60a5fa" strokeWidth={2}
-                    dot={(props: any) => {
-                      const rate = props.payload.attendanceRate;
-                      const isSelected = selectedDate && props.payload.rawDate === selectedDate;
-                      const color = rateColor(rate);
-                      return <circle key={props.index} cx={props.cx} cy={props.cy}
-                        r={isSelected ? 5 : 3} fill={color} stroke={isSelected ? '#fff' : 'none'} strokeWidth={isSelected ? 2 : 0} />;
-                    }}
-                    activeDot={{ r: 5 }}
-                  />
-                </LineChart>
-              </ResponsiveContainer>
+              <p className="text-slate-600 text-[10px] mb-1">
+                {isAggregated
+                  ? `Showing ${granularity} averages across ${data.length} days · switch to Daily to drill into a single day`
+                  : 'Hover a point to see absentees · double-click to see the full absentee list'}
+              </p>
+              <div className="overflow-x-auto">
+                <div style={{ minWidth }}>
+                  <ResponsiveContainer width="100%" height={200}>
+                    <LineChart
+                      data={chartData}
+                      margin={{ top: 5, right: 10, left: -20, bottom: 5 }}
+                      onClick={handleChartClick}
+                      style={{ cursor: onDateClick && !isAggregated ? 'pointer' : 'default' }}
+                    >
+                      <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                      <XAxis dataKey="date" tick={{ fontSize: 10, fill: '#64748b' }} interval="preserveStart" />
+                      <YAxis domain={[0, 100]} tick={{ fontSize: 10, fill: '#64748b' }} unit="%" />
+                      <ReferenceLine y={80} stroke="#34d399" strokeDasharray="4 2" strokeOpacity={0.6} />
+                      <ReferenceLine y={70} stroke="#fbbf24" strokeDasharray="4 2" strokeOpacity={0.6} />
+                      {selectedDate && !isAggregated && (
+                        <ReferenceLine x={selectedDate.slice(5)} stroke="#60a5fa" strokeWidth={2} strokeDasharray="4 2" label={{ value: '▼', fill: '#60a5fa', fontSize: 10 }} />
+                      )}
+                      <Tooltip
+                        content={<CustomTooltip />}
+                        wrapperStyle={{ pointerEvents: 'auto', zIndex: 50 }}
+                      />
+                      <Line
+                        type="monotone" dataKey="attendanceRate" name="Attendance %" stroke="#60a5fa" strokeWidth={2}
+                        dot={(props: any) => {
+                          const rate = props.payload.attendanceRate;
+                          const isSelected = !isAggregated && selectedDate && props.payload.rawDate === selectedDate;
+                          const color = rateColor(rate);
+                          return <circle key={props.index} cx={props.cx} cy={props.cy}
+                            r={isSelected ? 5 : 3} fill={color} stroke={isSelected ? '#fff' : 'none'} strokeWidth={isSelected ? 2 : 0} />;
+                        }}
+                        activeDot={{ r: 5 }}
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
             </>
           )}
       </div>
@@ -281,7 +336,7 @@ export function ComparisonTrendChart({ records, selectedDepts, holidays = [], gr
 }) {
   const depts = selectedDepts.slice(0, 5);
 
-  const { chartData, dates } = useMemo(() => {
+  const { dailyRows, dates } = useMemo(() => {
     // date -> department -> { present, total }
     const byDate = new Map<string, Map<string, { present: number; total: number }>>();
     for (const r of records) {
@@ -306,52 +361,69 @@ export function ComparisonTrendChart({ records, selectedDepts, holidays = [], gr
       }
       return row;
     });
-    return { chartData: data, dates: sortedDates };
+    return { dailyRows: data, dates: sortedDates };
   }, [records, depts, holidays]);
+
+  // Same fix as DailyTrendChart: aggregate to weekly/monthly past a
+  // threshold and scroll (instead of squeezing) below it, keyed off each
+  // department's own percentage column since those are dynamic per selection.
+  const { override: granularityOverride, setOverride: setGranularityOverride } = useGranularityOverride();
+  const { data: chartData, granularity, minWidth, isAggregated } = useTrendChartLayout(dailyRows as any[], {
+    averageKeys: depts,
+    forceGranularity: granularityOverride,
+  });
 
   return (
     <div className="bg-slate-800 rounded-xl border border-slate-700 p-4 min-h-[280px]">
-      <div className="flex items-start justify-between mb-1">
+      <div className="flex items-start justify-between mb-1 flex-wrap gap-2">
         <div>
           <h3 className="text-white font-semibold text-sm">Daily Attendance Trend — Comparison</h3>
           <p className="text-slate-500 text-xs mt-0.5 mb-3">
             {depts.length < selectedDepts.length
               ? `Showing first ${depts.length} of ${selectedDepts.length} selected departments`
               : 'One line per selected department'}
+            {isAggregated ? ` · ${granularity} averages across ${dailyRows.length} days` : ''}
           </p>
         </div>
-        <InfoTooltip title="Daily Attendance Trend — Comparison" description="Daily attendance rate per department, so you can compare trends side by side. Holidays excluded." formula="Present ÷ (Scheduled - WeeklyOff - Holidays) × 100, per department" />
+        <div className="flex items-center gap-2">
+          <GranularityToggle value={granularityOverride} onChange={setGranularityOverride} active={granularity} />
+          <InfoTooltip title="Daily Attendance Trend — Comparison" description="Daily attendance rate per department, so you can compare trends side by side. Holidays excluded. Past ~45 days this auto-switches to weekly averages, and past ~6 months to monthly, so it stays readable regardless of how many months are selected." formula="Present ÷ (Scheduled - WeeklyOff - Holidays) × 100, per department" />
+        </div>
       </div>
       {chartData.length === 0 || dates.length === 0
         ? <div className="h-48 flex items-center justify-center text-slate-500 text-sm">No data</div>
         : (
-          <ResponsiveContainer width="100%" height={220}>
-            <LineChart data={chartData} margin={{ top: 5, right: 10, left: -20, bottom: 5 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-              <XAxis dataKey="date" tick={{ fontSize: 10, fill: '#64748b' }} interval="preserveStartEnd" />
-              <YAxis domain={[0, 100]} tick={{ fontSize: 10, fill: '#64748b' }} unit="%" />
-              <Tooltip
-                content={({ active, payload, label }: any) => {
-                  if (!active || !payload?.length) return null;
-                  return (
-                    <div className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs shadow-xl">
-                      <p className="text-slate-300 font-medium mb-1">{label}</p>
-                      {payload.map((p: any) => (
-                        <p key={p.dataKey} style={{ color: p.color }}>{p.dataKey}: <strong>{p.value}%</strong></p>
-                      ))}
-                    </div>
-                  );
-                }}
-                wrapperStyle={{ pointerEvents: 'none', zIndex: 50 }}
-              />
-              <Legend wrapperStyle={{ fontSize: 11, paddingTop: 8 }} formatter={(v: string) => <span style={{ color: '#94a3b8' }}>{v}</span>} />
-              {depts.map((dept, i) => (
-                <Line key={dept} type="monotone" dataKey={dept} name={dept}
-                  stroke={COMPARISON_LINE_COLORS[i % COMPARISON_LINE_COLORS.length]}
-                  strokeWidth={2} dot={{ r: 2 }} activeDot={{ r: 5 }} />
-              ))}
-            </LineChart>
-          </ResponsiveContainer>
+          <div className="overflow-x-auto">
+            <div style={{ minWidth }}>
+              <ResponsiveContainer width="100%" height={220}>
+                <LineChart data={chartData} margin={{ top: 5, right: 10, left: -20, bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
+                  <XAxis dataKey="date" tick={{ fontSize: 10, fill: '#64748b' }} interval="preserveStart" />
+                  <YAxis domain={[0, 100]} tick={{ fontSize: 10, fill: '#64748b' }} unit="%" />
+                  <Tooltip
+                    content={({ active, payload, label }: any) => {
+                      if (!active || !payload?.length) return null;
+                      return (
+                        <div className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs shadow-xl">
+                          <p className="text-slate-300 font-medium mb-1">{label}</p>
+                          {payload.map((p: any) => (
+                            <p key={p.dataKey} style={{ color: p.color }}>{p.dataKey}: <strong>{p.value}%</strong></p>
+                          ))}
+                        </div>
+                      );
+                    }}
+                    wrapperStyle={{ pointerEvents: 'none', zIndex: 50 }}
+                  />
+                  <Legend wrapperStyle={{ fontSize: 11, paddingTop: 8 }} formatter={(v: string) => <span style={{ color: '#94a3b8' }}>{v}</span>} />
+                  {depts.map((dept, i) => (
+                    <Line key={dept} type="monotone" dataKey={dept} name={dept}
+                      stroke={COMPARISON_LINE_COLORS[i % COMPARISON_LINE_COLORS.length]}
+                      strokeWidth={2} dot={{ r: 2 }} activeDot={{ r: 5 }} />
+                  ))}
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
         )}
     </div>
   );

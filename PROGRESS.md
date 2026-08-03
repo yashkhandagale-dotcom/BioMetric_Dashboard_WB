@@ -452,3 +452,105 @@ notice-period-extension tracking — all out of scope here, as specified.
 **Verified this sprint:** `npx tsc --noEmit` clean, `npx next build`
 succeeds end-to-end (dummy env vars, no live credentials available in
 this sandbox).
+
+## Workstream 1 — Chart scaling fix (Master Plan, "what's next" run #1)
+
+Context: `MASTER_PLAN.md` (new, at project root) is a consolidated plan
+covering chart scaling, dark/light mode, and the leave-tracker redesign
+(Sprints B–J, extending `LEAVE_TRACKER_OVERHAUL_PLAN.md`'s A–G). This entry
+covers only Workstream 1, the first item actually implemented.
+
+### Problem
+`DailyTrendChart` and `ComparisonTrendChart` in `components/Charts.tsx`
+rendered inside a fixed `<ResponsiveContainer width="100%" height={...}>`
+with `interval="preserveStartEnd"` on the X-axis. Any number of data points
+— 20 days or 200 — were squeezed into the same pixel width, so points
+overlapped and only the first/last date label survived past roughly a
+month of data. The attendance heatmap in the same file already solved this
+correctly (`overflow-x-auto` + a `minWidth` that scales with date count) —
+that pattern is now shared, not reinvented per chart.
+
+### What changed
+- **New file `lib/chartLayout.ts`** — `useTrendChartLayout()` hook +
+  supporting functions (`pickGranularity`, `chartMinWidth`,
+  `aggregateTrend`). Central place for "how should this trend chart size
+  itself and does it need to aggregate" so future trend charts don't
+  reintroduce the bug.
+  - **≤ 45 days:** stays daily, chart grows horizontally
+    (`overflow-x-auto` + `minWidth`) instead of squeezing.
+  - **45–180 days:** auto-aggregates to weekly buckets (ISO week, averaged
+    per numeric field).
+  - **> 180 days (~6 months):** auto-aggregates to monthly buckets.
+  - A `GranularityToggle` (Auto / Daily / Weekly / Monthly) lets the user
+    override the automatic choice in either direction.
+- **`components/Charts.tsx`:**
+  - `DailyTrendChart` — now computes `{ data: chartData, granularity,
+    minWidth, isAggregated }` via the hook (`averageKeys:
+    ['attendanceRate']`, `sumKeys` for the count fields), wraps the chart
+    in the scrollable/`minWidth` container, and adds the granularity
+    toggle next to the existing info tooltip.
+  - `ComparisonTrendChart` — same treatment; `averageKeys` is the dynamic
+    per-department column list (`depts`) since those column names vary by
+    selection. Renamed its internal raw-daily memo from `chartData` to
+    `dailyRows` to avoid shadowing the new aggregated `chartData`.
+  - **Click-to-drill-into-a-day behavior is now guarded by
+    `isAggregated`.** A weekly/monthly point represents a range of days,
+    not one day, so double-click-to-see-absentees and the `onDateClick`
+    callback are intentionally no-ops in aggregated view — this is a
+    deliberate UX decision, not a missed case. Switching the toggle back
+    to Daily restores the previous click behavior exactly as it was.
+  - Removed three leftover `console.log` calls in `handleChartClick`
+    (`"CLICK"`, `"Invalid index"`, `"Opening modal"`) — debug logging that
+    predated this change, cleaned up while already editing this function.
+  - X-axis `interval` changed from `"preserveStartEnd"` to
+    `"preserveStart"` on both charts — with the new scrolling/aggregation
+    in place, letting Recharts drop only from one end (not skip the whole
+    middle) reads better once there's room to scroll.
+
+### Decisions made
+- Auto-aggregation thresholds (45 days → weekly, 180 days → monthly) are a
+  starting point, not backed by user testing — flagged as an open question
+  in `MASTER_PLAN.md` in case you want them tuned.
+- Aggregated points intentionally drop their `absentees` list (can't
+  represent "who was absent" for a multi-day bucket meaningfully) — the
+  tooltip and click-through are the features that change behavior in
+  aggregated view, nothing else in the surrounding dashboard.
+- Did **not** touch the other bar/heatmap charts in the same file
+  (`DeptRankingChart`, `EmployeeDrillChart`, the heatmap, etc.) — those
+  either already scale correctly (heatmap) or aren't affected by
+  multi-month selection the same way (per-employee/per-department
+  snapshots, not date-series). Only the two date-series line charts had
+  the bug described.
+
+### Unrelated pre-existing issue found and fixed
+`npx next build` was failing **before this change too**, unrelated to
+charts: `backup_before_leave_policy/` (a backup folder at the repo root,
+not under `app/` or `components/`) has relative imports
+(`./parseCSV`, `./useDashboardData`, `./predefinedHolidays`) that don't
+resolve from that location. `tsconfig.json`'s `include` is `**/*.ts`, so
+TypeScript picked it up and failed the build even though Next.js never
+routes through it. Fixed by adding `"backup_before_leave_policy"` to
+`tsconfig.json`'s `exclude`. This folder still exists on disk as a backup
+(untouched) — only excluded from the TS build.
+
+### Files touched this workstream
+- `lib/chartLayout.ts` (new)
+- `components/Charts.tsx` (edited — see above)
+- `tsconfig.json` (edited — excluded the broken backup folder)
+- `MASTER_PLAN.md` (new, at project root — the consolidated plan this
+  entry implements the first piece of)
+
+**Verified:** `npx tsc --noEmit` clean (aside from the now-excluded backup
+folder), `npx next build` succeeds end-to-end with dummy env vars — 34
+routes compiled, no errors.
+
+**Not done yet — next up per `MASTER_PLAN.md`'s sequencing:**
+1. Apply pending Supabase migrations (0007/0008/0009) to production —
+   deployment step, not code, fixes the `department_managers` error from
+   `Feature.txt`.
+2. Dark/light mode foundation (Workstream 2).
+3. Leave Tracker Sprint B (employee self-apply form) — see
+   `LEAVE_TRACKER_OVERHAUL_PLAN.md` section 5a and `MASTER_PLAN.md`'s
+   Sprint B/C/I sequencing notes for what it needs to reuse
+   (`RecordLeaveForm`'s validation, the future
+   `applyLeavePolicyAndMutateBalance()` service function).
