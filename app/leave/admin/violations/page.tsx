@@ -105,24 +105,24 @@ export default function ViolationsPage() {
   }));
 
   return (
-    <div className="min-h-screen bg-slate-900 text-white p-8 space-y-6">
+    <div className="min-h-screen bg-[var(--bg-surface)] text-[var(--text-primary)] p-8 space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-semibold">Violations</h1>
-        <a href="/leave/admin" className="text-xs text-slate-400 hover:text-white">
+        <a href="/leave/admin" className="text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)]">
           ← Back to balances
         </a>
       </div>
 
       {error && (
-        <div className="bg-red-900/30 border border-red-500/30 text-red-300 text-xs rounded-lg px-3 py-2">
+        <div className="bg-red-900/30 border border-red-500/30 text-red-700 dark:text-red-300 text-xs rounded-lg px-3 py-2">
           {error}
         </div>
       )}
 
       {loading ? (
-        <p className="text-slate-500 text-sm">Loading…</p>
+        <p className="text-[var(--text-muted)] text-sm">Loading…</p>
       ) : violations.length === 0 ? (
-        <div className="bg-slate-800/40 border border-slate-700 rounded-xl px-4 py-10 text-center text-slate-500 text-sm">
+        <div className="bg-[var(--bg-elevated)]/40 border border-[var(--border)] rounded-xl px-4 py-10 text-center text-[var(--text-muted)] text-sm">
           No open violations. 🎉
         </div>
       ) : (
@@ -131,21 +131,21 @@ export default function ViolationsPage() {
             (group) =>
               group.items.length > 0 && (
                 <div key={group.type} className="space-y-2">
-                  <h2 className="text-sm font-semibold text-slate-300">
-                    {TYPE_LABELS[group.type]} <span className="text-slate-500 font-normal">({group.items.length})</span>
+                  <h2 className="text-sm font-semibold text-[var(--text-muted)]">
+                    {TYPE_LABELS[group.type]} <span className="text-[var(--text-muted)] font-normal">({group.items.length})</span>
                   </h2>
                   <div className="space-y-2">
                     {group.items.map((v) => (
                       <div
                         key={v.id}
-                        className="bg-slate-800/40 border border-slate-700 rounded-xl px-4 py-3 flex items-start justify-between gap-4"
+                        className="bg-[var(--bg-elevated)]/40 border border-[var(--border)] rounded-xl px-4 py-3 flex items-start justify-between gap-4"
                       >
                         <div className="min-w-0">
-                          <p className="text-white text-sm font-medium">{v.summary}</p>
-                          <p className="text-slate-500 text-xs mt-0.5">
+                          <p className="text-[var(--text-primary)] text-sm font-medium">{v.summary}</p>
+                          <p className="text-[var(--text-muted)] text-xs mt-0.5">
                             {v.employeeName} ({v.employeeCode}) · {v.occurredOn}
                           </p>
-                          <p className="text-slate-400 text-xs mt-1">{v.detail}</p>
+                          <p className="text-[var(--text-muted)] text-xs mt-1">{v.detail}</p>
 
                           {v.type === 'missing_certificate' && (
                             <div className="mt-2 flex items-center gap-2">
@@ -154,7 +154,7 @@ export default function ViolationsPage() {
                                 value={certDrafts[v.id] || ''}
                                 onChange={(e) => setCertDrafts((s) => ({ ...s, [v.id]: e.target.value }))}
                                 placeholder="Certificate reference / filename on file…"
-                                className="bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white w-64"
+                                className="bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg px-2.5 py-1.5 text-xs text-[var(--text-primary)] w-64"
                               />
                               <button
                                 type="button"
@@ -180,7 +180,7 @@ export default function ViolationsPage() {
                           {v.type === 'lwp_conversion' && (
                             <span
                               title="Already correctly recorded as LWP — nothing further to fix, shown for review only."
-                              className="text-slate-500 text-xs italic"
+                              className="text-[var(--text-muted)] text-xs italic"
                             >
                               Auto-resolved
                             </span>

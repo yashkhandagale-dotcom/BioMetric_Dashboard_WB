@@ -41,18 +41,18 @@ function OrgTreeRow({ node, depth }: { node: OrgTreeNode; depth: number }) {
   return (
     <div>
       <div
-        className="flex items-center gap-2 py-1.5 rounded-lg hover:bg-slate-800/60 cursor-pointer"
+        className="flex items-center gap-2 py-1.5 rounded-lg hover:bg-[var(--bg-elevated)]/60 cursor-pointer"
         style={{ paddingLeft: depth * 20 }}
         onClick={() => hasChildren && setOpen((o) => !o)}
       >
-        <span className="w-4 text-slate-500 text-xs">{hasChildren ? (open ? '▾' : '▸') : ''}</span>
-        <span className="text-white text-sm">{node.fullName}</span>
-        <span className="text-slate-500 text-xs">· {node.employeeCode}</span>
-        <span className="text-xs border border-slate-700 rounded-full px-2 py-0.5 text-slate-300">
+        <span className="w-4 text-[var(--text-muted)] text-xs">{hasChildren ? (open ? '▾' : '▸') : ''}</span>
+        <span className="text-[var(--text-primary)] text-sm">{node.fullName}</span>
+        <span className="text-[var(--text-muted)] text-xs">· {node.employeeCode}</span>
+        <span className="text-xs border border-[var(--border)] rounded-full px-2 py-0.5 text-[var(--text-muted)]">
           {ROLE_LABEL[node.role] ?? node.role}
         </span>
-        {node.department && <span className="text-xs text-slate-500">{node.department}</span>}
-        {hasChildren && <span className="text-xs text-slate-500 ml-auto pr-2">{node.children.length} direct</span>}
+        {node.department && <span className="text-xs text-[var(--text-muted)]">{node.department}</span>}
+        {hasChildren && <span className="text-xs text-[var(--text-muted)] ml-auto pr-2">{node.children.length} direct</span>}
       </div>
       {open && hasChildren && (
         <div>
@@ -153,26 +153,26 @@ export default function OrganizationManagementPage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-900 text-white p-8 space-y-6">
+    <div className="min-h-screen bg-[var(--bg-surface)] text-[var(--text-primary)] p-8 space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <a href="/leave/admin" className="text-xs text-slate-400 hover:text-white">← Back to Leave Management</a>
+          <a href="/leave/admin" className="text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)]">← Back to Leave Management</a>
           <h1 className="text-xl font-semibold mt-1">Organization Management</h1>
-          <p className="text-slate-500 text-xs mt-1">
+          <p className="text-[var(--text-muted)] text-xs mt-1">
             Department managers, lead assignment, and the manager reporting hierarchy.
           </p>
         </div>
       </div>
 
       {error && (
-        <div className="bg-red-900/30 border border-red-500/30 text-red-300 text-xs rounded-lg px-3 py-2">{error}</div>
+        <div className="bg-red-900/30 border border-red-500/30 text-red-700 dark:text-red-300 text-xs rounded-lg px-3 py-2">{error}</div>
       )}
       {toast && (
         <div
           className={`text-xs rounded-lg px-3 py-2 border ${
             toast.kind === 'success'
-              ? 'bg-emerald-900/30 border-emerald-500/30 text-emerald-300'
-              : 'bg-red-900/30 border-red-500/30 text-red-300'
+              ? 'bg-emerald-900/30 border-emerald-500/30 text-emerald-700 dark:text-emerald-300'
+              : 'bg-red-900/30 border-red-500/30 text-red-700 dark:text-red-300'
           }`}
         >
           {toast.text}
@@ -180,20 +180,20 @@ export default function OrganizationManagementPage() {
       )}
 
       {loading ? (
-        <p className="text-slate-500 text-sm">Loading…</p>
+        <p className="text-[var(--text-muted)] text-sm">Loading…</p>
       ) : (
         <>
           {/* ── Org Chart: read-only nested view of who reports to whom ── */}
-          <section className="bg-slate-800/40 border border-slate-700 rounded-xl p-4 space-y-2">
+          <section className="bg-[var(--bg-elevated)]/40 border border-[var(--border)] rounded-xl p-4 space-y-2">
             <div className="flex items-center justify-between">
-              <h2 className="text-white font-semibold text-sm">Org Chart</h2>
+              <h2 className="text-[var(--text-primary)] font-semibold text-sm">Org Chart</h2>
               {orgTreeUnassignedCount > 0 && (
-                <span className="text-xs text-amber-300">
+                <span className="text-xs text-amber-700 dark:text-amber-300">
                   {orgTreeUnassignedCount} {orgTreeUnassignedCount === 1 ? 'person' : 'people'} not yet placed in the chain
                 </span>
               )}
             </div>
-            <p className="text-slate-500 text-xs">
+            <p className="text-[var(--text-muted)] text-xs">
               Click a row to expand. This is read-only — use the tables below, or each employee's Adjust panel, to
               change who reports to whom.
             </p>
@@ -201,17 +201,17 @@ export default function OrganizationManagementPage() {
               {orgTree.map((n) => (
                 <OrgTreeRow key={n.id} node={n} depth={0} />
               ))}
-              {orgTree.length === 0 && <p className="text-slate-500 text-sm py-4 text-center">No employees yet.</p>}
+              {orgTree.length === 0 && <p className="text-[var(--text-muted)] text-sm py-4 text-center">No employees yet.</p>}
             </div>
           </section>
 
           {/* ── Departments: assign / change manager ─────────────────── */}
-          <section className="bg-slate-800/40 border border-slate-700 rounded-xl p-4 space-y-3">
-            <h2 className="text-white font-semibold text-sm">Departments — Manager Assignment</h2>
+          <section className="bg-[var(--bg-elevated)]/40 border border-[var(--border)] rounded-xl p-4 space-y-3">
+            <h2 className="text-[var(--text-primary)] font-semibold text-sm">Departments — Manager Assignment</h2>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="text-slate-500 text-xs border-b border-slate-700">
+                  <tr className="text-[var(--text-muted)] text-xs border-b border-[var(--border)]">
                     <th className="text-left font-medium px-3 py-2">Department</th>
                     <th className="text-left font-medium px-3 py-2">Current Manager</th>
                     <th className="text-left font-medium px-3 py-2">Assign Manager</th>
@@ -220,9 +220,9 @@ export default function OrganizationManagementPage() {
                 </thead>
                 <tbody>
                   {departments.map((d) => (
-                    <tr key={d.department} className="border-b border-slate-800 last:border-0">
-                      <td className="px-3 py-2 text-white">{d.department}</td>
-                      <td className="px-3 py-2 text-slate-300">{d.managerName ?? <span className="italic text-slate-500">unassigned</span>}</td>
+                    <tr key={d.department} className="border-b border-[var(--border)] last:border-0">
+                      <td className="px-3 py-2 text-[var(--text-primary)]">{d.department}</td>
+                      <td className="px-3 py-2 text-[var(--text-muted)]">{d.managerName ?? <span className="italic text-[var(--text-muted)]">unassigned</span>}</td>
                       <td className="px-3 py-2">
                         <select
                           value={d.managerId ?? ''}
@@ -233,7 +233,7 @@ export default function OrganizationManagementPage() {
                               `dept-mgr-${d.department}`
                             )
                           }
-                          className="bg-slate-900 border border-slate-700 rounded-lg px-2 py-1 text-xs text-white"
+                          className="bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg px-2 py-1 text-xs text-[var(--text-primary)]"
                         >
                           <option value="">Unassigned</option>
                           {managerOptions.map((m) => (
@@ -251,7 +251,7 @@ export default function OrganizationManagementPage() {
                               `dept-tl-${d.department}`
                             )
                           }
-                          className="bg-slate-900 border border-slate-700 rounded-lg px-2 py-1 text-xs text-white"
+                          className="bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg px-2 py-1 text-xs text-[var(--text-primary)]"
                         >
                           <option value="" disabled>Set lead for department…</option>
                           <option value="">Clear lead</option>
@@ -264,13 +264,13 @@ export default function OrganizationManagementPage() {
                   ))}
                   {departments.length === 0 && (
                     <tr>
-                      <td colSpan={4} className="px-3 py-6 text-center text-slate-500">No departments yet.</td>
+                      <td colSpan={4} className="px-3 py-6 text-center text-[var(--text-muted)]">No departments yet.</td>
                     </tr>
                   )}
                 </tbody>
               </table>
             </div>
-            <p className="text-slate-500 text-xs">
+            <p className="text-[var(--text-muted)] text-xs">
               "Assign Lead (bulk)" sets every current employee-role member of that department's Reporting
               Lead in one action — the same field AdjustBalanceButton edits per person, just applied to the whole
               department at once.
@@ -278,12 +278,12 @@ export default function OrganizationManagementPage() {
           </section>
 
           {/* ── Managers: reporting hierarchy ─────────────────────────── */}
-          <section className="bg-slate-800/40 border border-slate-700 rounded-xl p-4 space-y-3">
-            <h2 className="text-white font-semibold text-sm">Managers — Reporting Hierarchy</h2>
+          <section className="bg-[var(--bg-elevated)]/40 border border-[var(--border)] rounded-xl p-4 space-y-3">
+            <h2 className="text-[var(--text-primary)] font-semibold text-sm">Managers — Reporting Hierarchy</h2>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="text-slate-500 text-xs border-b border-slate-700">
+                  <tr className="text-[var(--text-muted)] text-xs border-b border-[var(--border)]">
                     <th className="text-left font-medium px-3 py-2">Manager</th>
                     <th className="text-left font-medium px-3 py-2">Manages</th>
                     <th className="text-left font-medium px-3 py-2">Reports To</th>
@@ -291,10 +291,10 @@ export default function OrganizationManagementPage() {
                 </thead>
                 <tbody>
                   {managers.map((m) => (
-                    <tr key={m.id} className="border-b border-slate-800 last:border-0">
-                      <td className="px-3 py-2 text-white">{m.fullName} <span className="text-slate-500">· {m.employeeCode}</span></td>
-                      <td className="px-3 py-2 text-slate-300">
-                        {m.managedDepartments.length > 0 ? m.managedDepartments.join(', ') : <span className="italic text-slate-500">none</span>}
+                    <tr key={m.id} className="border-b border-[var(--border)] last:border-0">
+                      <td className="px-3 py-2 text-[var(--text-primary)]">{m.fullName} <span className="text-[var(--text-muted)]">· {m.employeeCode}</span></td>
+                      <td className="px-3 py-2 text-[var(--text-muted)]">
+                        {m.managedDepartments.length > 0 ? m.managedDepartments.join(', ') : <span className="italic text-[var(--text-muted)]">none</span>}
                       </td>
                       <td className="px-3 py-2">
                         <select
@@ -303,7 +303,7 @@ export default function OrganizationManagementPage() {
                           onChange={(e) =>
                             post({ action: 'assign_manager_reporting', manager_id: m.id, reporting_manager_id: e.target.value || null }, `mgr-report-${m.id}`)
                           }
-                          className="bg-slate-900 border border-slate-700 rounded-lg px-2 py-1 text-xs text-white"
+                          className="bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg px-2 py-1 text-xs text-[var(--text-primary)]"
                         >
                           <option value="">No one (top-level)</option>
                           {reportingTargetOptions
@@ -319,45 +319,45 @@ export default function OrganizationManagementPage() {
                   ))}
                   {managers.length === 0 && (
                     <tr>
-                      <td colSpan={3} className="px-3 py-6 text-center text-slate-500">No managers yet.</td>
+                      <td colSpan={3} className="px-3 py-6 text-center text-[var(--text-muted)]">No managers yet.</td>
                     </tr>
                   )}
                 </tbody>
               </table>
             </div>
-            <p className="text-slate-500 text-xs">
+            <p className="text-[var(--text-muted)] text-xs">
               Circular chains (A → B → A, or longer) are rejected server-side — the dropdown will show an error toast
               instead of silently applying.
             </p>
           </section>
 
           {/* ── Leads: read-only summary ─────────────────────────── */}
-          <section className="bg-slate-800/40 border border-slate-700 rounded-xl p-4 space-y-3">
-            <h2 className="text-white font-semibold text-sm">Leads</h2>
+          <section className="bg-[var(--bg-elevated)]/40 border border-[var(--border)] rounded-xl p-4 space-y-3">
+            <h2 className="text-[var(--text-primary)] font-semibold text-sm">Leads</h2>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="text-slate-500 text-xs border-b border-slate-700">
+                  <tr className="text-[var(--text-muted)] text-xs border-b border-[var(--border)]">
                     <th className="text-left font-medium px-3 py-2">Lead</th>
                     <th className="text-left font-medium px-3 py-2">Employees Reporting</th>
                   </tr>
                 </thead>
                 <tbody>
                   {leads.map((t) => (
-                    <tr key={t.id} className="border-b border-slate-800 last:border-0">
-                      <td className="px-3 py-2 text-white">{t.fullName} <span className="text-slate-500">· {t.employeeCode}</span></td>
-                      <td className="px-3 py-2 text-slate-300">{t.managedEmployeeCount}</td>
+                    <tr key={t.id} className="border-b border-[var(--border)] last:border-0">
+                      <td className="px-3 py-2 text-[var(--text-primary)]">{t.fullName} <span className="text-[var(--text-muted)]">· {t.employeeCode}</span></td>
+                      <td className="px-3 py-2 text-[var(--text-muted)]">{t.managedEmployeeCount}</td>
                     </tr>
                   ))}
                   {leads.length === 0 && (
                     <tr>
-                      <td colSpan={2} className="px-3 py-6 text-center text-slate-500">No leads yet.</td>
+                      <td colSpan={2} className="px-3 py-6 text-center text-[var(--text-muted)]">No leads yet.</td>
                     </tr>
                   )}
                 </tbody>
               </table>
             </div>
-            <p className="text-slate-500 text-xs">
+            <p className="text-[var(--text-muted)] text-xs">
               Per-employee lead assignment (one at a time) is still available from each employee's Adjust →
               Details tab — this page adds the bulk, department-level action above it, it doesn't replace it.
             </p>

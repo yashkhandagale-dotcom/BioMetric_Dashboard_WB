@@ -34,6 +34,7 @@ import TeamComparisonPanel from '@/components/TeamComparisonPanel';
 import HolidayModal from '@/components/HolidayModal';
 import InsightsStrip from '@/components/InsightsStrip';
 import SettingsPanel from '@/components/SettingsPanel';
+import ThemeToggle from '@/components/ThemeToggle';
 
 type AppState = 'upload' | 'mapping' | 'dashboard';
 type ViewMode = 'loading' | 'hr' | 'manager' | 'denied';
@@ -74,24 +75,27 @@ function ManagerView({ records }: { records: AttendanceRecord[] }) {
     useDashboardData(records, 'ALL', [], [], [], thresholds);
 
   return (
-    <div className="min-h-screen bg-slate-900 text-white">
-      <header className="border-b border-slate-800 px-4 sm:px-6 py-4 flex flex-wrap items-center justify-between gap-3">
+    <div className="min-h-screen bg-[var(--bg-surface)] text-[var(--text-primary)]">
+      <header className="border-b border-[var(--border)] px-4 sm:px-6 py-4 flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center flex-shrink-0">
             <span className="text-white text-xs font-bold">WB</span>
           </div>
           <div>
-            <h1 className="text-white font-semibold text-sm">Attendance Dashboard</h1>
-            <p className="text-slate-500 text-xs">WonderBiz Technologies · Management View</p>
+            <h1 className="text-[var(--text-primary)] font-semibold text-sm">Attendance Dashboard</h1>
+            <p className="text-[var(--text-muted)] text-xs">WonderBiz Technologies · Management View</p>
           </div>
         </div>
-        <div className="flex items-center gap-2 bg-slate-800 border border-slate-700 px-3 py-1.5 rounded-lg">
-          <Eye className="w-3.5 h-3.5 text-blue-400 flex-shrink-0" />
-          <span className="text-slate-400 text-xs">Read-only · {records.length.toLocaleString()} records</span>
+        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 bg-[var(--bg-elevated)] border border-[var(--border)] px-3 py-1.5 rounded-lg">
+            <Eye className="w-3.5 h-3.5 text-blue-400 flex-shrink-0" />
+            <span className="text-[var(--text-muted)] text-xs">Read-only · {records.length.toLocaleString()} records</span>
+          </div>
+          <ThemeToggle />
         </div>
       </header>
       <main className="px-4 sm:px-6 py-6 max-w-7xl mx-auto space-y-6">
-        <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl px-4 py-3 text-sm text-blue-300">
+        <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl px-4 py-3 text-sm text-blue-700 dark:text-blue-300">
           Read-only view — upload, export and settings are not available here.
         </div>
         <KPICards kpi={kpi} thresholds={thresholds} />
@@ -100,8 +104,8 @@ function ManagerView({ records }: { records: AttendanceRecord[] }) {
           <HoursDistributionChart data={hoursDistribution} allRecords={records} />
         </div>
         <DeptAttendanceChart data={deptAttendance} allRecords={records} />
-        <div className="bg-slate-800/30 rounded-xl border border-slate-700 p-4">
-          <h2 className="text-white font-semibold text-sm mb-4">Employee Summary</h2>
+        <div className="bg-[var(--bg-elevated)]/30 rounded-xl border border-[var(--border)] p-4">
+          <h2 className="text-[var(--text-primary)] font-semibold text-sm mb-4">Employee Summary</h2>
           <EmployeeTable summaries={employeeSummaries} onEmployeeClick={setSelectedEmp} />
         </div>
       </main>
@@ -559,23 +563,23 @@ function HRDashboard() {
   const maxAvailableDate = allAvailableDates[allAvailableDates.length - 1];
 
   return (
-    <div className="min-h-screen bg-slate-900 text-white">
+    <div className="min-h-screen bg-[var(--bg-surface)] text-[var(--text-primary)]">
       {toast && (
         <div className={`fixed top-4 right-4 left-4 sm:left-auto z-50 flex items-start gap-3 sm:max-w-md px-4 py-3 rounded-xl shadow-2xl border
-          ${toast.type === 'success' ? 'bg-emerald-900/90 border-emerald-500/40 text-emerald-200' : 'bg-red-900/90 border-red-500/40 text-red-200'}`}>
+          ${toast.type === 'success' ? 'bg-emerald-900/90 border-emerald-500/40 text-emerald-700 dark:text-emerald-200' : 'bg-red-900/90 border-red-500/40 text-red-700 dark:text-red-200'}`}>
           <CheckCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
           <p className="text-sm">{toast.message}</p>
         </div>
       )}
 
-      <header className="border-b border-slate-800 px-4 sm:px-6 py-4 flex flex-wrap items-center justify-between gap-3">
+      <header className="border-b border-[var(--border)] px-4 sm:px-6 py-4 flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center flex-shrink-0">
             <span className="text-white text-xs font-bold">WB</span>
           </div>
           <div>
-            <h1 className="text-white font-semibold text-sm">Attendance Dashboard</h1>
-            <p className="text-slate-500 text-xs">WonderBiz Technologies · HR View</p>
+            <h1 className="text-[var(--text-primary)] font-semibold text-sm">Attendance Dashboard</h1>
+            <p className="text-[var(--text-muted)] text-xs">WonderBiz Technologies · HR View</p>
           </div>
         </div>
         {appState === 'dashboard' && (
@@ -592,7 +596,7 @@ function HRDashboard() {
             {holidays.length === 0 && currentOffice && (
               <button
                 onClick={() => setShowHolidayModal(true)}
-                className="flex items-center gap-1.5 text-slate-500 hover:text-slate-300 px-2 py-1.5 rounded-lg text-xs transition-colors"
+                className="flex items-center gap-1.5 text-[var(--text-muted)] hover:text-[var(--text-muted)] px-2 py-1.5 rounded-lg text-xs transition-colors"
                 title="Manage holidays"
               >
                 <Calendar className="w-3.5 h-3.5" /> Holidays
@@ -600,7 +604,7 @@ function HRDashboard() {
             )}
             <button
               onClick={() => setShowSettings(true)}
-              className="flex items-center gap-1.5 text-slate-500 hover:text-slate-300 px-2 py-1.5 rounded-lg text-xs transition-colors"
+              className="flex items-center gap-1.5 text-[var(--text-muted)] hover:text-[var(--text-muted)] px-2 py-1.5 rounded-lg text-xs transition-colors"
               title="Settings"
             >
               <SettingsIcon className="w-3.5 h-3.5" /> Settings
@@ -619,9 +623,10 @@ function HRDashboard() {
               <Upload className="w-4 h-4" /> Upload CSV
             </button>
             <button onClick={handleSignOut}
-              className="text-slate-500 hover:text-slate-300 px-2 py-1.5 rounded-lg text-xs transition-colors">
+              className="text-[var(--text-muted)] hover:text-[var(--text-muted)] px-2 py-1.5 rounded-lg text-xs transition-colors">
               Sign out
             </button>
+            <ThemeToggle />
           </div>
         )}
       </header>
@@ -632,12 +637,12 @@ function HRDashboard() {
             <div className="flex justify-between items-center flex-wrap gap-2">
               <button
                 onClick={() => setAppState('dashboard')}
-                className="inline-flex items-center gap-2 text-slate-300 hover:text-white bg-slate-800/70 border border-slate-700 px-3 py-2 rounded-lg text-sm transition-colors"
+                className="inline-flex items-center gap-2 text-[var(--text-muted)] hover:text-[var(--text-primary)] bg-[var(--bg-elevated)]/70 border border-[var(--border)] px-3 py-2 rounded-lg text-sm transition-colors"
               >
                 <ArrowLeft className="w-4 h-4" />
                 Back to dashboard
               </button>
-              <div className="text-slate-400 text-xs">Upload one or more biometric export CSVs to get started</div>
+              <div className="text-[var(--text-muted)] text-xs">Upload one or more biometric export CSVs to get started</div>
             </div>
             <UploadZone onFiles={handleFiles} />
           </div>
@@ -658,8 +663,8 @@ function HRDashboard() {
             <div className="flex flex-wrap items-center gap-3">
               {/* Date range — restricted to the span of dates actually present in uploaded data */}
               {allAvailableDates.length > 0 && (
-                <div className="flex items-center gap-1.5 flex-wrap bg-slate-800/60 border border-slate-700 rounded-lg px-3 py-1.5">
-                  <span className="text-slate-500 text-xs font-medium">From</span>
+                <div className="flex items-center gap-1.5 flex-wrap bg-[var(--bg-elevated)]/60 border border-[var(--border)] rounded-lg px-3 py-1.5">
+                  <span className="text-[var(--text-muted)] text-xs font-medium">From</span>
                   <input
                     type="date"
                     value={dateFrom ?? impliedRange?.min ?? ''}
@@ -677,11 +682,11 @@ function HRDashboard() {
                       // If From > To, reset To
                       if (v && dateTo && v > dateTo) setDateTo(v);
                     }}
-                    className={`bg-transparent text-xs focus:outline-none w-28 sm:w-32 ${dateFrom ? 'text-white' : 'text-slate-400'}`}
+                    className={`bg-transparent text-xs focus:outline-none w-28 sm:w-32 ${dateFrom ? 'text-[var(--text-primary)]' : 'text-[var(--text-muted)]'}`}
                     title={!dateFrom ? 'Auto-filled to match the data currently shown — pick a date to filter explicitly' : undefined}
                   />
-                  <span className="text-slate-600 text-xs">→</span>
-                  <span className="text-slate-500 text-xs font-medium">To</span>
+                  <span className="text-[var(--text-muted)] text-xs">→</span>
+                  <span className="text-[var(--text-muted)] text-xs font-medium">To</span>
                   <input
                     type="date"
                     value={dateTo ?? impliedRange?.max ?? ''}
@@ -697,14 +702,14 @@ function HRDashboard() {
                       // Auto-set From = To for single-day selection if From not set
                       if (v && !dateFrom) setDateFrom(v);
                     }}
-                    className={`bg-transparent text-xs focus:outline-none w-28 sm:w-32 ${dateTo ? 'text-white' : 'text-slate-400'}`}
+                    className={`bg-transparent text-xs focus:outline-none w-28 sm:w-32 ${dateTo ? 'text-[var(--text-primary)]' : 'text-[var(--text-muted)]'}`}
                     title={!dateTo ? 'Auto-filled to match the data currently shown — pick a date to filter explicitly' : undefined}
                   />
                   {!dateFrom && !dateTo && impliedRange && (
-                    <span className="text-slate-500 text-[10px] italic ml-1">(current period)</span>
+                    <span className="text-[var(--text-muted)] text-[10px] italic ml-1">(current period)</span>
                   )}
                   {(dateFrom || dateTo) && (
-                    <button onClick={() => { setDateFrom(null); setDateTo(null); }} className="text-slate-500 hover:text-white transition-colors ml-1" title="Clear date range">
+                    <button onClick={() => { setDateFrom(null); setDateTo(null); }} className="text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors ml-1" title="Clear date range">
                       <XIcon className="w-3.5 h-3.5" />
                     </button>
                   )}
@@ -715,7 +720,7 @@ function HRDashboard() {
               <div className="flex gap-1">
                 {['ALL', ...offices].map(o => (
                   <button key={o} onClick={() => handleOfficeChange(o)}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${selectedOffice === o ? 'bg-blue-600 text-white' : 'bg-slate-800 border border-slate-700 text-slate-400 hover:border-slate-500'}`}>
+                    className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${selectedOffice === o ? 'bg-blue-600 text-white' : 'bg-[var(--bg-elevated)] border border-[var(--border)] text-[var(--text-muted)] hover:border-[var(--border)]'}`}>
                     {o}
                   </button>
                 ))}
@@ -725,12 +730,12 @@ function HRDashboard() {
               <div className="flex flex-wrap gap-1">
                 {departments.map(d => (
                   <button key={d} onClick={() => toggleDept(d)}
-                    className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${selectedDepts.includes(d) ? 'bg-violet-600 text-white' : 'bg-slate-800 border border-slate-700 text-slate-400 hover:border-slate-500'}`}>
+                    className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${selectedDepts.includes(d) ? 'bg-violet-600 text-white' : 'bg-[var(--bg-elevated)] border border-[var(--border)] text-[var(--text-muted)] hover:border-[var(--border)]'}`}>
                     {d}
                   </button>
                 ))}
                 {selectedDepts.length > 0 && (
-                  <button onClick={clearDepts} className="px-2.5 py-1 rounded-lg text-xs text-slate-500 hover:text-white transition-colors">Clear</button>
+                  <button onClick={clearDepts} className="px-2.5 py-1 rounded-lg text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors">Clear</button>
                 )}
               </div>
             </div>
@@ -744,7 +749,7 @@ function HRDashboard() {
                 <Calendar className={`w-4 h-4 flex-shrink-0 ${viewMode === 'single_day' ? 'text-blue-400' : 'text-indigo-400'}`} />
                 <div className="flex-1 min-w-0">
                   {viewMode === 'single_day' ? (
-                    <span className="text-blue-300 text-sm font-medium">
+                    <span className="text-blue-700 dark:text-blue-300 text-sm font-medium">
                       Day view: {new Date((dateFrom ?? '') + 'T00:00:00').toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
                       <span className="text-blue-400/60 text-xs ml-2">— KPIs show raw counts, charts show dept snapshots</span>
                     </span>
@@ -755,7 +760,7 @@ function HRDashboard() {
                     </span>
                   )}
                 </div>
-                <button onClick={() => { setDateFrom(null); setDateTo(null); }} className="text-slate-400/60 hover:text-white transition-colors flex-shrink-0">
+                <button onClick={() => { setDateFrom(null); setDateTo(null); }} className="text-[var(--text-muted)]/60 hover:text-[var(--text-primary)] transition-colors flex-shrink-0">
                   <XIcon className="w-4 h-4" />
                 </button>
               </div>
@@ -795,21 +800,21 @@ function HRDashboard() {
                     shiftEndMinutes={thresholds.shiftEndMinutes}
                   />
                 </div>
-                <div className="bg-slate-800/30 rounded-xl border border-slate-700 p-4">
+                <div className="bg-[var(--bg-elevated)]/30 rounded-xl border border-[var(--border)] p-4">
                   <div className="flex items-center justify-between flex-wrap gap-2 mb-4">
-                    <h2 className="text-white font-semibold text-sm">
+                    <h2 className="text-[var(--text-primary)] font-semibold text-sm">
                       {selectedDepts.length === 1 ? `Team Members — ${selectedDepts[0]}` : `All Employees — ${dateFrom}`}
                       {tableFilter !== 'all' && (
-                        <span className="ml-2 text-xs text-slate-400 font-normal">
+                        <span className="ml-2 text-xs text-[var(--text-muted)] font-normal">
                           · filtered by <span className="text-blue-400 capitalize">{tableFilter}</span>
-                          <button onClick={() => setTableFilter('all')} className="ml-2 text-slate-600 hover:text-slate-300">✕</button>
+                          <button onClick={() => setTableFilter('all')} className="ml-2 text-[var(--text-muted)] hover:text-[var(--text-muted)]">✕</button>
                         </span>
                       )}
                       {selectedDepts.length === 1 && (
-                        <button onClick={clearDepts} className="ml-2 text-slate-600 hover:text-slate-300">✕</button>
+                        <button onClick={clearDepts} className="ml-2 text-[var(--text-muted)] hover:text-[var(--text-muted)]">✕</button>
                       )}
                     </h2>
-                    <span className="text-slate-500 text-xs">{filteredSummaries.length} employees</span>
+                    <span className="text-[var(--text-muted)] text-xs">{filteredSummaries.length} employees</span>
                   </div>
                   <EmployeeTable summaries={filteredSummaries} onEmployeeClick={setSelectedEmp} />
                 </div>
@@ -911,18 +916,18 @@ function HRDashboard() {
                   shiftEndMinutes={thresholds.shiftEndMinutes}
                 />
                 <InsightsStrip summaries={employeeSummaries} dailyTrend={dailyTrend} deptAttendance={deptAttendance} records={filteredRecords} selectedDepts={selectedDepts} />
-                <div className="bg-slate-800/30 rounded-xl border border-slate-700 p-4">
+                <div className="bg-[var(--bg-elevated)]/30 rounded-xl border border-[var(--border)] p-4">
                   <div className="flex items-center justify-between flex-wrap gap-2 mb-4">
-                    <h2 className="text-white font-semibold text-sm">
+                    <h2 className="text-[var(--text-primary)] font-semibold text-sm">
                       Employee Summary
                       {tableFilter !== 'all' && (
-                        <span className="ml-2 text-xs text-slate-400 font-normal">
+                        <span className="ml-2 text-xs text-[var(--text-muted)] font-normal">
                           · filtered by <span className="text-blue-400 capitalize">{tableFilter}</span>
-                          <button onClick={() => setTableFilter('all')} className="ml-2 text-slate-600 hover:text-slate-300">✕</button>
+                          <button onClick={() => setTableFilter('all')} className="ml-2 text-[var(--text-muted)] hover:text-[var(--text-muted)]">✕</button>
                         </span>
                       )}
                     </h2>
-                    <span className="text-slate-500 text-xs">{filteredSummaries.length} employees</span>
+                    <span className="text-[var(--text-muted)] text-xs">{filteredSummaries.length} employees</span>
                   </div>
                   <EmployeeTable summaries={filteredSummaries} onEmployeeClick={setSelectedEmp} />
                 </div>
@@ -1003,20 +1008,20 @@ export default function Home() {
   }, []);
 
   if (viewMode === 'loading') return (
-    <div className="min-h-screen bg-slate-900 flex items-center justify-center">
-      <div className="text-slate-500 text-sm">Loading...</div>
+    <div className="min-h-screen bg-[var(--bg-surface)] flex items-center justify-center">
+      <div className="text-[var(--text-muted)] text-sm">Loading...</div>
     </div>
   );
   if (viewMode === 'denied') return (
-    <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center gap-4">
+    <div className="min-h-screen bg-[var(--bg-surface)] flex flex-col items-center justify-center gap-4">
       <ShieldX className="w-12 h-12 text-red-400" />
-      <p className="text-slate-400 text-sm">Access denied — shared link is invalid or expired.</p>
+      <p className="text-[var(--text-muted)] text-sm">Access denied — shared link is invalid or expired.</p>
     </div>
   );
   if (viewMode === 'manager') return <ManagerView records={managerRecords} />;
 
   return (
-    <Suspense fallback={<div className="min-h-screen bg-slate-900 flex items-center justify-center"><div className="text-slate-500 text-sm">Loading...</div></div>}>
+    <Suspense fallback={<div className="min-h-screen bg-[var(--bg-surface)] flex items-center justify-center"><div className="text-[var(--text-muted)] text-sm">Loading...</div></div>}>
       <HRDashboard />
     </Suspense>
   );

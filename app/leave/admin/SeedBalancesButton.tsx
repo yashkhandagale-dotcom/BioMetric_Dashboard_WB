@@ -34,13 +34,13 @@ export default function SeedBalancesButton({ fyLabel }: { fyLabel: string }) {
         type="button"
         onClick={handleSeed}
         disabled={loading}
-        className="bg-slate-700 hover:bg-slate-600 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+        className="bg-[var(--bg-elevated)] hover:bg-[var(--bg-elevated)] disabled:opacity-50 text-[var(--text-primary)] text-sm font-medium px-4 py-2 rounded-lg transition-colors"
         title="One-time: grants 5 SL / 5 CL / 11 PL to any employee missing a balance for this FY. Safe to click more than once."
       >
         {loading ? 'Seeding…' : 'Seed opening balances'}
       </button>
       {message && (
-        <div className={`text-xs rounded-lg px-3 py-1.5 max-w-xs text-right ${message.type === 'error' ? 'bg-red-900/30 border border-red-500/30 text-red-300' : 'bg-emerald-900/30 border border-emerald-500/30 text-emerald-300'}`}>
+        <div className={`text-xs rounded-lg px-3 py-1.5 max-w-xs text-right ${message.type === 'error' ? 'bg-red-900/30 border border-red-500/30 text-red-700 dark:text-red-300' : 'bg-emerald-900/30 border border-emerald-500/30 text-emerald-700 dark:text-emerald-300'}`}>
           {message.text}
         </div>
       )}

@@ -46,8 +46,8 @@ export default function UploadZone({ onFiles }: UploadZoneProps) {
     <div className="flex flex-col items-center justify-center min-h-[60vh] px-4">
       <div className="w-full max-w-xl">
         <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold text-white mb-2">Attendance Dashboard</h1>
-          <p className="text-slate-400 text-sm">Upload one or more biometric export CSVs to get started</p>
+          <h1 className="text-3xl font-bold text-[var(--text-primary)] mb-2">Attendance Dashboard</h1>
+          <p className="text-[var(--text-muted)] text-sm">Upload one or more biometric export CSVs to get started</p>
         </div>
 
         <div
@@ -59,7 +59,7 @@ export default function UploadZone({ onFiles }: UploadZoneProps) {
             relative border-2 border-dashed rounded-2xl p-6 sm:p-12 text-center cursor-pointer transition-all duration-200
             ${dragging
               ? 'border-blue-400 bg-blue-500/10 scale-[1.02]'
-              : 'border-slate-600 bg-slate-800/50 hover:border-slate-400 hover:bg-slate-800'}
+              : 'border-[var(--border)] bg-[var(--bg-elevated)]/50 hover:border-[var(--border)] hover:bg-[var(--bg-elevated)]'}
           `}
         >
           <input
@@ -74,20 +74,20 @@ export default function UploadZone({ onFiles }: UploadZoneProps) {
             }}
           />
 
-          <Upload className={`w-12 h-12 mx-auto mb-4 transition-colors ${dragging ? 'text-blue-400' : 'text-slate-500'}`} />
+          <Upload className={`w-12 h-12 mx-auto mb-4 transition-colors ${dragging ? 'text-blue-400' : 'text-[var(--text-muted)]'}`} />
 
-          <p className="text-white font-medium text-lg mb-1">
+          <p className="text-[var(--text-primary)] font-medium text-lg mb-1">
             {dragging ? 'Drop your CSV file(s) here' : 'Drag & drop CSV file(s)'}
           </p>
-          <p className="text-slate-400 text-sm mb-4">or click to browse — multiple files supported</p>
+          <p className="text-[var(--text-muted)] text-sm mb-4">or click to browse — multiple files supported</p>
 
-          <div className="inline-flex items-center gap-2 bg-slate-700/60 px-4 py-2 rounded-lg text-xs text-slate-400">
+          <div className="inline-flex items-center gap-2 bg-[var(--bg-elevated)]/60 px-4 py-2 rounded-lg text-xs text-[var(--text-muted)]">
             <span className="font-mono">YYYY_MM_OFFICECODE.csv</span>
             <span>·</span>
             <span>Max 5 MB each</span>
           </div>
 
-          <p className="text-slate-500 text-xs mt-3">Example: 2026_05_MUM.csv</p>
+          <p className="text-[var(--text-muted)] text-xs mt-3">Example: 2026_05_MUM.csv</p>
         </div>
 
         {error && (
@@ -95,12 +95,12 @@ export default function UploadZone({ onFiles }: UploadZoneProps) {
             <FileX className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
             <div>
               <p className="text-red-400 font-medium text-sm mb-1">Upload failed</p>
-              <pre className="text-red-300/80 text-xs whitespace-pre-wrap font-sans">{error}</pre>
+              <pre className="text-red-700 dark:text-red-300/80 text-xs whitespace-pre-wrap font-sans">{error}</pre>
             </div>
           </div>
         )}
 
-        <div className="mt-6 text-center text-xs text-slate-600">
+        <div className="mt-6 text-center text-xs text-[var(--text-muted)]">
           <p>Data is stored locally in your browser — nothing leaves this machine</p>
         </div>
       </div>

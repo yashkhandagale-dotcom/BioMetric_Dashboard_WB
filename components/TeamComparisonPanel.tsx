@@ -43,7 +43,7 @@ function valueColor(metric: string, value: number): string {
     if (value >= 7) return 'text-amber-400';
     return 'text-red-400';
   }
-  return 'text-slate-300';
+  return 'text-[var(--text-muted)]';
 }
 
 function formatValue(metric: string, value: number): string {
@@ -113,10 +113,10 @@ export default function TeamComparisonPanel({
   if (departments.length < 2) return null;
 
   return (
-    <div className="bg-slate-800 rounded-xl border border-slate-700 p-5">
+    <div className="bg-[var(--bg-elevated)] rounded-xl border border-[var(--border)] p-5">
       <div className="mb-4">
-        <h3 className="text-white font-semibold text-sm">Team Comparison</h3>
-        <p className="text-slate-500 text-xs mt-0.5">Select two departments to compare KPIs side by side</p>
+        <h3 className="text-[var(--text-primary)] font-semibold text-sm">Team Comparison</h3>
+        <p className="text-[var(--text-muted)] text-xs mt-0.5">Select two departments to compare KPIs side by side</p>
       </div>
 
       {/* Dropdowns */}
@@ -124,15 +124,15 @@ export default function TeamComparisonPanel({
         <select
           value={leftTeam}
           onChange={e => handleLeftChange(e.target.value)}
-          className="flex-1 bg-slate-700 border border-slate-600 text-white text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-violet-500"
+          className="flex-1 bg-[var(--bg-elevated)] border border-[var(--border)] text-[var(--text-primary)] text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-violet-500"
         >
           {leftOptions.map(d => <option key={d} value={d}>{d}</option>)}
         </select>
-        <span className="text-slate-500 text-sm font-medium">vs</span>
+        <span className="text-[var(--text-muted)] text-sm font-medium">vs</span>
         <select
           value={rightTeam}
           onChange={e => handleRightChange(e.target.value)}
-          className="flex-1 bg-slate-700 border border-slate-600 text-white text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-violet-500"
+          className="flex-1 bg-[var(--bg-elevated)] border border-[var(--border)] text-[var(--text-primary)] text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-violet-500"
         >
           {rightOptions.map(d => <option key={d} value={d}>{d}</option>)}
         </select>
@@ -144,7 +144,7 @@ export default function TeamComparisonPanel({
           {/* Header row */}
           <div className="grid grid-cols-3 gap-2 mb-2 px-1">
             <p className="text-violet-400 text-xs font-semibold truncate">{leftTeam}</p>
-            <p className="text-slate-500 text-xs text-center">Metric</p>
+            <p className="text-[var(--text-muted)] text-xs text-center">Metric</p>
             <p className="text-violet-400 text-xs font-semibold text-right truncate">{rightTeam}</p>
           </div>
 
@@ -153,14 +153,14 @@ export default function TeamComparisonPanel({
               const lWins = leftWins(label, leftVal, rightVal);
               const rWins = leftWins(label, rightVal, leftVal);
               return (
-                <div key={label} className="grid grid-cols-3 gap-2 items-center bg-slate-700/30 rounded-lg px-3 py-2.5">
+                <div key={label} className="grid grid-cols-3 gap-2 items-center bg-[var(--bg-elevated)]/30 rounded-lg px-3 py-2.5">
                   <div className="flex items-center gap-1.5">
                     <span className={`text-sm font-bold ${valueColor(label, leftVal)}`}>
                       {formatValue(label, leftVal)}
                     </span>
                     {lWins && <span className="text-emerald-400 text-xs">✓</span>}
                   </div>
-                  <p className="text-slate-400 text-xs text-center">{label}</p>
+                  <p className="text-[var(--text-muted)] text-xs text-center">{label}</p>
                   <div className="flex items-center justify-end gap-1.5">
                     {rWins && <span className="text-emerald-400 text-xs">✓</span>}
                     <span className={`text-sm font-bold ${valueColor(label, rightVal)}`}>
@@ -173,30 +173,30 @@ export default function TeamComparisonPanel({
           </div>
 
           {/* Winner badge */}
-          <div className="mt-4 pt-4 border-t border-slate-700 flex items-center justify-center gap-3">
+          <div className="mt-4 pt-4 border-t border-[var(--border)] flex items-center justify-center gap-3">
             {leftWinsCount !== rightWinsCount ? (
               <>
                 <div className={`px-4 py-2 rounded-xl text-sm font-semibold ${
                   leftWinsCount > rightWinsCount
-                    ? 'bg-emerald-500/20 border border-emerald-500/40 text-emerald-300'
-                    : 'bg-slate-700/50 border border-slate-600 text-slate-400'
+                    ? 'bg-emerald-500/20 border border-emerald-500/40 text-emerald-700 dark:text-emerald-300'
+                    : 'bg-[var(--bg-elevated)]/50 border border-[var(--border)] text-[var(--text-muted)]'
                 }`}>
                   {leftTeam}: {leftWinsCount} wins
                 </div>
-                <span className="text-slate-600 text-lg font-light">·</span>
+                <span className="text-[var(--text-muted)] text-lg font-light">·</span>
                 <div className={`px-4 py-2 rounded-xl text-sm font-semibold ${
                   rightWinsCount > leftWinsCount
-                    ? 'bg-emerald-500/20 border border-emerald-500/40 text-emerald-300'
-                    : 'bg-slate-700/50 border border-slate-600 text-slate-400'
+                    ? 'bg-emerald-500/20 border border-emerald-500/40 text-emerald-700 dark:text-emerald-300'
+                    : 'bg-[var(--bg-elevated)]/50 border border-[var(--border)] text-[var(--text-muted)]'
                 }`}>
                   {rightTeam}: {rightWinsCount} wins
                 </div>
-                <span className="text-slate-400 text-xs ml-1">
+                <span className="text-[var(--text-muted)] text-xs ml-1">
                   🏆 {leftWinsCount > rightWinsCount ? leftTeam : rightTeam} wins overall
                 </span>
               </>
             ) : (
-              <p className="text-slate-400 text-sm">🤝 Tie — {leftWinsCount} metrics each</p>
+              <p className="text-[var(--text-muted)] text-sm">🤝 Tie — {leftWinsCount} metrics each</p>
             )}
           </div>
         </>

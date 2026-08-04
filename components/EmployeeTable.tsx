@@ -53,7 +53,7 @@ export default function EmployeeTable({ summaries, onEmployeeClick }: EmployeeTa
   }
 
   function SortIcon({ col }: { col: SortKey }) {
-    if (sortKey !== col) return <ChevronsUpDown className="w-3 h-3 text-slate-600" />;
+    if (sortKey !== col) return <ChevronsUpDown className="w-3 h-3 text-[var(--text-muted)]" />;
     return sortDir === 'asc'
       ? <ChevronUp className="w-3 h-3 text-blue-400" />
       : <ChevronDown className="w-3 h-3 text-blue-400" />;
@@ -63,7 +63,7 @@ export default function EmployeeTable({ summaries, onEmployeeClick }: EmployeeTa
     return (
       <th
         onClick={() => handleSort(col)}
-        className="px-3 py-2.5 text-left text-xs font-medium text-slate-400 cursor-pointer hover:text-white transition-colors select-none whitespace-nowrap"
+        className="px-3 py-2.5 text-left text-xs font-medium text-[var(--text-muted)] cursor-pointer hover:text-[var(--text-primary)] transition-colors select-none whitespace-nowrap"
       >
         <span className="flex items-center gap-1">{label}<SortIcon col={col} /></span>
       </th>
@@ -74,21 +74,21 @@ export default function EmployeeTable({ summaries, onEmployeeClick }: EmployeeTa
     <div>
       <div className="flex items-center gap-2 mb-3">
         <div className="relative flex-1 max-w-xs">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-muted)]" />
           <input
             type="text"
             placeholder="Search by name or code…"
             value={search}
             onChange={e => { setSearch(e.target.value); setPage(1); }}
-            className="w-full bg-slate-800 border border-slate-700 rounded-lg pl-9 pr-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500"
+            className="w-full bg-[var(--bg-elevated)] border border-[var(--border)] rounded-lg pl-9 pr-3 py-2 text-sm text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:border-blue-500"
           />
         </div>
-        <span className="text-xs text-slate-500">{filtered.length} employees</span>
+        <span className="text-xs text-[var(--text-muted)]">{filtered.length} employees</span>
       </div>
 
-      <div className="overflow-x-auto rounded-xl border border-slate-700">
+      <div className="overflow-x-auto rounded-xl border border-[var(--border)]">
         <table className="w-full text-sm">
-          <thead className="bg-slate-800 border-b border-slate-700">
+          <thead className="bg-[var(--bg-elevated)] border-b border-[var(--border)]">
             <tr>
               <TH col="employeeName" label="Name" />
               <TH col="department" label="Department" />
@@ -97,34 +97,34 @@ export default function EmployeeTable({ summaries, onEmployeeClick }: EmployeeTa
               <TH col="absentDays" label="On Leave" />
               <TH col="lateCount" label="Late" />
               <TH col="earlyExitCount" label="Early Exit" />
-              <th className="px-3 py-2.5 text-left text-xs font-medium text-slate-400 whitespace-nowrap">Flags</th>
+              <th className="px-3 py-2.5 text-left text-xs font-medium text-[var(--text-muted)] whitespace-nowrap">Flags</th>
               <TH col="avgHoursWorked" label="Avg Hours" />
               <TH col="worstStatus" label="Status" />
             </tr>
           </thead>
-          <tbody className="divide-y divide-slate-800">
+          <tbody className="divide-y divide-[var(--border)]">
             {pageData.map((emp) => (
               <tr
                 key={`${emp.employeeCode}_${emp.officeCode}`}
-                className="hover:bg-slate-800/50 transition-colors cursor-pointer"
+                className="hover:bg-[var(--bg-elevated)]/50 transition-colors cursor-pointer"
                 onClick={() => onEmployeeClick?.(emp)}
               >
                 <td className="px-3 py-2.5">
-                  <div className="text-blue-400 hover:text-blue-300 font-medium transition-colors">
+                  <div className="text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 font-medium transition-colors">
                     {emp.employeeName}
                   </div>
-                  <div className="text-slate-500 text-xs">
+                  <div className="text-[var(--text-muted)] text-xs">
                     {emp.employeeCode}
                   </div>
                 </td>
-                <td className="px-3 py-2.5 text-slate-300">{emp.department}</td>
+                <td className="px-3 py-2.5 text-[var(--text-muted)]">{emp.department}</td>
                 <td className="px-3 py-2.5">
-                  <span className="bg-slate-700 px-2 py-0.5 rounded text-xs text-slate-300">{emp.officeCode}</span>
+                  <span className="bg-[var(--bg-elevated)] px-2 py-0.5 rounded text-xs text-[var(--text-muted)]">{emp.officeCode}</span>
                 </td>
                 <td className="px-3 py-2.5 text-emerald-400 font-medium">{emp.presentDays}</td>
                 <td className="px-3 py-2.5 text-red-400">{emp.absentDays}</td>
                 <td className="px-3 py-2.5 text-amber-400">{emp.lateCount}</td>
-                <td className="px-3 py-2.5 text-slate-300">{emp.earlyExitCount}</td>
+                <td className="px-3 py-2.5 text-[var(--text-muted)]">{emp.earlyExitCount}</td>
                 <td className="px-3 py-2.5">
                   <div className="flex flex-wrap gap-1">
                     {emp.shortDayCount > 0 ? (
@@ -140,11 +140,11 @@ export default function EmployeeTable({ summaries, onEmployeeClick }: EmployeeTa
                       </span>
                     ) : null}
                     {emp.shortDayCount === 0 && emp.frequentPunchDays === 0 && (
-                      <span className="text-slate-600 text-xs">—</span>
+                      <span className="text-[var(--text-muted)] text-xs">—</span>
                     )}
                   </div>
                 </td>
-                <td className="px-3 py-2.5 text-slate-300 font-mono">{emp.avgHoursWorked}</td>
+                <td className="px-3 py-2.5 text-[var(--text-muted)] font-mono">{emp.avgHoursWorked}</td>
                 <td className="px-3 py-2.5">
                   <span className={`border px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_BADGE[emp.worstStatus]}`}>
                     {STATUS_LABEL[emp.worstStatus]}
@@ -154,7 +154,7 @@ export default function EmployeeTable({ summaries, onEmployeeClick }: EmployeeTa
             ))}
             {pageData.length === 0 && (
               <tr>
-                <td colSpan={10} className="px-3 py-10 text-center text-slate-500">No employees match the current filters</td>
+                <td colSpan={10} className="px-3 py-10 text-center text-[var(--text-muted)]">No employees match the current filters</td>
               </tr>
             )}
           </tbody>
@@ -163,14 +163,14 @@ export default function EmployeeTable({ summaries, onEmployeeClick }: EmployeeTa
 
       {totalPages > 1 && (
         <div className="flex items-center justify-between mt-3 text-sm">
-          <span className="text-slate-500 text-xs">Page {page} of {totalPages} · {sorted.length} total</span>
+          <span className="text-[var(--text-muted)] text-xs">Page {page} of {totalPages} · {sorted.length} total</span>
           <div className="flex gap-1">
             <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
-              className="px-3 py-1 rounded-lg bg-slate-800 border border-slate-700 text-slate-400 disabled:opacity-40 hover:border-slate-500 transition-colors">
+              className="px-3 py-1 rounded-lg bg-[var(--bg-elevated)] border border-[var(--border)] text-[var(--text-muted)] disabled:opacity-40 hover:border-[var(--border)] transition-colors">
               Prev
             </button>
             <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}
-              className="px-3 py-1 rounded-lg bg-slate-800 border border-slate-700 text-slate-400 disabled:opacity-40 hover:border-slate-500 transition-colors">
+              className="px-3 py-1 rounded-lg bg-[var(--bg-elevated)] border border-[var(--border)] text-[var(--text-muted)] disabled:opacity-40 hover:border-[var(--border)] transition-colors">
               Next
             </button>
           </div>

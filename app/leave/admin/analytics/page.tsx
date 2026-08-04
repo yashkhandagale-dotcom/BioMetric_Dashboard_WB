@@ -9,10 +9,10 @@ export default async function LeaveAnalyticsPage() {
   const fyStartYear = getFYStartYear();
 
   return (
-    <div className="min-h-screen bg-slate-900 text-white p-8 space-y-6">
+    <div className="min-h-screen bg-[var(--bg-surface)] text-[var(--text-primary)] p-8 space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-semibold">Leave Analytics — {formatFYLabel(fyStartYear)}</h1>
-        <a href="/leave/admin" className="text-xs text-slate-400 hover:text-white">← Back to balances</a>
+        <a href="/leave/admin" className="text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)]">← Back to balances</a>
       </div>
 
       <LeaveAnalytics fyStartYear={fyStartYear} />

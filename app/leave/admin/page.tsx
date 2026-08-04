@@ -93,12 +93,12 @@ export default async function LeaveAdminHome() {
   });
 
   return (
-    <div className="min-h-screen bg-slate-900 text-white p-8 space-y-6">
+    <div className="min-h-screen bg-[var(--bg-surface)] text-[var(--text-primary)] p-8 space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <a href="/" className="text-xs text-slate-400 hover:text-white">← Back to Dashboard</a>
+          <a href="/" className="text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)]">← Back to Dashboard</a>
           <h1 className="text-xl font-semibold mt-1">Leave Balances — {formatFYLabel(fyStartYear)}</h1>
-          <p className="text-slate-500 text-xs mt-1">Signed in as {user?.email}</p>
+          <p className="text-[var(--text-muted)] text-xs mt-1">Signed in as {user?.email}</p>
         </div>
         <div className="flex items-center gap-2">
           <a
@@ -109,25 +109,25 @@ export default async function LeaveAdminHome() {
           </a>
           <a
             href="/leave/admin/history"
-            className="border border-slate-700 hover:border-slate-500 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+            className="border border-[var(--border)] hover:border-[var(--border)] text-[var(--text-primary)] text-sm font-medium px-4 py-2 rounded-lg transition-colors"
           >
             Leave Tracker
           </a>
           <a
             href="/leave/admin/violations"
-            className="border border-red-500/40 hover:border-red-400 text-red-300 hover:text-red-200 text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+            className="border border-red-500/40 hover:border-red-400 text-red-700 dark:text-red-300 hover:text-red-700 dark:hover:text-red-200 text-sm font-medium px-4 py-2 rounded-lg transition-colors"
           >
             Violations
           </a>
           <a
             href="/leave/admin/bulk-events"
-            className="border border-slate-700 hover:border-slate-500 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+            className="border border-[var(--border)] hover:border-[var(--border)] text-[var(--text-primary)] text-sm font-medium px-4 py-2 rounded-lg transition-colors"
           >
             Bulk Events
           </a>
           <a
             href="/leave/admin/organization"
-            className="border border-slate-700 hover:border-slate-500 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+            className="border border-[var(--border)] hover:border-[var(--border)] text-[var(--text-primary)] text-sm font-medium px-4 py-2 rounded-lg transition-colors"
           >
             Organization
           </a>
@@ -136,7 +136,7 @@ export default async function LeaveAdminHome() {
       </div>
 
       {(employeesError || balancesError || deptManagersError) && (
-        <div className="bg-red-900/30 border border-red-500/30 text-red-300 text-xs rounded-lg px-3 py-2">
+        <div className="bg-red-900/30 border border-red-500/30 text-red-700 dark:text-red-300 text-xs rounded-lg px-3 py-2">
           {employeesError?.message || balancesError?.message || deptManagersError?.message}
         </div>
       )}

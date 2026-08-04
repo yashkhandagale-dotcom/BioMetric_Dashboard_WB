@@ -45,25 +45,25 @@ export default function ColumnMappingScreen({ officeCode, csvHeaders, initialMap
           <div className="inline-flex items-center gap-2 bg-blue-500/10 border border-blue-500/20 px-3 py-1 rounded-full text-blue-400 text-xs font-medium mb-3">
             {initialMapping ? `Remapping ${officeCode}` : `First upload for ${officeCode}`}
           </div>
-          <h2 className="text-2xl font-bold text-white mb-1">Map your columns</h2>
-          <p className="text-slate-400 text-sm">
+          <h2 className="text-2xl font-bold text-[var(--text-primary)] mb-1">Map your columns</h2>
+          <p className="text-[var(--text-muted)] text-sm">
             We've pre-matched what we could recognize — review and adjust, then save. This is a one-time setup per office; re-uploads skip this screen.
           </p>
         </div>
 
-        <div className="bg-slate-800 rounded-2xl border border-slate-700 overflow-hidden">
-          <div className="grid grid-cols-2 gap-0 text-xs font-medium text-slate-400 uppercase tracking-wide px-4 sm:px-6 py-3 border-b border-slate-700 bg-slate-800/80">
+        <div className="bg-[var(--bg-elevated)] rounded-2xl border border-[var(--border)] overflow-hidden">
+          <div className="grid grid-cols-2 gap-0 text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide px-4 sm:px-6 py-3 border-b border-[var(--border)] bg-[var(--bg-elevated)]/80">
             <span>Standard Field</span>
             <span>Your CSV Column</span>
           </div>
 
-          <div className="divide-y divide-slate-700/50">
+          <div className="divide-y divide-[var(--border)]/50">
             {REQUIRED_STANDARD_FIELDS.map((field) => {
               const isMissing = touched.has(field) && !mapping[field];
               return (
                 <div key={field} className="grid grid-cols-2 items-center gap-2 sm:gap-4 px-4 sm:px-6 py-3">
                   <div className="flex items-center gap-2">
-                    <span className="text-white text-sm font-medium">{FIELD_LABELS[field]}</span>
+                    <span className="text-[var(--text-primary)] text-sm font-medium">{FIELD_LABELS[field]}</span>
                     <span className="text-red-400 text-xs">*</span>
                     {autoMatchedFields.has(field) && mapping[field] && (
                       <span className="flex items-center gap-1 text-emerald-400 text-[10px] font-medium bg-emerald-500/10 px-1.5 py-0.5 rounded">
@@ -79,7 +79,7 @@ export default function ColumnMappingScreen({ officeCode, csvHeaders, initialMap
                         autoMatchedFields.delete(field);
                         setMapping(prev => ({ ...prev, [field]: e.target.value }));
                       }}
-                      className={`bg-slate-700 text-white text-sm rounded-lg px-3 py-2 border w-full focus:outline-none focus:border-blue-500 ${isMissing ? 'border-red-500' : 'border-slate-600'}`}
+                      className={`bg-[var(--bg-elevated)] text-[var(--text-primary)] text-sm rounded-lg px-3 py-2 border w-full focus:outline-none focus:border-blue-500 ${isMissing ? 'border-red-500' : 'border-[var(--border)]'}`}
                     >
                       <option value="">— Select column —</option>
                       {csvHeaders.map(h => (
@@ -97,7 +97,7 @@ export default function ColumnMappingScreen({ officeCode, csvHeaders, initialMap
         </div>
 
         {extraCols.length > 0 && (
-          <div className="mt-3 p-3 bg-slate-800/60 border border-slate-700 rounded-xl text-xs text-slate-400">
+          <div className="mt-3 p-3 bg-[var(--bg-elevated)]/60 border border-[var(--border)] rounded-xl text-xs text-[var(--text-muted)]">
             {extraCols.length} additional column{extraCols.length > 1 ? 's' : ''} detected and will be preserved but not used in calculations: {extraCols.join(', ')}
           </div>
         )}
@@ -112,7 +112,7 @@ export default function ColumnMappingScreen({ officeCode, csvHeaders, initialMap
           {onCancel && (
             <button
               onClick={onCancel}
-              className="px-5 py-3 rounded-xl font-medium text-sm text-slate-300 bg-slate-800 hover:bg-slate-700 transition-colors"
+              className="px-5 py-3 rounded-xl font-medium text-sm text-[var(--text-muted)] bg-[var(--bg-elevated)] hover:bg-[var(--bg-elevated)] transition-colors"
             >
               Cancel
             </button>

@@ -70,17 +70,17 @@ export default function RecordLeaveDrawer({
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-black/60 backdrop-blur-sm" onClick={onClose}>
       <div
-        className={`h-full w-full max-w-md bg-slate-900 border-l border-slate-700 shadow-2xl flex flex-col transition-transform duration-300 ease-out ${
+        className={`h-full w-full max-w-md bg-[var(--bg-surface)] border-l border-[var(--border)] shadow-2xl flex flex-col transition-transform duration-300 ease-out ${
           mounted ? 'translate-x-0' : 'translate-x-full'
         }`}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-700 flex-shrink-0">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border)] flex-shrink-0">
           <div>
-            <h3 className="text-white font-semibold text-sm">{title ?? 'Record Leave'}</h3>
-            {employeeName && <p className="text-slate-500 text-xs mt-0.5">{employeeName}</p>}
+            <h3 className="text-[var(--text-primary)] font-semibold text-sm">{title ?? 'Record Leave'}</h3>
+            {employeeName && <p className="text-[var(--text-muted)] text-xs mt-0.5">{employeeName}</p>}
           </div>
-          <button type="button" onClick={onClose} className="text-slate-400 hover:text-white">
+          <button type="button" onClick={onClose} className="text-[var(--text-muted)] hover:text-[var(--text-primary)]">
             <X size={18} />
           </button>
         </div>

@@ -51,33 +51,33 @@ export default function CalendarDayDrawer({
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-black/60 backdrop-blur-sm" onClick={onClose}>
       <div
-        className="h-full w-full max-w-md bg-slate-900 border-l border-slate-700 shadow-2xl flex flex-col"
+        className="h-full w-full max-w-md bg-[var(--bg-surface)] border-l border-[var(--border)] shadow-2xl flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-700 flex-shrink-0">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border)] flex-shrink-0">
           <div>
-            <h3 className="text-white font-semibold text-sm">{date}</h3>
-            <p className="text-slate-500 text-xs mt-0.5">
+            <h3 className="text-[var(--text-primary)] font-semibold text-sm">{date}</h3>
+            <p className="text-[var(--text-muted)] text-xs mt-0.5">
               {sorted.length} employee{sorted.length === 1 ? '' : 's'}
             </p>
           </div>
-          <button type="button" onClick={onClose} className="text-slate-400 hover:text-white">
+          <button type="button" onClick={onClose} className="text-[var(--text-muted)] hover:text-[var(--text-primary)]">
             <X size={18} />
           </button>
         </div>
 
         <div className="flex-1 overflow-y-auto p-4 space-y-2">
           {sorted.length === 0 && (
-            <p className="text-slate-500 text-sm text-center py-10">
+            <p className="text-[var(--text-muted)] text-sm text-center py-10">
               Nothing to review for this day.
             </p>
           )}
           {sorted.map((entry) => (
-            <div key={entry.employeeId} className="bg-slate-800/40 border border-slate-700 rounded-lg p-3">
+            <div key={entry.employeeId} className="bg-[var(--bg-elevated)]/40 border border-[var(--border)] rounded-lg p-3">
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
-                  <p className="text-white text-sm font-medium truncate">{entry.employeeName}</p>
-                  <p className="text-slate-500 text-xs truncate">
+                  <p className="text-[var(--text-primary)] text-sm font-medium truncate">{entry.employeeName}</p>
+                  <p className="text-[var(--text-muted)] text-xs truncate">
                     {entry.employeeCode} · {entry.department} · {entry.office}
                   </p>
                 </div>
@@ -93,10 +93,10 @@ export default function CalendarDayDrawer({
                   {entry.label}
                 </span>
                 {entry.status === 'pending' && (
-                  <span className="text-[11px] text-slate-500">Pending approval</span>
+                  <span className="text-[11px] text-[var(--text-muted)]">Pending approval</span>
                 )}
                 {entry.status === 'approved' && (
-                  <span className="text-[11px] text-slate-500">Approved</span>
+                  <span className="text-[11px] text-[var(--text-muted)]">Approved</span>
                 )}
               </div>
 
@@ -113,7 +113,7 @@ export default function CalendarDayDrawer({
                 <button
                   type="button"
                   onClick={() => onViewInHistory(entry.employeeId)}
-                  className="text-xs text-slate-400 hover:text-white"
+                  className="text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)]"
                 >
                   View full record →
                 </button>

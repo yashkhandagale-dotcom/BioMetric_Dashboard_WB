@@ -13,7 +13,7 @@ export default function ViolationBadge({ count }: { count?: number }) {
   return (
     <span
       title={`${count} open violation${count === 1 ? '' : 's'}`}
-      className="shrink-0 bg-red-900/30 border border-red-500/30 text-red-300 text-[10px] font-medium rounded-full px-2 py-0.5"
+      className="shrink-0 bg-red-900/30 border border-red-500/30 text-red-700 dark:text-red-300 text-[10px] font-medium rounded-full px-2 py-0.5"
     >
       {count} violation{count === 1 ? '' : 's'}
     </span>

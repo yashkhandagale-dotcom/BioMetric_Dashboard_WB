@@ -83,10 +83,10 @@ export default function LeaveAnalytics({ fyStartYear }: { fyStartYear: number })
     };
   }, [fyStartYear]);
 
-  if (loading) return <p className="text-slate-500 text-sm">Loading analytics…</p>;
+  if (loading) return <p className="text-[var(--text-muted)] text-sm">Loading analytics…</p>;
   if (error) {
     return (
-      <div className="bg-red-900/30 border border-red-500/30 text-red-300 text-xs rounded-lg px-3 py-2">{error}</div>
+      <div className="bg-red-900/30 border border-red-500/30 text-red-700 dark:text-red-300 text-xs rounded-lg px-3 py-2">{error}</div>
     );
   }
   if (!data) return null;
@@ -95,17 +95,17 @@ export default function LeaveAnalytics({ fyStartYear }: { fyStartYear: number })
 
   return (
     <div className="space-y-4">
-      <h2 className="text-sm font-semibold text-slate-300">Leave Analytics — {data.fyLabel}</h2>
+      <h2 className="text-sm font-semibold text-[var(--text-muted)]">Leave Analytics — {data.fyLabel}</h2>
 
       {!hasAnyData ? (
-        <div className="bg-slate-800/40 border border-slate-700 rounded-xl px-4 py-10 text-center text-slate-500 text-sm">
+        <div className="bg-[var(--bg-elevated)]/40 border border-[var(--border)] rounded-xl px-4 py-10 text-center text-[var(--text-muted)] text-sm">
           No leave recorded yet this FY — charts will populate as leave is recorded.
         </div>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           {/* D5-1: leave-type distribution */}
-          <div className="bg-slate-800/40 border border-slate-700 rounded-xl p-4">
-            <p className="text-xs text-slate-400 mb-2">Leave-Type Distribution (days)</p>
+          <div className="bg-[var(--bg-elevated)]/40 border border-[var(--border)] rounded-xl p-4">
+            <p className="text-xs text-[var(--text-muted)] mb-2">Leave-Type Distribution (days)</p>
             <ResponsiveContainer width="100%" height={220}>
               <PieChart>
                 <Pie
@@ -128,8 +128,8 @@ export default function LeaveAnalytics({ fyStartYear }: { fyStartYear: number })
           </div>
 
           {/* D5-2: monthly leave trend */}
-          <div className="bg-slate-800/40 border border-slate-700 rounded-xl p-4">
-            <p className="text-xs text-slate-400 mb-2">Monthly Trend (total days)</p>
+          <div className="bg-[var(--bg-elevated)]/40 border border-[var(--border)] rounded-xl p-4">
+            <p className="text-xs text-[var(--text-muted)] mb-2">Monthly Trend (total days)</p>
             <ResponsiveContainer width="100%" height={220}>
               <LineChart data={data.byMonth.map((m) => ({ ...m, label: monthLabel(m.month) }))}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
@@ -142,8 +142,8 @@ export default function LeaveAnalytics({ fyStartYear }: { fyStartYear: number })
           </div>
 
           {/* D5-3: department-wise leave load */}
-          <div className="bg-slate-800/40 border border-slate-700 rounded-xl p-4">
-            <p className="text-xs text-slate-400 mb-2">Department-Wise Load (total days)</p>
+          <div className="bg-[var(--bg-elevated)]/40 border border-[var(--border)] rounded-xl p-4">
+            <p className="text-xs text-[var(--text-muted)] mb-2">Department-Wise Load (total days)</p>
             <ResponsiveContainer width="100%" height={220}>
               <BarChart data={data.byDepartment}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#334155" />

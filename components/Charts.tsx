@@ -20,6 +20,7 @@ import { isHoliday } from '@/lib/holidays';
 import { leaveLabelFor, UNMARKED_LEAVE_LABEL } from '@/lib/leaveLabels';
 import InfoTooltip from './InfoTooltip';
 import { useTrendChartLayout, useGranularityOverride, TrendGranularity } from '@/lib/chartLayout';
+import { useThemeColors } from '@/lib/useThemeColors';
 
 function rateColor(rate: number): string {
   if (rate >= 80) return '#34d399';
@@ -30,7 +31,7 @@ function rateColor(rate: number): string {
 function ChartSubtitle({ selectedDepts }: { selectedDepts?: string[] }) {
   if (!selectedDepts) return null;
   const label = selectedDepts.length === 0 ? 'All Departments' : selectedDepts.join(', ');
-  return <p className="text-slate-500 text-xs mt-0.5 mb-3"><span className="text-slate-400">{label}</span></p>;
+  return <p className="text-[var(--text-muted)] text-xs mt-0.5 mb-3"><span className="text-[var(--text-muted)]">{label}</span></p>;
 }
 
 function getDepartmentFromClick(entry: any): string | null {
@@ -59,7 +60,7 @@ function SortToggle({ mode, onChange }: { mode: SortMode; onChange: (m: SortMode
         <button
           key={o.key}
           onClick={() => onChange(o.key)}
-          className={`px-2 py-1 rounded text-[10px] font-medium transition-colors ${mode === o.key ? 'bg-blue-600 text-white' : 'bg-slate-700 text-slate-400 hover:text-white'}`}
+          className={`px-2 py-1 rounded text-[10px] font-medium transition-colors ${mode === o.key ? 'bg-blue-600 text-white' : 'bg-[var(--bg-elevated)] text-[var(--text-muted)] hover:text-[var(--text-primary)]'}`}
         >
           {o.label}
         </button>
@@ -92,7 +93,7 @@ function GranularityToggle({ value, onChange, active }: {
           onClick={() => onChange(o.key)}
           title={o.key === null ? `Auto (currently ${active})` : undefined}
           className={`px-2 py-0.5 rounded text-[10px] font-medium transition-colors ${
-            value === o.key ? 'bg-blue-600 text-white' : 'bg-slate-700 text-slate-400 hover:text-white'
+            value === o.key ? 'bg-blue-600 text-white' : 'bg-[var(--bg-elevated)] text-[var(--text-muted)] hover:text-[var(--text-primary)]'
           }`}
         >
           {o.label}
@@ -109,6 +110,7 @@ export function DailyTrendChart({ data, selectedDepts, onDateClick, selectedDate
   onDateClick?: (date: string) => void;
   selectedDate?: string | null;
 }) {
+  const __tc = useThemeColors();
   const [absentModal, setAbsentModal] = useState<{ date: string; names: string[] } | null>(null);
 
   // Single click on a point drills into that day (onDateClick); double click
@@ -147,18 +149,18 @@ export function DailyTrendChart({ data, selectedDepts, onDateClick, selectedDate
     const shown = absentees.slice(0, 5);
     const extra = absentees.length - 5;
     return (
-      <div className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs shadow-xl max-w-[240px]">
-        <p className="text-slate-300 font-medium mb-1">{label}</p>
+      <div className="bg-[var(--bg-elevated)] border border-[var(--border)] rounded-lg px-3 py-2 text-xs shadow-xl max-w-[240px]">
+        <p className="text-[var(--text-muted)] font-medium mb-1">{label}</p>
         <p style={{ color: rateColor(rate) }}>Rate: <strong>{rate}%</strong></p>
         <p className="text-blue-400">Present: {present} / {total}</p>
         {entry?.lateCount > 0 && <p className="text-amber-400">Late: {entry.lateCount}</p>}
         {entry?.shortDayCount > 0 && <p className="text-orange-400">Short Days: {entry.shortDayCount}</p>}
         {absentees.length > 0 && (
           <>
-            <div className="border-t border-slate-700 my-1.5" />
+            <div className="border-t border-[var(--border)] my-1.5" />
             <p className="text-red-400 mb-1">Absent ({absentees.length}):</p>
-            {shown.map((n, i) => <p key={i} className="text-slate-400 truncate">{n}</p>)}
-            {extra > 0 && <p className="text-slate-500 text-[10px] mt-1">+{extra} more — double-click the point to see all</p>}
+            {shown.map((n, i) => <p key={i} className="text-[var(--text-muted)] truncate">{n}</p>)}
+            {extra > 0 && <p className="text-[var(--text-muted)] text-[10px] mt-1">+{extra} more — double-click the point to see all</p>}
           </>
         )}
       </div>
@@ -221,10 +223,10 @@ export function DailyTrendChart({ data, selectedDepts, onDateClick, selectedDate
 }
   return (
     <>
-      <div className="bg-slate-800 rounded-xl border border-slate-700 p-4 min-h-[280px]">
+      <div className="bg-[var(--bg-elevated)] rounded-xl border border-[var(--border)] p-4 min-h-[280px]">
         <div className="flex items-start justify-between mb-1 flex-wrap gap-2">
           <div>
-            <h3 className="text-white font-semibold text-sm">Daily Attendance Trend</h3>
+            <h3 className="text-[var(--text-primary)] font-semibold text-sm">Daily Attendance Trend</h3>
             <ChartSubtitle selectedDepts={selectedDepts} />
           </div>
           <div className="flex items-center gap-2">
@@ -233,7 +235,7 @@ export function DailyTrendChart({ data, selectedDepts, onDateClick, selectedDate
           </div>
         </div>
         {chartData.length === 0
-          ? <div className="h-48 flex items-center justify-center text-slate-500 text-sm">No data</div>
+          ? <div className="h-48 flex items-center justify-center text-[var(--text-muted)] text-sm">No data</div>
           : (
             <>
               {selectedDate && (
@@ -242,7 +244,7 @@ export function DailyTrendChart({ data, selectedDepts, onDateClick, selectedDate
                   Showing: {selectedDate.slice(5)} · click another point to switch, click same to clear
                 </p>
               )}
-              <p className="text-slate-600 text-[10px] mb-1">
+              <p className="text-[var(--text-muted)] text-[10px] mb-1">
                 {isAggregated
                   ? `Showing ${granularity} averages across ${data.length} days · switch to Daily to drill into a single day`
                   : 'Hover a point to see absentees · double-click to see the full absentee list'}
@@ -256,9 +258,9 @@ export function DailyTrendChart({ data, selectedDepts, onDateClick, selectedDate
                       onClick={handleChartClick}
                       style={{ cursor: onDateClick && !isAggregated ? 'pointer' : 'default' }}
                     >
-                      <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-                      <XAxis dataKey="date" tick={{ fontSize: 10, fill: '#64748b' }} interval="preserveStart" />
-                      <YAxis domain={[0, 100]} tick={{ fontSize: 10, fill: '#64748b' }} unit="%" />
+                      <CartesianGrid strokeDasharray="3 3" stroke={__tc.border} />
+                      <XAxis dataKey="date" tick={{ fontSize: 10, fill: __tc.mutedText }} interval="preserveStart" />
+                      <YAxis domain={[0, 100]} tick={{ fontSize: 10, fill: __tc.mutedText }} unit="%" />
                       <ReferenceLine y={80} stroke="#34d399" strokeDasharray="4 2" strokeOpacity={0.6} />
                       <ReferenceLine y={70} stroke="#fbbf24" strokeDasharray="4 2" strokeOpacity={0.6} />
                       {selectedDate && !isAggregated && (
@@ -294,24 +296,24 @@ export function DailyTrendChart({ data, selectedDepts, onDateClick, selectedDate
           onClick={() => setAbsentModal(null)}
         >
           <div
-            className="bg-slate-800 border border-slate-600 rounded-xl p-5 max-w-md w-full max-h-[80vh] overflow-y-auto shadow-2xl"
+            className="bg-[var(--bg-elevated)] border border-[var(--border)] rounded-xl p-5 max-w-md w-full max-h-[80vh] overflow-y-auto shadow-2xl"
             onClick={e => e.stopPropagation()}
           >
             <div className="flex items-center justify-between mb-3">
               <div>
-                <h3 className="text-white font-semibold text-sm">Absent on {absentModal.date}</h3>
-                <p className="text-slate-400 text-xs mt-0.5">{absentModal.names.length} employees absent</p>
+                <h3 className="text-[var(--text-primary)] font-semibold text-sm">Absent on {absentModal.date}</h3>
+                <p className="text-[var(--text-muted)] text-xs mt-0.5">{absentModal.names.length} employees absent</p>
               </div>
               <button
                 onClick={() => setAbsentModal(null)}
-                className="text-slate-400 hover:text-white text-lg leading-none transition-colors"
+                className="text-[var(--text-muted)] hover:text-[var(--text-primary)] text-lg leading-none transition-colors"
               >✕</button>
             </div>
             <div className="space-y-0.5">
               {[...absentModal.names].sort().map((name, i) => (
-                <div key={i} className="flex items-center gap-2 py-2 border-b border-slate-700/40 last:border-0">
+                <div key={i} className="flex items-center gap-2 py-2 border-b border-[var(--border)]/40 last:border-0">
                   <span className="w-2 h-2 rounded-full bg-red-400 flex-shrink-0" />
-                  <span className="text-slate-300 text-sm">{name}</span>
+                  <span className="text-[var(--text-muted)] text-sm">{name}</span>
                 </div>
               ))}
             </div>
@@ -334,6 +336,7 @@ export function ComparisonTrendChart({ records, selectedDepts, holidays = [], gr
   holidays?: Holiday[];
   graceMinutes?: number;
 }) {
+  const __tc = useThemeColors();
   const depts = selectedDepts.slice(0, 5);
 
   const { dailyRows, dates } = useMemo(() => {
@@ -374,11 +377,11 @@ export function ComparisonTrendChart({ records, selectedDepts, holidays = [], gr
   });
 
   return (
-    <div className="bg-slate-800 rounded-xl border border-slate-700 p-4 min-h-[280px]">
+    <div className="bg-[var(--bg-elevated)] rounded-xl border border-[var(--border)] p-4 min-h-[280px]">
       <div className="flex items-start justify-between mb-1 flex-wrap gap-2">
         <div>
-          <h3 className="text-white font-semibold text-sm">Daily Attendance Trend — Comparison</h3>
-          <p className="text-slate-500 text-xs mt-0.5 mb-3">
+          <h3 className="text-[var(--text-primary)] font-semibold text-sm">Daily Attendance Trend — Comparison</h3>
+          <p className="text-[var(--text-muted)] text-xs mt-0.5 mb-3">
             {depts.length < selectedDepts.length
               ? `Showing first ${depts.length} of ${selectedDepts.length} selected departments`
               : 'One line per selected department'}
@@ -391,21 +394,21 @@ export function ComparisonTrendChart({ records, selectedDepts, holidays = [], gr
         </div>
       </div>
       {chartData.length === 0 || dates.length === 0
-        ? <div className="h-48 flex items-center justify-center text-slate-500 text-sm">No data</div>
+        ? <div className="h-48 flex items-center justify-center text-[var(--text-muted)] text-sm">No data</div>
         : (
           <div className="overflow-x-auto">
             <div style={{ minWidth }}>
               <ResponsiveContainer width="100%" height={220}>
                 <LineChart data={chartData} margin={{ top: 5, right: 10, left: -20, bottom: 5 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-                  <XAxis dataKey="date" tick={{ fontSize: 10, fill: '#64748b' }} interval="preserveStart" />
-                  <YAxis domain={[0, 100]} tick={{ fontSize: 10, fill: '#64748b' }} unit="%" />
+                  <CartesianGrid strokeDasharray="3 3" stroke={__tc.border} />
+                  <XAxis dataKey="date" tick={{ fontSize: 10, fill: __tc.mutedText }} interval="preserveStart" />
+                  <YAxis domain={[0, 100]} tick={{ fontSize: 10, fill: __tc.mutedText }} unit="%" />
                   <Tooltip
                     content={({ active, payload, label }: any) => {
                       if (!active || !payload?.length) return null;
                       return (
-                        <div className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs shadow-xl">
-                          <p className="text-slate-300 font-medium mb-1">{label}</p>
+                        <div className="bg-[var(--bg-elevated)] border border-[var(--border)] rounded-lg px-3 py-2 text-xs shadow-xl">
+                          <p className="text-[var(--text-muted)] font-medium mb-1">{label}</p>
                           {payload.map((p: any) => (
                             <p key={p.dataKey} style={{ color: p.color }}>{p.dataKey}: <strong>{p.value}%</strong></p>
                           ))}
@@ -414,7 +417,7 @@ export function ComparisonTrendChart({ records, selectedDepts, holidays = [], gr
                     }}
                     wrapperStyle={{ pointerEvents: 'none', zIndex: 50 }}
                   />
-                  <Legend wrapperStyle={{ fontSize: 11, paddingTop: 8 }} formatter={(v: string) => <span style={{ color: '#94a3b8' }}>{v}</span>} />
+                  <Legend wrapperStyle={{ fontSize: 11, paddingTop: 8 }} formatter={(v: string) => <span style={{ color: __tc.mutedText }}>{v}</span>} />
                   {depts.map((dept, i) => (
                     <Line key={dept} type="monotone" dataKey={dept} name={dept}
                       stroke={COMPARISON_LINE_COLORS[i % COMPARISON_LINE_COLORS.length]}
@@ -444,6 +447,7 @@ interface DeptAttendanceChartProps {
 }
 
 export function DeptAttendanceChart({ data, allRecords, selectedDepts, highlightDepts, onDeptClick, onDeptDrillChange }: DeptAttendanceChartProps) {
+  const __tc = useThemeColors();
   const [manualDrill, setManualDrill] = useState<string | null>(null);
   const [sortMode, setSortMode] = useState<SortMode>('default');
   const drillDept = selectedDepts?.length === 1 ? selectedDepts[0] : manualDrill;
@@ -489,22 +493,22 @@ export function DeptAttendanceChart({ data, allRecords, selectedDepts, highlight
 
   if (drillDept) {
     return (
-      <div className="bg-slate-800 rounded-xl border border-slate-700 p-4">
+      <div className="bg-[var(--bg-elevated)] rounded-xl border border-[var(--border)] p-4">
         <div className="flex items-center flex-wrap gap-3 mb-1">
-          <button onClick={handleBack} className="flex items-center gap-1.5 text-blue-400 hover:text-blue-300 text-xs font-medium transition-colors shrink-0">
+          <button onClick={handleBack} className="flex items-center gap-1.5 text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 text-xs font-medium transition-colors shrink-0">
             <ArrowLeft className="w-3.5 h-3.5" /> Back
           </button>
-          <h3 className="text-white font-semibold text-sm">{drillDept} — Employee Attendance</h3>
+          <h3 className="text-[var(--text-primary)] font-semibold text-sm">{drillDept} — Employee Attendance</h3>
         </div>
         <div className="mb-3">
           <SortToggle mode={sortMode} onChange={setSortMode} />
         </div>
-        <p className="text-slate-500 text-xs mb-4">{drillData.length} employees</p>
+        <p className="text-[var(--text-muted)] text-xs mb-4">{drillData.length} employees</p>
         <ResponsiveContainer width="100%" height={Math.max(280, drillData.length * 36)}>
           <BarChart data={drillData} layout="vertical" margin={{ top: 4, right: 55, left: 4, bottom: 4 }} barCategoryGap="20%">
-            <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" horizontal={false} />
-            <XAxis type="number" tick={{ fontSize: 10, fill: '#64748b' }} allowDecimals={false} />
-            <YAxis type="category" dataKey="name" width={135} tick={{ fontSize: 10, fill: '#94a3b8' }}
+            <CartesianGrid strokeDasharray="3 3" stroke={__tc.border} horizontal={false} />
+            <XAxis type="number" tick={{ fontSize: 10, fill: __tc.mutedText }} allowDecimals={false} />
+            <YAxis type="category" dataKey="name" width={135} tick={{ fontSize: 10, fill: __tc.mutedText }}
               tickFormatter={(v: string) => v.length > 19 ? v.slice(0, 18) + '…' : v} />
             <Tooltip content={({ active, payload, label }: any) => {
               if (!active || !payload?.length) return null;
@@ -513,20 +517,20 @@ export function DeptAttendanceChart({ data, allRecords, selectedDepts, highlight
               const total = present + absent;
               const rate = total > 0 ? ((present / total) * 100).toFixed(1) : '0';
               return (
-                <div className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs shadow-xl">
-                  <p className="text-slate-300 font-semibold mb-1.5">{label}</p>
+                <div className="bg-[var(--bg-elevated)] border border-[var(--border)] rounded-lg px-3 py-2 text-xs shadow-xl">
+                  <p className="text-[var(--text-muted)] font-semibold mb-1.5">{label}</p>
                   <p className="text-emerald-400">Present: <strong>{present}d</strong></p>
                   <p className="text-red-400">On Leave: <strong>{absent}d</strong></p>
-                  <p className="text-slate-400 mt-1 pt-1 border-t border-slate-700">Rate: <strong style={{ color: rateColor(parseFloat(rate)) }}>{rate}%</strong></p>
+                  <p className="text-[var(--text-muted)] mt-1 pt-1 border-t border-[var(--border)]">Rate: <strong style={{ color: rateColor(parseFloat(rate)) }}>{rate}%</strong></p>
                 </div>
               );
             }} cursor={{ fill: 'rgba(255,255,255,0.04)' }} />
-            <Legend wrapperStyle={{ fontSize: 11, paddingTop: 8 }} formatter={(v: string) => <span style={{ color: '#94a3b8' }}>{v}</span>} />
+            <Legend wrapperStyle={{ fontSize: 11, paddingTop: 8 }} formatter={(v: string) => <span style={{ color: __tc.mutedText }}>{v}</span>} />
             <Bar dataKey="present" name="Present" stackId="a" fill="#34d399">
               <LabelList dataKey="present" position="insideRight" style={{ fontSize: 9, fill: '#064e3b' }} formatter={(v: any) => v > 0 ? v : ''} />
             </Bar>
             <Bar dataKey="absent" name="On Leave" stackId="a" fill="#f87171" radius={[0, 3, 3, 0]}>
-              <LabelList dataKey="absent" position="right" style={{ fontSize: 9, fill: '#94a3b8' }} formatter={(v: any) => v > 0 ? v : ''} />
+              <LabelList dataKey="absent" position="right" style={{ fontSize: 9, fill: __tc.mutedText }} formatter={(v: any) => v > 0 ? v : ''} />
             </Bar>
           </BarChart>
         </ResponsiveContainer>
@@ -535,11 +539,11 @@ export function DeptAttendanceChart({ data, allRecords, selectedDepts, highlight
   }
 
   return (
-    <div className="bg-slate-800 rounded-xl border border-slate-700 p-4">
+    <div className="bg-[var(--bg-elevated)] rounded-xl border border-[var(--border)] p-4">
       <div className="flex items-start justify-between mb-1">
         <div>
-          <h3 className="text-white font-semibold text-sm">Department Attendance Ranking</h3>
-          <p className="text-slate-500 text-xs mt-0.5 mb-2">Click a bar to drill into that department's employees</p>
+          <h3 className="text-[var(--text-primary)] font-semibold text-sm">Department Attendance Ranking</h3>
+          <p className="text-[var(--text-muted)] text-xs mt-0.5 mb-2">Click a bar to drill into that department's employees</p>
         </div>
         <InfoTooltip title="Dept Attendance Ranking" description="Attendance rate per department for the selected period. Click a bar to see employee-level breakdown." formula="Present ÷ Scheduled × 100" />
       </div>
@@ -547,21 +551,21 @@ export function DeptAttendanceChart({ data, allRecords, selectedDepts, highlight
         <SortToggle mode={sortMode} onChange={setSortMode} />
       </div>
       {sortedData.length === 0
-        ? <div className="h-48 flex items-center justify-center text-slate-500 text-sm">No data</div>
+        ? <div className="h-48 flex items-center justify-center text-[var(--text-muted)] text-sm">No data</div>
         : (
           <ResponsiveContainer width="100%" height={Math.max(200, sortedData.length * 40)}>
             <BarChart data={sortedData} layout="vertical" margin={{ top: 5, right: 50, left: 4, bottom: 5 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#334155" horizontal={false} />
-              <XAxis type="number" domain={[0, 100]} tick={{ fontSize: 10, fill: '#64748b' }} unit="%" />
-              <YAxis type="category" dataKey="department" width={110} tick={{ fontSize: 10, fill: '#94a3b8' }} />
-              <ReferenceLine x={avgRate} stroke="#64748b" strokeDasharray="4 2" />
+              <CartesianGrid strokeDasharray="3 3" stroke={__tc.border} horizontal={false} />
+              <XAxis type="number" domain={[0, 100]} tick={{ fontSize: 10, fill: __tc.mutedText }} unit="%" />
+              <YAxis type="category" dataKey="department" width={110} tick={{ fontSize: 10, fill: __tc.mutedText }} />
+              <ReferenceLine x={avgRate} stroke={__tc.mutedText} strokeDasharray="4 2" />
               <Tooltip content={({ active, payload, label }: any) => {
                 if (!active || !payload?.length) return null;
                 return (
-                  <div className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs shadow-xl">
-                    <p className="text-slate-300 font-medium mb-1">{label}</p>
+                  <div className="bg-[var(--bg-elevated)] border border-[var(--border)] rounded-lg px-3 py-2 text-xs shadow-xl">
+                    <p className="text-[var(--text-muted)] font-medium mb-1">{label}</p>
                     <p style={{ color: rateColor(payload[0]?.value) }}>Rate: <strong>{payload[0]?.value}%</strong></p>
-                    <p className="text-slate-500 text-[10px] mt-1">Click to drill into employees</p>
+                    <p className="text-[var(--text-muted)] text-[10px] mt-1">Click to drill into employees</p>
                   </div>
                 );
               }} />
@@ -574,13 +578,13 @@ export function DeptAttendanceChart({ data, allRecords, selectedDepts, highlight
                   const dimmed = highlightDepts && highlightDepts.length > 0 && !highlightDepts.includes(entry.department);
                   return <Cell key={i} fill={rateColor(entry.rate)} fillOpacity={dimmed ? 0.25 : 1} />;
                 })}
-                <LabelList dataKey="rate" position="right" style={{ fontSize: 10, fill: '#94a3b8' }}
+                <LabelList dataKey="rate" position="right" style={{ fontSize: 10, fill: __tc.mutedText }}
                   formatter={(v: any) => `${v}%`}
                   content={(props: any) => {
                     const entry = sortedData[props.index];
                     const dimmed = highlightDepts && highlightDepts.length > 0 && entry && !highlightDepts.includes(entry.department);
                     return <text x={props.x + props.width + 4} y={props.y + (props.height ?? 0) / 2} dy={4}
-                      fontSize={10} fill={dimmed ? '#475569' : '#94a3b8'}>{props.value}%</text>;
+                      fontSize={10} fill={dimmed ? '#475569' : __tc.mutedText}>{props.value}%</text>;
                   }}
                 />
               </Bar>
@@ -596,6 +600,7 @@ export function OfficeAttendanceChart({ data, onOfficeClick }: {
   data: OfficeAttendance[];
   onOfficeClick?: (office: string) => void;
 }) {
+  const __tc = useThemeColors();
   const [sortMode, setSortMode] = useState<SortMode>('default');
 
   const avgRate = data.length > 0 ? data.reduce((s, d) => s + d.rate, 0) / data.length : 0;
@@ -609,11 +614,11 @@ export function OfficeAttendanceChart({ data, onOfficeClick }: {
   }, [data, sortMode]);
 
   return (
-    <div className="bg-slate-800 rounded-xl border border-slate-700 p-4">
+    <div className="bg-[var(--bg-elevated)] rounded-xl border border-[var(--border)] p-4">
       <div className="flex items-start justify-between mb-1">
         <div>
-          <h3 className="text-white font-semibold text-sm">Office-wise Attendance</h3>
-          <p className="text-slate-500 text-xs mt-0.5 mb-2">Attendance rate comparison across offices</p>
+          <h3 className="text-[var(--text-primary)] font-semibold text-sm">Office-wise Attendance</h3>
+          <p className="text-[var(--text-muted)] text-xs mt-0.5 mb-2">Attendance rate comparison across offices</p>
         </div>
         <InfoTooltip title="Office-wise Attendance" description="Attendance rate per office for the selected period, so HR can compare performance across locations." formula="Present ÷ Scheduled × 100" />
       </div>
@@ -621,23 +626,23 @@ export function OfficeAttendanceChart({ data, onOfficeClick }: {
         <SortToggle mode={sortMode} onChange={setSortMode} />
       </div>
       {sortedData.length === 0
-        ? <div className="h-48 flex items-center justify-center text-slate-500 text-sm">No data</div>
+        ? <div className="h-48 flex items-center justify-center text-[var(--text-muted)] text-sm">No data</div>
         : (
           <ResponsiveContainer width="100%" height={Math.max(200, sortedData.length * 44)}>
             <BarChart data={sortedData} layout="vertical" margin={{ top: 5, right: 50, left: 4, bottom: 5 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#334155" horizontal={false} />
-              <XAxis type="number" domain={[0, 100]} tick={{ fontSize: 10, fill: '#64748b' }} unit="%" />
-              <YAxis type="category" dataKey="office" width={110} tick={{ fontSize: 10, fill: '#94a3b8' }} />
-              <ReferenceLine x={avgRate} stroke="#64748b" strokeDasharray="4 2" />
+              <CartesianGrid strokeDasharray="3 3" stroke={__tc.border} horizontal={false} />
+              <XAxis type="number" domain={[0, 100]} tick={{ fontSize: 10, fill: __tc.mutedText }} unit="%" />
+              <YAxis type="category" dataKey="office" width={110} tick={{ fontSize: 10, fill: __tc.mutedText }} />
+              <ReferenceLine x={avgRate} stroke={__tc.mutedText} strokeDasharray="4 2" />
               <Tooltip content={({ active, payload, label }: any) => {
                 if (!active || !payload?.length) return null;
                 const entry = payload[0]?.payload;
                 return (
-                  <div className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs shadow-xl">
-                    <p className="text-slate-300 font-medium mb-1">{label}</p>
+                  <div className="bg-[var(--bg-elevated)] border border-[var(--border)] rounded-lg px-3 py-2 text-xs shadow-xl">
+                    <p className="text-[var(--text-muted)] font-medium mb-1">{label}</p>
                     <p style={{ color: rateColor(entry?.rate) }}>Rate: <strong>{entry?.rate}%</strong></p>
-                    <p className="text-slate-400 mt-1">{entry?.presentCount} present / {entry?.scheduledCount} scheduled</p>
-                    {onOfficeClick && <p className="text-slate-500 text-[10px] mt-1">Click to filter by this office</p>}
+                    <p className="text-[var(--text-muted)] mt-1">{entry?.presentCount} present / {entry?.scheduledCount} scheduled</p>
+                    {onOfficeClick && <p className="text-[var(--text-muted)] text-[10px] mt-1">Click to filter by this office</p>}
                   </div>
                 );
               }} cursor={{ fill: 'rgba(255,255,255,0.04)' }} />
@@ -647,7 +652,7 @@ export function OfficeAttendanceChart({ data, onOfficeClick }: {
                   if (office && onOfficeClick) onOfficeClick(office);
                 }}>
                 {sortedData.map((entry, i) => <Cell key={i} fill={rateColor(entry.rate)} />)}
-                <LabelList dataKey="rate" position="right" style={{ fontSize: 10, fill: '#94a3b8' }} formatter={(v: any) => `${v}%`} />
+                <LabelList dataKey="rate" position="right" style={{ fontSize: 10, fill: __tc.mutedText }} formatter={(v: any) => `${v}%`} />
               </Bar>
             </BarChart>
           </ResponsiveContainer>
@@ -673,6 +678,7 @@ export function DeptProductivityChart({
   shiftStartMinutes?: number;
   shiftEndMinutes?: number;
 }) {
+  const __tc = useThemeColors();
   const [internalDrill, setInternalDrill] = useState<string | null>(null);
   const [sortMode, setSortMode] = useState<SortMode>('default');
   const safeRecords = allRecords ?? [];
@@ -750,44 +756,44 @@ export function DeptProductivityChart({
 
   if (drillDept) {
     return (
-      <div className="bg-slate-800 rounded-xl border border-slate-700 p-4 min-h-[280px]">
+      <div className="bg-[var(--bg-elevated)] rounded-xl border border-[var(--border)] p-4 min-h-[280px]">
         <div className="flex items-center flex-wrap gap-3 mb-1">
           <button
             onClick={handleBack}
-            className="flex items-center gap-1.5 text-blue-400 hover:text-blue-300 text-xs font-medium transition-colors shrink-0"
+            className="flex items-center gap-1.5 text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 text-xs font-medium transition-colors shrink-0"
           >
             <ArrowLeft className="w-3.5 h-3.5" /> Back
           </button>
-          <h3 className="text-white font-semibold text-sm">{drillDept} — Productivity Lost per Employee</h3>
+          <h3 className="text-[var(--text-primary)] font-semibold text-sm">{drillDept} — Productivity Lost per Employee</h3>
         </div>
         <div className="mb-3">
           <SortToggle mode={sortMode} onChange={setSortMode} />
         </div>
-        <p className="text-slate-500 text-xs mb-4">{drillData.length} employees · based on hours short of 8h effective work</p>
+        <p className="text-[var(--text-muted)] text-xs mb-4">{drillData.length} employees · based on hours short of 8h effective work</p>
         {drillData.length === 0
-          ? <div className="h-48 flex items-center justify-center text-slate-500 text-sm">No present-day records found for this department</div>
+          ? <div className="h-48 flex items-center justify-center text-[var(--text-muted)] text-sm">No present-day records found for this department</div>
           : (
             <ResponsiveContainer width="100%" height={Math.max(280, drillData.length * 36)}>
               <BarChart data={drillData} layout="vertical" margin={{ top: 4, right: 65, left: 4, bottom: 4 }} barCategoryGap="20%">
-                <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" horizontal={false} />
-                <XAxis type="number" tick={{ fontSize: 10, fill: '#64748b' }} unit="d" />
-                <YAxis type="category" dataKey="name" width={135} tick={{ fontSize: 10, fill: '#94a3b8' }}
+                <CartesianGrid strokeDasharray="3 3" stroke={__tc.border} horizontal={false} />
+                <XAxis type="number" tick={{ fontSize: 10, fill: __tc.mutedText }} unit="d" />
+                <YAxis type="category" dataKey="name" width={135} tick={{ fontSize: 10, fill: __tc.mutedText }}
                   tickFormatter={(v: string) => v.length > 19 ? v.slice(0, 18) + '…' : v} />
                 <Tooltip content={({ active, payload, label }: any) => {
                   if (!active || !payload?.length) return null;
                   const e = drillData.find(d => d.name === label);
                   return (
-                    <div className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs shadow-xl">
-                      <p className="text-slate-300 font-semibold mb-1.5">{label}</p>
+                    <div className="bg-[var(--bg-elevated)] border border-[var(--border)] rounded-lg px-3 py-2 text-xs shadow-xl">
+                      <p className="text-[var(--text-muted)] font-semibold mb-1.5">{label}</p>
                       <p className="text-amber-400">Days Lost: <strong>{payload[0]?.value}d</strong></p>
-                      <p className="text-slate-400">Present Days: <strong>{e?.presentDays}</strong></p>
+                      <p className="text-[var(--text-muted)]">Present Days: <strong>{e?.presentDays}</strong></p>
                       <p className="text-blue-400">Avg Effective Hrs: <strong>{e?.avgEffectiveHours}h</strong></p>
                     </div>
                   );
                 }} cursor={{ fill: 'rgba(255,255,255,0.04)' }} />
                 <Bar dataKey="daysLost" radius={[0, 4, 4, 0]}>
                   {drillData.map((e, i) => <Cell key={i} fill={lostColor(e.daysLost)} />)}
-                  <LabelList dataKey="daysLost" position="right" style={{ fontSize: 10, fill: '#94a3b8' }} formatter={(v: any) => `${v}d`} />
+                  <LabelList dataKey="daysLost" position="right" style={{ fontSize: 10, fill: __tc.mutedText }} formatter={(v: any) => `${v}d`} />
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
@@ -797,11 +803,11 @@ export function DeptProductivityChart({
   }
 
   return (
-    <div className="bg-slate-800 rounded-xl border border-slate-700 p-4 min-h-[280px]">
+    <div className="bg-[var(--bg-elevated)] rounded-xl border border-[var(--border)] p-4 min-h-[280px]">
       <div className="flex items-start justify-between mb-1">
         <div>
-          <h3 className="text-white font-semibold text-sm">Productivity Lost by Dept</h3>
-          <p className="text-slate-500 text-xs mt-0.5 mb-2">Person-days short of 8h effective work · click a bar to see employees</p>
+          <h3 className="text-[var(--text-primary)] font-semibold text-sm">Productivity Lost by Dept</h3>
+          <p className="text-[var(--text-muted)] text-xs mt-0.5 mb-2">Person-days short of 8h effective work · click a bar to see employees</p>
         </div>
         <InfoTooltip title="Dept Productivity Lost" description="Total person-days each department fell short of the 8h effective shift. Accounts for late arrivals AND early exits. Coming late but compensating with late exit = no loss." formula="Σ max(0, 8h - (duration - 1h lunch)) ÷ 480" />
       </div>
@@ -809,18 +815,18 @@ export function DeptProductivityChart({
         <SortToggle mode={sortMode} onChange={setSortMode} />
       </div>
       {chartData.length === 0
-        ? <div className="h-48 flex items-center justify-center text-slate-500 text-sm">No data</div>
+        ? <div className="h-48 flex items-center justify-center text-[var(--text-muted)] text-sm">No data</div>
         : (
           <ResponsiveContainer width="100%" height={Math.max(200, chartData.length * 40)}>
             <BarChart data={chartData} layout="vertical" margin={{ top: 5, right: 55, left: 4, bottom: 5 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#334155" horizontal={false} />
-              <XAxis type="number" tick={{ fontSize: 10, fill: '#64748b' }} unit="d" />
-              <YAxis type="category" dataKey="department" width={110} tick={{ fontSize: 10, fill: '#94a3b8' }} />
+              <CartesianGrid strokeDasharray="3 3" stroke={__tc.border} horizontal={false} />
+              <XAxis type="number" tick={{ fontSize: 10, fill: __tc.mutedText }} unit="d" />
+              <YAxis type="category" dataKey="department" width={110} tick={{ fontSize: 10, fill: __tc.mutedText }} />
               <Tooltip content={({ active, payload, label }: any) => {
                 if (!active || !payload?.length) return null;
                 return (
-                  <div className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs shadow-xl">
-                    <p className="text-slate-300 font-medium mb-1">{label}</p>
+                  <div className="bg-[var(--bg-elevated)] border border-[var(--border)] rounded-lg px-3 py-2 text-xs shadow-xl">
+                    <p className="text-[var(--text-muted)] font-medium mb-1">{label}</p>
                     <p className="text-amber-400">Days Lost: <strong>{payload[0]?.value}d</strong></p>
                     <p className="text-blue-400 mt-1">Click to see employees →</p>
                   </div>
@@ -832,7 +838,7 @@ export function DeptProductivityChart({
                   const dimmed = highlightDepts && highlightDepts.length > 0 && !highlightDepts.includes(entry.department);
                   return <Cell key={i} fill={lostColor(entry.daysLost)} fillOpacity={dimmed ? 0.25 : 1} />;
                 })}
-                <LabelList dataKey="daysLost" position="right" style={{ fontSize: 10, fill: '#94a3b8' }} formatter={(v: any) => `${v}d`} />
+                <LabelList dataKey="daysLost" position="right" style={{ fontSize: 10, fill: __tc.mutedText }} formatter={(v: any) => `${v}d`} />
               </Bar>
             </BarChart>
           </ResponsiveContainer>
@@ -847,6 +853,7 @@ export function HoursDistributionChart({ data, allRecords, selectedDepts }: {
   allRecords: AttendanceRecord[];
   selectedDepts?: string[];
 }) {
+  const __tc = useThemeColors();
   const [drillBin, setDrillBin] = useState<string | null>(null);
 
   // Bug fix: this used to bin every individual present day-record
@@ -910,23 +917,23 @@ export function HoursDistributionChart({ data, allRecords, selectedDepts }: {
 
   if (drillBin) {
     return (
-      <div className="bg-slate-800 rounded-xl border border-slate-700 p-4 min-h-[280px]">
+      <div className="bg-[var(--bg-elevated)] rounded-xl border border-[var(--border)] p-4 min-h-[280px]">
         <div className="flex items-center flex-wrap gap-3 mb-1">
-          <button onClick={() => setDrillBin(null)} className="flex items-center gap-1.5 text-blue-400 hover:text-blue-300 text-xs font-medium transition-colors shrink-0">
+          <button onClick={() => setDrillBin(null)} className="flex items-center gap-1.5 text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 text-xs font-medium transition-colors shrink-0">
             <ArrowLeft className="w-3.5 h-3.5" /> Back
           </button>
-          <h3 className="text-white font-semibold text-sm">Employees: {drillBin}h–{drillBin.split(':')[0]}:{ parseInt(drillBin.split(':')[1]) === 0 ? '30' : '00'} avg effective work</h3>
+          <h3 className="text-[var(--text-primary)] font-semibold text-sm">Employees: {drillBin}h–{drillBin.split(':')[0]}:{ parseInt(drillBin.split(':')[1]) === 0 ? '30' : '00'} avg effective work</h3>
         </div>
-        <p className="text-slate-500 text-xs mb-4">{drillEmployees.length} employees average in this range</p>
+        <p className="text-[var(--text-muted)] text-xs mb-4">{drillEmployees.length} employees average in this range</p>
         {drillEmployees.length === 0
-          ? <div className="h-40 flex items-center justify-center text-slate-500 text-sm">No data</div>
+          ? <div className="h-40 flex items-center justify-center text-[var(--text-muted)] text-sm">No data</div>
           : (
             <div className="space-y-1 max-h-80 overflow-y-auto">
               {drillEmployees.map((e, i) => (
-                <div key={e.code} className="flex items-center justify-between py-2 px-3 rounded-lg bg-slate-700/30 hover:bg-slate-700/50">
+                <div key={e.code} className="flex items-center justify-between py-2 px-3 rounded-lg bg-[var(--bg-elevated)]/30 hover:bg-[var(--bg-elevated)]/50">
                   <div>
-                    <span className="text-white text-xs font-medium">{e.name}</span>
-                    <span className="text-slate-500 text-xs ml-2">· {e.dept}</span>
+                    <span className="text-[var(--text-primary)] text-xs font-medium">{e.name}</span>
+                    <span className="text-[var(--text-muted)] text-xs ml-2">· {e.dept}</span>
                   </div>
                   <span className="text-blue-400 text-xs font-mono">{e.avgHours}h avg</span>
                 </div>
@@ -938,30 +945,30 @@ export function HoursDistributionChart({ data, allRecords, selectedDepts }: {
   }
 
   return (
-    <div className="bg-slate-800 rounded-xl border border-slate-700 p-4 min-h-[280px]">
+    <div className="bg-[var(--bg-elevated)] rounded-xl border border-[var(--border)] p-4 min-h-[280px]">
       <div className="flex items-start justify-between mb-1">
         <div>
-          <h3 className="text-white font-semibold text-sm">Working Hours Distribution</h3>
+          <h3 className="text-[var(--text-primary)] font-semibold text-sm">Working Hours Distribution</h3>
           <ChartSubtitle selectedDepts={selectedDepts} />
         </div>
         <InfoTooltip title="Hours Distribution" description="Each employee's own average effective working hours (total duration − 1h lunch, averaged across their present days in the selected period) — every employee falls into exactly one bar. Click a bar to see which employees fall in that range." formula="Effective = Duration − 60 min lunch, averaged per employee · Bin = 30 minutes" />
       </div>
       {bins.length === 0
-        ? <div className="h-48 flex items-center justify-center text-slate-500 text-sm">No data</div>
+        ? <div className="h-48 flex items-center justify-center text-[var(--text-muted)] text-sm">No data</div>
         : (
           <ResponsiveContainer width="100%" height={200}>
             <BarChart data={bins} margin={{ top: 5, right: 10, left: -20, bottom: 5 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-              <XAxis dataKey="bin" tick={{ fontSize: 10, fill: '#64748b' }} interval={1} />
-              <YAxis tick={{ fontSize: 10, fill: '#64748b' }} allowDecimals={false} />
-              <ReferenceLine x="8:00" stroke="#34d399" strokeDasharray="4 2" />
+              <CartesianGrid strokeDasharray="3 3" stroke={__tc.border} />
+              <XAxis dataKey="bin" tick={{ fontSize: 10, fill: __tc.mutedText }} interval={1} />
+              <YAxis tick={{ fontSize: 10, fill: __tc.mutedText }} allowDecimals={false} />
+              <ReferenceLine x="8:00" stroke={__tc.mutedText} strokeDasharray="4 2" />
               <Tooltip content={({ active, payload, label }: any) => {
                 if (!active || !payload?.length) return null;
                 return (
-                  <div className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs shadow-xl">
-                    <p className="text-slate-300 font-medium">{label}h avg effective range</p>
+                  <div className="bg-[var(--bg-elevated)] border border-[var(--border)] rounded-lg px-3 py-2 text-xs shadow-xl">
+                    <p className="text-[var(--text-muted)] font-medium">{label}h avg effective range</p>
                     <p className="text-blue-400">Count: <strong>{payload[0]?.value} employees</strong></p>
-                    <p className="text-slate-500 text-[10px] mt-1">Click to see employees</p>
+                    <p className="text-[var(--text-muted)] text-[10px] mt-1">Click to see employees</p>
                   </div>
                 );
               }} />
@@ -1017,7 +1024,7 @@ export function PersonalHeatmap({
         {Object.entries({ present: 'Present', late: 'Late', earlyexit: 'Early Exit', on_leave: 'On Leave', absent: UNMARKED_LEAVE_LABEL, shortday: 'Short Day', weeklyoff: 'Weekly Off', holiday: 'Holiday' }).map(([k, label]) => (
           <div key={k} className="flex items-center gap-1">
             <div className="w-2.5 h-2.5 rounded-sm flex-shrink-0" style={{ backgroundColor: STATUS_COLORS_CELL[k] + '90' }} />
-            <span className="text-slate-500 text-[9px]">{label}</span>
+            <span className="text-[var(--text-muted)] text-[9px]">{label}</span>
           </div>
         ))}
       </div>
@@ -1030,12 +1037,12 @@ export function PersonalHeatmap({
             : tooltip.r.status;
         return (
           <div
-            className="fixed z-50 bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-xs shadow-2xl pointer-events-none"
+            className="fixed z-50 bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg px-3 py-2 text-xs shadow-2xl pointer-events-none"
             style={{ left: tooltip.x + 12, top: tooltip.y - 20 }}
           >
-            <p className="text-white font-medium">{tooltip.r.date}</p>
-            <p className="text-slate-300">In: {tooltip.r.inTime || '—'} · Out: {tooltip.r.outTime || '—'}</p>
-            <p className="text-slate-400">{statusLine}</p>
+            <p className="text-[var(--text-primary)] font-medium">{tooltip.r.date}</p>
+            <p className="text-[var(--text-muted)]">In: {tooltip.r.inTime || '—'} · Out: {tooltip.r.outTime || '—'}</p>
+            <p className="text-[var(--text-muted)]">{statusLine}</p>
           </div>
         );
       })()}
@@ -1151,11 +1158,11 @@ export function AttendanceHeatmap({
     new Date(`${key}-01T00:00:00`).toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
 
   return (
-    <div className="bg-slate-800 rounded-xl border border-slate-700 p-4">
+    <div className="bg-[var(--bg-elevated)] rounded-xl border border-[var(--border)] p-4">
       <div className="flex items-start justify-between mb-3 gap-3 flex-wrap">
         <div>
-          <h3 className="text-white font-semibold text-sm">Attendance Heatmap</h3>
-          <p className="text-slate-500 text-xs mt-0.5">
+          <h3 className="text-[var(--text-primary)] font-semibold text-sm">Attendance Heatmap</h3>
+          <p className="text-[var(--text-muted)] text-xs mt-0.5">
             {employees.length} employees · {visibleDates.length} days
             {isMultiMonth && selectedMonth ? ` in ${monthLabel(selectedMonth)}` : ''}
             {' '}— click any cell for details
@@ -1166,7 +1173,7 @@ export function AttendanceHeatmap({
             <select
               value={selectedMonth ?? ''}
               onChange={e => setSelectedMonth(e.target.value)}
-              className="bg-slate-900 border border-slate-700 rounded-lg text-xs text-white px-2 py-1.5 focus:outline-none focus:border-blue-500"
+              className="bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg text-xs text-[var(--text-primary)] px-2 py-1.5 focus:outline-none focus:border-blue-500"
               title="Selected range spans multiple months — pick one to view"
             >
               {monthGroups.map(([key]) => (
@@ -1182,12 +1189,12 @@ export function AttendanceHeatmap({
         <div style={{ minWidth: visibleDates.length * 22 + 160 }}>
           <div className="flex gap-0.5 mb-1 ml-[152px]">
             {visibleDates.map(d => (
-              <div key={d} className="w-5 text-[8px] text-slate-600 text-center flex-shrink-0">{d.slice(8)}</div>
+              <div key={d} className="w-5 text-[8px] text-[var(--text-muted)] text-center flex-shrink-0">{d.slice(8)}</div>
             ))}
           </div>
           {(expandedHeatmap ? employees : employees.slice(0, 15)).map(emp => (
             <div key={emp.code} className="flex items-center gap-0.5 mb-0.5">
-              <div className="w-36 text-[10px] text-slate-400 truncate flex-shrink-0 text-right pr-2" title={emp.name}>
+              <div className="w-36 text-[10px] text-[var(--text-muted)] truncate flex-shrink-0 text-right pr-2" title={emp.name}>
                 {emp.name.length > 16 ? emp.name.slice(0, 15) + '…' : emp.name}
               </div>
               {visibleDates.map(date => {
@@ -1216,7 +1223,7 @@ export function AttendanceHeatmap({
   <div className="flex justify-center mt-3">
     <button
       onClick={() => setExpandedHeatmap(!expandedHeatmap)}
-      className="flex items-center gap-2 text-blue-400 hover:text-blue-300 text-sm font-medium transition-colors"
+      className="flex items-center gap-2 text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 text-sm font-medium transition-colors"
     >
       {expandedHeatmap ? (
         <>
@@ -1237,7 +1244,7 @@ export function AttendanceHeatmap({
         {Object.entries({ present: 'Present', late: 'Late', earlyexit: 'Early Exit', on_leave: 'On Leave', absent: UNMARKED_LEAVE_LABEL, shortday: 'Short Day', weeklyoff: 'Weekly Off', holiday: 'Holiday' }).map(([k, label]) => (
           <div key={k} className="flex items-center gap-1">
             <div className="w-3 h-3 rounded-sm flex-shrink-0" style={{ backgroundColor: STATUS_COLORS_CELL[k] + '90' }} />
-            <span className="text-slate-500 text-[10px]">{label}</span>
+            <span className="text-[var(--text-muted)] text-[10px]">{label}</span>
           </div>
         ))}
       </div>
@@ -1251,13 +1258,13 @@ export function AttendanceHeatmap({
             : tooltip.r.status;
         return (
           <div
-            className="fixed z-50 bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-xs shadow-2xl pointer-events-none"
+            className="fixed z-50 bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg px-3 py-2 text-xs shadow-2xl pointer-events-none"
             style={{ left: tooltip.x + 12, top: tooltip.y - 20 }}
           >
-            <p className="text-white font-medium">{tooltip.r.employeeName}</p>
-            <p className="text-slate-400">{tooltip.r.date}</p>
-            <p className="text-slate-300">In: {tooltip.r.inTime || '—'} · Out: {tooltip.r.outTime || '—'}</p>
-            <p className="text-slate-400">{statusLine}</p>
+            <p className="text-[var(--text-primary)] font-medium">{tooltip.r.employeeName}</p>
+            <p className="text-[var(--text-muted)]">{tooltip.r.date}</p>
+            <p className="text-[var(--text-muted)]">In: {tooltip.r.inTime || '—'} · Out: {tooltip.r.outTime || '—'}</p>
+            <p className="text-[var(--text-muted)]">{statusLine}</p>
           </div>
         );
       })()}
@@ -1281,12 +1288,12 @@ function EmployeeAttendanceRow({
   const lostM = computeProductivityLostMinutes(r, shiftStartMinutes, shiftEndMinutes);
   return (
     <div className="flex items-center justify-between py-2 px-3 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/15 transition-colors">
-      <span className="text-white text-xs font-medium truncate max-w-[140px]">{r.employeeName || r.employeeCode}</span>
+      <span className="text-[var(--text-primary)] text-xs font-medium truncate max-w-[140px]">{r.employeeName || r.employeeCode}</span>
       <div className="flex items-center gap-2 text-xs flex-shrink-0">
-        <span className="text-slate-400 font-mono">{r.inTime || '—'} → {r.outTime || '—'}</span>
-        {lateM > 0 && <span className="bg-amber-500/20 text-amber-300 px-1.5 py-0.5 rounded text-[10px]">Late {lateM}m</span>}
-        {earlyM > 0 && <span className="bg-blue-500/20 text-blue-300 px-1.5 py-0.5 rounded text-[10px]">Early {earlyM}m</span>}
-        {lostM > 0 && <span className="bg-red-500/20 text-red-300 px-1.5 py-0.5 rounded text-[10px]">−{(lostM / 60).toFixed(1)}h</span>}
+        <span className="text-[var(--text-muted)] font-mono">{r.inTime || '—'} → {r.outTime || '—'}</span>
+        {lateM > 0 && <span className="bg-amber-500/20 text-amber-700 dark:text-amber-300 px-1.5 py-0.5 rounded text-[10px]">Late {lateM}m</span>}
+        {earlyM > 0 && <span className="bg-blue-500/20 text-blue-700 dark:text-blue-300 px-1.5 py-0.5 rounded text-[10px]">Early {earlyM}m</span>}
+        {lostM > 0 && <span className="bg-red-500/20 text-red-700 dark:text-red-300 px-1.5 py-0.5 rounded text-[10px]">−{(lostM / 60).toFixed(1)}h</span>}
       </div>
     </div>
   );
@@ -1304,6 +1311,7 @@ export function DayDeptAttendanceChart({
   shiftEndMinutes?: number;
   leaveMap?: Map<string, LeaveRecord>;
 }) {
+  const __tc = useThemeColors();
   const [drillDept, setDrillDept] = useState<string | null>(null);
 
   // If only 1 dept in data (dept filter active), show employees directly
@@ -1316,15 +1324,15 @@ export function DayDeptAttendanceChart({
     const absent = deptRecords.filter(r => !isPresent(r.status) && !isWeeklyOff(r.status) && !r.isShortDay);
 
     return (
-      <div className="bg-slate-800 rounded-xl border border-slate-700 p-4 min-h-[260px]">
+      <div className="bg-[var(--bg-elevated)] rounded-xl border border-[var(--border)] p-4 min-h-[260px]">
         <div className="flex items-center flex-wrap gap-2 mb-3">
           {!singleDept && (
-            <button onClick={() => setDrillDept(null)} className="flex items-center gap-1 text-blue-400 hover:text-blue-300 text-xs font-medium">
+            <button onClick={() => setDrillDept(null)} className="flex items-center gap-1 text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 text-xs font-medium">
               <ArrowLeft className="w-3.5 h-3.5" /> Back
             </button>
           )}
-          <h3 className="text-white font-semibold text-sm">{activeDept} — Attendance</h3>
-          <span className="text-slate-500 text-xs ml-auto">{present.length} present · {absent.length} on leave</span>
+          <h3 className="text-[var(--text-primary)] font-semibold text-sm">{activeDept} — Attendance</h3>
+          <span className="text-[var(--text-muted)] text-xs ml-auto">{present.length} present · {absent.length} on leave</span>
         </div>
         <div className="space-y-1 max-h-[240px] overflow-y-auto">
           {present.map(r => (
@@ -1337,7 +1345,7 @@ export function DayDeptAttendanceChart({
             const leave = leaveMap?.get(leaveKey(r.employeeCode, r.date));
             return (
               <div key={r.employeeCode} className="flex items-center justify-between py-2 px-3 rounded-lg bg-red-500/10">
-                <span className="text-white text-xs font-medium">{r.employeeName || r.employeeCode}</span>
+                <span className="text-[var(--text-primary)] text-xs font-medium">{r.employeeName || r.employeeCode}</span>
                 <span className="text-red-400 text-xs">
                   {leave ? `On Leave — ${leaveLabelFor(leave.leaveType, leave.halfDayLeaveType)}` : UNMARKED_LEAVE_LABEL}
                 </span>
@@ -1345,7 +1353,7 @@ export function DayDeptAttendanceChart({
             );
           })}
           {present.length === 0 && absent.length === 0 && (
-            <p className="text-slate-500 text-sm text-center py-6">No records for this team today</p>
+            <p className="text-[var(--text-muted)] text-sm text-center py-6">No records for this team today</p>
           )}
         </div>
       </div>
@@ -1354,16 +1362,16 @@ export function DayDeptAttendanceChart({
 
   const sorted = [...data].sort((a, b) => b.presentCount - a.presentCount);
   return (
-    <div className="bg-slate-800 rounded-xl border border-slate-700 p-4 min-h-[260px]">
+    <div className="bg-[var(--bg-elevated)] rounded-xl border border-[var(--border)] p-4 min-h-[260px]">
       <div className="flex items-start justify-between mb-1">
         <div>
-          <h3 className="text-white font-semibold text-sm">Dept Attendance Today</h3>
-          <p className="text-slate-500 text-xs mt-0.5 mb-3">Click a bar to see all employees in that team</p>
+          <h3 className="text-[var(--text-primary)] font-semibold text-sm">Dept Attendance Today</h3>
+          <p className="text-[var(--text-muted)] text-xs mt-0.5 mb-3">Click a bar to see all employees in that team</p>
         </div>
         <InfoTooltip title="Dept Attendance Today" description="Present count per department today. Click any bar to see the full employee list with punch times." />
       </div>
       {sorted.length === 0
-        ? <div className="h-40 flex items-center justify-center text-slate-500 text-sm">No data for this date</div>
+        ? <div className="h-40 flex items-center justify-center text-[var(--text-muted)] text-sm">No data for this date</div>
         : (
           <ResponsiveContainer width="100%" height={Math.max(180, sorted.length * 40)}>
             <BarChart data={sorted} layout="vertical" margin={{ top: 4, right: 36, left: 4, bottom: 4 }}
@@ -1371,19 +1379,19 @@ export function DayDeptAttendanceChart({
                 const dept = getDepartmentFromClick(entry);
                 if (dept) { setDrillDept(dept); onDeptClick?.(dept); }
               }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#334155" horizontal={false} />
-              <XAxis type="number" tick={{ fontSize: 10, fill: '#64748b' }} allowDecimals={false} />
-              <YAxis type="category" dataKey="department" tick={{ fontSize: 10, fill: '#94a3b8' }} width={100} />
+              <CartesianGrid strokeDasharray="3 3" stroke={__tc.border} horizontal={false} />
+              <XAxis type="number" tick={{ fontSize: 10, fill: __tc.mutedText }} allowDecimals={false} />
+              <YAxis type="category" dataKey="department" tick={{ fontSize: 10, fill: __tc.mutedText }} width={100} />
               <Tooltip cursor={{ fill: 'rgba(255,255,255,0.04)' }} content={({ active, payload, label }: any) => {
                 if (!active || !payload?.length) return null;
                 const d: DayDeptSnapshot = payload[0]?.payload;
                 return (
-                  <div className="bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-xs shadow-xl">
-                    <p className="text-white font-medium mb-1">{label}</p>
+                  <div className="bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg px-3 py-2 text-xs shadow-xl">
+                    <p className="text-[var(--text-primary)] font-medium mb-1">{label}</p>
                     <p className="text-emerald-400">Present: <strong>{d.presentCount}</strong> / {d.scheduledCount}</p>
                     <p className="text-red-400">Absent: {d.absentCount}</p>
                     <p className="text-amber-400">Late: {d.lateCount}</p>
-                    <p className="text-slate-500 text-[10px] mt-1">Click to see all employees →</p>
+                    <p className="text-[var(--text-muted)] text-[10px] mt-1">Click to see all employees →</p>
                   </div>
                 );
               }} />
@@ -1391,7 +1399,7 @@ export function DayDeptAttendanceChart({
                 {sorted.map((entry, i) => (
                   <Cell key={i} fill={entry.presentCount >= entry.scheduledCount * 0.8 ? '#34d399' : entry.presentCount >= entry.scheduledCount * 0.7 ? '#fbbf24' : '#f87171'} />
                 ))}
-                <LabelList dataKey="presentCount" position="right" style={{ fontSize: 10, fill: '#94a3b8' }} />
+                <LabelList dataKey="presentCount" position="right" style={{ fontSize: 10, fill: __tc.mutedText }} />
               </Bar>
             </BarChart>
           </ResponsiveContainer>
@@ -1411,6 +1419,7 @@ export function DayDeptLateChart({
   shiftStartMinutes?: number;
   shiftEndMinutes?: number;
 }) {
+  const __tc = useThemeColors();
   const [drillDept, setDrillDept] = useState<string | null>(null);
 
   const singleDept = data.length === 1 ? data[0].department : null;
@@ -1421,26 +1430,26 @@ export function DayDeptLateChart({
       r.department === activeDept && isPresent(r.status) && !r.isShortDay && getLateMinutes(r, graceMinutes, shiftStartMinutes) > 0
     );
     return (
-      <div className="bg-slate-800 rounded-xl border border-slate-700 p-4 min-h-[260px]">
+      <div className="bg-[var(--bg-elevated)] rounded-xl border border-[var(--border)] p-4 min-h-[260px]">
         <div className="flex items-center flex-wrap gap-2 mb-3">
           {!singleDept && (
-            <button onClick={() => setDrillDept(null)} className="flex items-center gap-1 text-blue-400 hover:text-blue-300 text-xs font-medium">
+            <button onClick={() => setDrillDept(null)} className="flex items-center gap-1 text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 text-xs font-medium">
               <ArrowLeft className="w-3.5 h-3.5" /> Back
             </button>
           )}
-          <h3 className="text-white font-semibold text-sm">{activeDept} — Late Arrivals</h3>
-          <span className="text-slate-500 text-xs ml-auto">{lateRecords.length} late</span>
+          <h3 className="text-[var(--text-primary)] font-semibold text-sm">{activeDept} — Late Arrivals</h3>
+          <span className="text-[var(--text-muted)] text-xs ml-auto">{lateRecords.length} late</span>
         </div>
         {lateRecords.length === 0
-          ? <div className="h-40 flex items-center justify-center text-slate-500 text-sm">No late arrivals in this team today 🎉</div>
+          ? <div className="h-40 flex items-center justify-center text-[var(--text-muted)] text-sm">No late arrivals in this team today 🎉</div>
           : (
             <div className="space-y-1 max-h-[240px] overflow-y-auto">
               {[...lateRecords].sort((a, b) => getLateMinutes(b, graceMinutes, shiftStartMinutes) - getLateMinutes(a, graceMinutes, shiftStartMinutes)).map(r => (
                 <div key={r.employeeCode} className="flex items-center justify-between py-2 px-3 rounded-lg bg-amber-500/10">
-                  <span className="text-white text-xs font-medium truncate max-w-[140px]">{r.employeeName || r.employeeCode}</span>
+                  <span className="text-[var(--text-primary)] text-xs font-medium truncate max-w-[140px]">{r.employeeName || r.employeeCode}</span>
                   <div className="flex items-center gap-2 text-xs">
-                    <span className="text-slate-400 font-mono">{r.inTime}</span>
-                    <span className="bg-amber-500/20 text-amber-300 px-1.5 py-0.5 rounded text-[10px]">+{getLateMinutes(r, graceMinutes, shiftStartMinutes)}m late</span>
+                    <span className="text-[var(--text-muted)] font-mono">{r.inTime}</span>
+                    <span className="bg-amber-500/20 text-amber-700 dark:text-amber-300 px-1.5 py-0.5 rounded text-[10px]">+{getLateMinutes(r, graceMinutes, shiftStartMinutes)}m late</span>
                   </div>
                 </div>
               ))}
@@ -1452,16 +1461,16 @@ export function DayDeptLateChart({
 
   const sorted = [...data].filter(d => d.lateCount > 0).sort((a, b) => b.lateCount - a.lateCount);
   return (
-    <div className="bg-slate-800 rounded-xl border border-slate-700 p-4 min-h-[260px]">
+    <div className="bg-[var(--bg-elevated)] rounded-xl border border-[var(--border)] p-4 min-h-[260px]">
       <div className="flex items-start justify-between mb-1">
         <div>
-          <h3 className="text-white font-semibold text-sm">Dept Late Arrivals Today</h3>
-          <p className="text-slate-500 text-xs mt-0.5 mb-3">Click a bar to see late employees in that team</p>
+          <h3 className="text-[var(--text-primary)] font-semibold text-sm">Dept Late Arrivals Today</h3>
+          <p className="text-[var(--text-muted)] text-xs mt-0.5 mb-3">Click a bar to see late employees in that team</p>
         </div>
         <InfoTooltip title="Dept Late Arrivals Today" description="Count of employees per department who punched in after shift start + grace period today." />
       </div>
       {sorted.length === 0
-        ? <div className="h-40 flex items-center justify-center text-slate-500 text-sm">No late arrivals today 🎉</div>
+        ? <div className="h-40 flex items-center justify-center text-[var(--text-muted)] text-sm">No late arrivals today 🎉</div>
         : (
           <ResponsiveContainer width="100%" height={Math.max(180, sorted.length * 40)}>
             <BarChart data={sorted} layout="vertical" margin={{ top: 4, right: 36, left: 4, bottom: 4 }}
@@ -1469,22 +1478,22 @@ export function DayDeptLateChart({
                 const dept = getDepartmentFromClick(entry);
                 if (dept) { setDrillDept(dept); onDeptClick?.(dept); }
               }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#334155" horizontal={false} />
-              <XAxis type="number" tick={{ fontSize: 10, fill: '#64748b' }} allowDecimals={false} />
-              <YAxis type="category" dataKey="department" tick={{ fontSize: 10, fill: '#94a3b8' }} width={100} />
+              <CartesianGrid strokeDasharray="3 3" stroke={__tc.border} horizontal={false} />
+              <XAxis type="number" tick={{ fontSize: 10, fill: __tc.mutedText }} allowDecimals={false} />
+              <YAxis type="category" dataKey="department" tick={{ fontSize: 10, fill: __tc.mutedText }} width={100} />
               <Tooltip cursor={{ fill: 'rgba(255,255,255,0.04)' }} content={({ active, payload, label }: any) => {
                 if (!active || !payload?.length) return null;
                 const d: DayDeptSnapshot = payload[0]?.payload;
                 return (
-                  <div className="bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-xs shadow-xl">
-                    <p className="text-white font-medium mb-1">{label}</p>
+                  <div className="bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg px-3 py-2 text-xs shadow-xl">
+                    <p className="text-[var(--text-primary)] font-medium mb-1">{label}</p>
                     <p className="text-amber-400">Late: <strong>{d.lateCount}</strong> of {d.presentCount} present</p>
-                    <p className="text-slate-500 text-[10px] mt-1">Click to see who was late →</p>
+                    <p className="text-[var(--text-muted)] text-[10px] mt-1">Click to see who was late →</p>
                   </div>
                 );
               }} />
               <Bar dataKey="lateCount" name="Late" radius={[0, 4, 4, 0]} fill="#fbbf24" cursor="pointer" isAnimationActive={false}>
-                <LabelList dataKey="lateCount" position="right" style={{ fontSize: 10, fill: '#94a3b8' }} />
+                <LabelList dataKey="lateCount" position="right" style={{ fontSize: 10, fill: __tc.mutedText }} />
               </Bar>
             </BarChart>
           </ResponsiveContainer>
@@ -1503,6 +1512,7 @@ export function DayDeptProductivityChart({
   shiftStartMinutes?: number;
   shiftEndMinutes?: number;
 }) {
+  const __tc = useThemeColors();
   const [drillDept, setDrillDept] = useState<string | null>(null);
 
   const singleDept = data.length === 1 ? data[0].department : null;
@@ -1515,32 +1525,32 @@ export function DayDeptProductivityChart({
       .sort((a, b) => b.lostM - a.lostM);
 
     return (
-      <div className="bg-slate-800 rounded-xl border border-slate-700 p-4 min-h-[260px]">
+      <div className="bg-[var(--bg-elevated)] rounded-xl border border-[var(--border)] p-4 min-h-[260px]">
         <div className="flex items-center flex-wrap gap-2 mb-3">
           {!singleDept && (
-            <button onClick={() => setDrillDept(null)} className="flex items-center gap-1 text-blue-400 hover:text-blue-300 text-xs font-medium">
+            <button onClick={() => setDrillDept(null)} className="flex items-center gap-1 text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 text-xs font-medium">
               <ArrowLeft className="w-3.5 h-3.5" /> Back
             </button>
           )}
-          <h3 className="text-white font-semibold text-sm">{activeDept} — Productivity Lost</h3>
-          <span className="text-slate-500 text-xs ml-auto">
+          <h3 className="text-[var(--text-primary)] font-semibold text-sm">{activeDept} — Productivity Lost</h3>
+          <span className="text-[var(--text-muted)] text-xs ml-auto">
             {(empData.reduce((s, e) => s + e.lostM, 0) / 60).toFixed(1)}h total lost
           </span>
         </div>
         {empData.length === 0
-          ? <div className="h-40 flex items-center justify-center text-slate-500 text-sm">No productivity loss in this team today 🎉</div>
+          ? <div className="h-40 flex items-center justify-center text-[var(--text-muted)] text-sm">No productivity loss in this team today 🎉</div>
           : (
             <div className="space-y-1 max-h-[240px] overflow-y-auto">
               {empData.map(({ r, lostM }) => (
-                <div key={r.employeeCode} className="flex items-center justify-between py-2 px-3 rounded-lg bg-slate-700/40 hover:bg-slate-700/60 transition-colors">
-                  <span className="text-white text-xs font-medium truncate max-w-[140px]">{r.employeeName || r.employeeCode}</span>
+                <div key={r.employeeCode} className="flex items-center justify-between py-2 px-3 rounded-lg bg-[var(--bg-elevated)]/40 hover:bg-[var(--bg-elevated)]/60 transition-colors">
+                  <span className="text-[var(--text-primary)] text-xs font-medium truncate max-w-[140px]">{r.employeeName || r.employeeCode}</span>
                   <div className="flex items-center gap-2 text-xs">
-                    <span className="text-slate-400 font-mono">{r.inTime} → {r.outTime}</span>
+                    <span className="text-[var(--text-muted)] font-mono">{r.inTime} → {r.outTime}</span>
                     {lostM > 0
-                      ? <span className={`px-1.5 py-0.5 rounded text-[10px] ${lostM > 120 ? 'bg-red-500/20 text-red-300' : lostM > 60 ? 'bg-amber-500/20 text-amber-300' : 'bg-slate-600/50 text-slate-400'}`}>
+                      ? <span className={`px-1.5 py-0.5 rounded text-[10px] ${lostM > 120 ? 'bg-red-500/20 text-red-700 dark:text-red-300' : lostM > 60 ? 'bg-amber-500/20 text-amber-700 dark:text-amber-300' : 'bg-[var(--bg-elevated)]/50 text-[var(--text-muted)]'}`}>
                           −{(lostM / 60).toFixed(1)}h lost
                         </span>
-                      : <span className="bg-emerald-500/20 text-emerald-300 px-1.5 py-0.5 rounded text-[10px]">Full day ✓</span>
+                      : <span className="bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 px-1.5 py-0.5 rounded text-[10px]">Full day ✓</span>
                     }
                   </div>
                 </div>
@@ -1553,16 +1563,16 @@ export function DayDeptProductivityChart({
 
   const sorted = [...data].filter(d => d.hoursLost > 0).sort((a, b) => b.hoursLost - a.hoursLost);
   return (
-    <div className="bg-slate-800 rounded-xl border border-slate-700 p-4 min-h-[260px]">
+    <div className="bg-[var(--bg-elevated)] rounded-xl border border-[var(--border)] p-4 min-h-[260px]">
       <div className="flex items-start justify-between mb-1">
         <div>
-          <h3 className="text-white font-semibold text-sm">Dept Productivity Lost Today</h3>
-          <p className="text-slate-500 text-xs mt-0.5 mb-3">Hours short of 8h effective work · click to see employees</p>
+          <h3 className="text-[var(--text-primary)] font-semibold text-sm">Dept Productivity Lost Today</h3>
+          <p className="text-[var(--text-muted)] text-xs mt-0.5 mb-3">Hours short of 8h effective work · click to see employees</p>
         </div>
         <InfoTooltip title="Dept Productivity Lost Today" description="Total hours each department fell short of 8h effective work today. Coming late but staying to compensate = no loss." formula="Σ max(0, 8h − (duration − 1h lunch))" />
       </div>
       {sorted.length === 0
-        ? <div className="h-40 flex items-center justify-center text-slate-500 text-sm">No productivity loss today 🎉</div>
+        ? <div className="h-40 flex items-center justify-center text-[var(--text-muted)] text-sm">No productivity loss today 🎉</div>
         : (
           <ResponsiveContainer width="100%" height={Math.max(180, sorted.length * 40)}>
             <BarChart data={sorted} layout="vertical" margin={{ top: 4, right: 50, left: 4, bottom: 4 }}
@@ -1570,18 +1580,18 @@ export function DayDeptProductivityChart({
                 const dept = getDepartmentFromClick(entry);
                 if (dept) { setDrillDept(dept); onDeptClick?.(dept); }
               }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#334155" horizontal={false} />
-              <XAxis type="number" tick={{ fontSize: 10, fill: '#64748b' }} unit="h" tickFormatter={(v: number) => v.toFixed(1)} />
-              <YAxis type="category" dataKey="department" tick={{ fontSize: 10, fill: '#94a3b8' }} width={100} />
+              <CartesianGrid strokeDasharray="3 3" stroke={__tc.border} horizontal={false} />
+              <XAxis type="number" tick={{ fontSize: 10, fill: __tc.mutedText }} unit="h" tickFormatter={(v: number) => v.toFixed(1)} />
+              <YAxis type="category" dataKey="department" tick={{ fontSize: 10, fill: __tc.mutedText }} width={100} />
               <Tooltip cursor={{ fill: 'rgba(255,255,255,0.04)' }} content={({ active, payload, label }: any) => {
                 if (!active || !payload?.length) return null;
                 const d: DayDeptSnapshot = payload[0]?.payload;
                 return (
-                  <div className="bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-xs shadow-xl">
-                    <p className="text-white font-medium mb-1">{label}</p>
+                  <div className="bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg px-3 py-2 text-xs shadow-xl">
+                    <p className="text-[var(--text-primary)] font-medium mb-1">{label}</p>
                     <p className="text-amber-400">Hours Lost: <strong>{d.hoursLost.toFixed(1)}h</strong></p>
-                    <p className="text-slate-400">Late: {d.lateCount} · Early exit: {d.earlyCount}</p>
-                    <p className="text-slate-500 text-[10px] mt-1">Click to see employees →</p>
+                    <p className="text-[var(--text-muted)]">Late: {d.lateCount} · Early exit: {d.earlyCount}</p>
+                    <p className="text-[var(--text-muted)] text-[10px] mt-1">Click to see employees →</p>
                   </div>
                 );
               }} />
@@ -1589,7 +1599,7 @@ export function DayDeptProductivityChart({
                 {sorted.map((entry, i) => (
                   <Cell key={i} fill={entry.hoursLost > 5 ? '#f87171' : entry.hoursLost > 2 ? '#fbbf24' : '#fb923c'} />
                 ))}
-                <LabelList dataKey="hoursLost" position="right" style={{ fontSize: 10, fill: '#94a3b8' }} formatter={(v: any) => `${Number(v).toFixed(1)}h`} />
+                <LabelList dataKey="hoursLost" position="right" style={{ fontSize: 10, fill: __tc.mutedText }} formatter={(v: any) => `${Number(v).toFixed(1)}h`} />
               </Bar>
             </BarChart>
           </ResponsiveContainer>

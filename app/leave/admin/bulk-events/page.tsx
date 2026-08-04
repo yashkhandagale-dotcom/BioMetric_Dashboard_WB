@@ -109,41 +109,41 @@ export default function BulkEventsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-900 text-white p-8 space-y-6">
+    <div className="min-h-screen bg-[var(--bg-surface)] text-[var(--text-primary)] p-8 space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-semibold">Bulk Workforce Events</h1>
-        <a href="/leave/admin" className="text-xs text-slate-400 hover:text-white">
+        <a href="/leave/admin" className="text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)]">
           ← Back to balances
         </a>
       </div>
 
-      <p className="text-slate-500 text-xs max-w-2xl">
+      <p className="text-[var(--text-muted)] text-xs max-w-2xl">
         WFH, Business Travel, and Office Shutdown are workforce signals, not leave — recording one here never touches
         anyone&apos;s SL/CL/PL/LWP balance.
       </p>
 
       {employeesError && (
-        <div className="bg-red-900/30 border border-red-500/30 text-red-300 text-xs rounded-lg px-3 py-2">
+        <div className="bg-red-900/30 border border-red-500/30 text-red-700 dark:text-red-300 text-xs rounded-lg px-3 py-2">
           {employeesError}
         </div>
       )}
       {error && (
-        <div className="bg-red-900/30 border border-red-500/30 text-red-300 text-xs rounded-lg px-3 py-2">{error}</div>
+        <div className="bg-red-900/30 border border-red-500/30 text-red-700 dark:text-red-300 text-xs rounded-lg px-3 py-2">{error}</div>
       )}
       {result && (
-        <div className="bg-emerald-900/30 border border-emerald-500/30 text-emerald-300 text-xs rounded-lg px-3 py-2">
+        <div className="bg-emerald-900/30 border border-emerald-500/30 text-emerald-700 dark:text-emerald-300 text-xs rounded-lg px-3 py-2">
           Recorded {result.created} new event day(s) across {result.employees_affected} employee(s) over {result.days}{' '}
           day(s). ({result.requested - result.created} already existed and were skipped.)
         </div>
       )}
 
-      <form onSubmit={handleSubmit} className="bg-slate-800/40 border border-slate-700 rounded-xl p-4 space-y-4 max-w-2xl">
+      <form onSubmit={handleSubmit} className="bg-[var(--bg-elevated)]/40 border border-[var(--border)] rounded-xl p-4 space-y-4 max-w-2xl">
         <div>
-          <label className="block text-xs text-slate-400 mb-1">Event Type</label>
+          <label className="block text-xs text-[var(--text-muted)] mb-1">Event Type</label>
           <select
             value={eventType}
             onChange={(e) => setEventType(e.target.value)}
-            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+            className="w-full bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)]"
           >
             {EVENT_TYPES.map((t) => (
               <option key={t.code} value={t.code}>{t.label}</option>
@@ -153,35 +153,35 @@ export default function BulkEventsPage() {
 
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="block text-xs text-slate-400 mb-1">Start Date</label>
+            <label className="block text-xs text-[var(--text-muted)] mb-1">Start Date</label>
             <input
               type="date"
               value={startDate}
               onChange={(e) => setStartDate(e.target.value)}
-              className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+              className="w-full bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)]"
               required
             />
           </div>
           <div>
-            <label className="block text-xs text-slate-400 mb-1">End Date</label>
+            <label className="block text-xs text-[var(--text-muted)] mb-1">End Date</label>
             <input
               type="date"
               value={endDate}
               onChange={(e) => setEndDate(e.target.value)}
-              className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+              className="w-full bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)]"
               required
             />
           </div>
         </div>
 
         <div>
-          <label className="block text-xs text-slate-400 mb-2">Apply To</label>
+          <label className="block text-xs text-[var(--text-muted)] mb-2">Apply To</label>
           <div className="flex items-center gap-4 mb-3">
-            <label className="flex items-center gap-2 text-sm text-slate-300">
+            <label className="flex items-center gap-2 text-sm text-[var(--text-muted)]">
               <input type="radio" checked={target === 'office'} onChange={() => setTarget('office')} />
               Entire office
             </label>
-            <label className="flex items-center gap-2 text-sm text-slate-300">
+            <label className="flex items-center gap-2 text-sm text-[var(--text-muted)]">
               <input type="radio" checked={target === 'employees'} onChange={() => setTarget('employees')} />
               Specific employees
             </label>
@@ -191,7 +191,7 @@ export default function BulkEventsPage() {
             <select
               value={office}
               onChange={(e) => setOffice(e.target.value)}
-              className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+              className="w-full bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)]"
             >
               <option value="">Select an office…</option>
               {offices.map((o) => (
@@ -199,25 +199,25 @@ export default function BulkEventsPage() {
               ))}
             </select>
           ) : (
-            <div className="max-h-48 overflow-y-auto border border-slate-700 rounded-lg divide-y divide-slate-800">
+            <div className="max-h-48 overflow-y-auto border border-[var(--border)] rounded-lg divide-y divide-[var(--border)]">
               {employees.map((e) => (
-                <label key={e.id} className="flex items-center gap-2 px-3 py-2 text-sm text-slate-300 hover:bg-slate-800/60">
+                <label key={e.id} className="flex items-center gap-2 px-3 py-2 text-sm text-[var(--text-muted)] hover:bg-[var(--bg-elevated)]/60">
                   <input type="checkbox" checked={selectedEmployeeIds.has(e.id)} onChange={() => toggleEmployee(e.id)} />
-                  {e.full_name} <span className="text-slate-500 text-xs">({e.employee_code} · {e.department})</span>
+                  {e.full_name} <span className="text-[var(--text-muted)] text-xs">({e.employee_code} · {e.department})</span>
                 </label>
               ))}
-              {employees.length === 0 && <p className="px-3 py-2 text-slate-500 text-xs">No employees yet.</p>}
+              {employees.length === 0 && <p className="px-3 py-2 text-[var(--text-muted)] text-xs">No employees yet.</p>}
             </div>
           )}
         </div>
 
         <div>
-          <label className="block text-xs text-slate-400 mb-1">Note (optional)</label>
+          <label className="block text-xs text-[var(--text-muted)] mb-1">Note (optional)</label>
           <input
             type="text"
             value={note}
             onChange={(e) => setNote(e.target.value)}
-            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+            className="w-full bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)]"
           />
         </div>
 

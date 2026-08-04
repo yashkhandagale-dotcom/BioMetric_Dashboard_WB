@@ -84,12 +84,12 @@ export default function EmployeeGrid({
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Search by name or employee code…"
-          className="flex-1 min-w-[220px] bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-500 focus:outline-none focus:border-emerald-500"
+          className="flex-1 min-w-[220px] bg-[var(--bg-elevated)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-emerald-500"
         />
         <select
           value={department}
           onChange={(e) => setDepartment(e.target.value)}
-          className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+          className="bg-[var(--bg-elevated)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)]"
         >
           <option value="">All departments</option>
           {departments.map((d) => (
@@ -99,7 +99,7 @@ export default function EmployeeGrid({
         <select
           value={office}
           onChange={(e) => setOffice(e.target.value)}
-          className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+          className="bg-[var(--bg-elevated)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)]"
         >
           <option value="">All offices</option>
           {offices.map((o) => (
@@ -109,7 +109,7 @@ export default function EmployeeGrid({
         <select
           value={status}
           onChange={(e) => setStatus(e.target.value)}
-          className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+          className="bg-[var(--bg-elevated)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)]"
         >
           <option value="">All statuses</option>
           {STATUS_OPTIONS.map((s) => (
@@ -125,19 +125,19 @@ export default function EmployeeGrid({
               setOffice('');
               setStatus('');
             }}
-            className="text-xs text-slate-400 hover:text-white"
+            className="text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)]"
           >
             Clear filters
           </button>
         )}
       </div>
 
-      <p className="text-xs text-slate-500">
+      <p className="text-xs text-[var(--text-muted)]">
         {filtered.length} of {employees.length} employees
       </p>
 
       {filtered.length === 0 ? (
-        <div className="bg-slate-800/40 border border-slate-700 rounded-xl px-4 py-10 text-center text-slate-500 text-sm">
+        <div className="bg-[var(--bg-elevated)]/40 border border-[var(--border)] rounded-xl px-4 py-10 text-center text-[var(--text-muted)] text-sm">
           {employees.length === 0 ? (
             <>No employees yet — they'll appear here automatically after the next biometric CSV upload.</>
           ) : (

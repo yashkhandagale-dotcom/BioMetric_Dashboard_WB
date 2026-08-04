@@ -206,7 +206,7 @@ export default function AdjustBalanceButton({
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="text-xs text-slate-400 hover:text-white border border-slate-700 hover:border-slate-500 rounded-lg px-2.5 py-1 transition-colors"
+        className="text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] border border-[var(--border)] hover:border-[var(--border)] rounded-lg px-2.5 py-1 transition-colors"
       >
         Adjust
       </button>
@@ -214,24 +214,24 @@ export default function AdjustBalanceButton({
       {open && (
         <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={close}>
           <div
-            className="bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl w-full max-w-sm p-5 space-y-4"
+            className="bg-[var(--bg-surface)] border border-[var(--border)] rounded-2xl shadow-2xl w-full max-w-sm p-5 space-y-4"
             onClick={(e) => e.stopPropagation()}
           >
             <div>
-              <h3 className="text-white font-semibold text-sm">Adjust — {employeeName}</h3>
-              <p className="text-slate-500 text-xs mt-1">
+              <h3 className="text-[var(--text-primary)] font-semibold text-sm">Adjust — {employeeName}</h3>
+              <p className="text-[var(--text-muted)] text-xs mt-1">
                 {tab === 'balance'
                   ? `FY ${fyStartYear}-${String(fyStartYear + 1).slice(-2)}. Every adjustment is recorded with who, when, and why.`
                   : 'Status, role, and reporting hierarchy — the fields CSV upload can\'t fill in.'}
               </p>
             </div>
 
-            <div className="flex gap-1 bg-slate-800/60 rounded-lg p-1">
+            <div className="flex gap-1 bg-[var(--bg-elevated)]/60 rounded-lg p-1">
               <button
                 type="button"
                 onClick={() => { setTab('balance'); setError(null); setSuccess(null); }}
                 className={`flex-1 text-xs font-medium rounded-md py-1.5 transition-colors ${
-                  tab === 'balance' ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-white'
+                  tab === 'balance' ? 'bg-emerald-600 text-white' : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'
                 }`}
               >
                 Balance
@@ -240,7 +240,7 @@ export default function AdjustBalanceButton({
                 type="button"
                 onClick={() => { setTab('details'); setError(null); setSuccess(null); }}
                 className={`flex-1 text-xs font-medium rounded-md py-1.5 transition-colors ${
-                  tab === 'details' ? 'bg-emerald-600 text-white' : 'text-slate-400 hover:text-white'
+                  tab === 'details' ? 'bg-emerald-600 text-white' : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'
                 }`}
               >
                 Details
@@ -248,12 +248,12 @@ export default function AdjustBalanceButton({
             </div>
 
             {error && (
-              <div className="bg-red-900/30 border border-red-500/30 text-red-300 text-xs rounded-lg px-3 py-2">
+              <div className="bg-red-900/30 border border-red-500/30 text-red-700 dark:text-red-300 text-xs rounded-lg px-3 py-2">
                 {error}
               </div>
             )}
             {success && (
-              <div className="bg-emerald-900/30 border border-emerald-500/30 text-emerald-300 text-xs rounded-lg px-3 py-2">
+              <div className="bg-emerald-900/30 border border-emerald-500/30 text-emerald-700 dark:text-emerald-300 text-xs rounded-lg px-3 py-2">
                 {success}
               </div>
             )}
@@ -261,11 +261,11 @@ export default function AdjustBalanceButton({
             {tab === 'balance' ? (
               <form onSubmit={handleBalanceSubmit} className="space-y-3">
                 <div>
-                  <label className="block text-xs text-slate-400 mb-1">Leave type</label>
+                  <label className="block text-xs text-[var(--text-muted)] mb-1">Leave type</label>
                   <select
                     value={leaveTypeCode}
                     onChange={(e) => setLeaveTypeCode(e.target.value as typeof leaveTypeCode)}
-                    className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+                    className="w-full bg-[var(--bg-elevated)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)]"
                   >
                     {CODES.map((c) => (
                       <option key={c.code} value={c.code}>{c.label}</option>
@@ -273,30 +273,30 @@ export default function AdjustBalanceButton({
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs text-slate-400 mb-1">Amount (days) — negative to subtract</label>
+                  <label className="block text-xs text-[var(--text-muted)] mb-1">Amount (days) — negative to subtract</label>
                   <input
                     type="number"
                     step="0.5"
                     value={delta}
                     onChange={(e) => setDelta(e.target.value)}
                     placeholder="e.g. 2 or -1.5"
-                    className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+                    className="w-full bg-[var(--bg-elevated)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)]"
                     required
                   />
                 </div>
                 <div>
-                  <label className="block text-xs text-slate-400 mb-1">Reason (required)</label>
+                  <label className="block text-xs text-[var(--text-muted)] mb-1">Reason (required)</label>
                   <textarea
                     value={reason}
                     onChange={(e) => setReason(e.target.value)}
                     rows={2}
                     placeholder="e.g. correcting mid-year joiner proration"
-                    className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+                    className="w-full bg-[var(--bg-elevated)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)]"
                     required
                   />
                 </div>
                 <div className="flex items-center justify-end gap-2 pt-1">
-                  <button type="button" onClick={close} className="text-slate-400 hover:text-white text-sm px-3 py-2">
+                  <button type="button" onClick={close} className="text-[var(--text-muted)] hover:text-[var(--text-primary)] text-sm px-3 py-2">
                     Cancel
                   </button>
                   <button
@@ -311,11 +311,11 @@ export default function AdjustBalanceButton({
             ) : (
               <form onSubmit={handleDetailsSubmit} className="space-y-3">
                 <div>
-                  <label className="block text-xs text-slate-400 mb-1">Status</label>
+                  <label className="block text-xs text-[var(--text-muted)] mb-1">Status</label>
                   <select
                     value={status}
                     onChange={(e) => setStatus(e.target.value)}
-                    className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+                    className="w-full bg-[var(--bg-elevated)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)]"
                   >
                     {STATUSES.map((s) => (
                       <option key={s.value} value={s.value}>{s.label}</option>
@@ -323,11 +323,11 @@ export default function AdjustBalanceButton({
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs text-slate-400 mb-1">Role</label>
+                  <label className="block text-xs text-[var(--text-muted)] mb-1">Role</label>
                   <select
                     value={role}
                     onChange={(e) => setRole(e.target.value)}
-                    className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+                    className="w-full bg-[var(--bg-elevated)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)]"
                   >
                     {ROLES.map((r) => (
                       <option key={r.value} value={r.value}>{r.label}</option>
@@ -336,11 +336,11 @@ export default function AdjustBalanceButton({
                 </div>
                 {role === 'employee' && (
                   <div>
-                    <label className="block text-xs text-slate-400 mb-1">Reporting Lead</label>
+                    <label className="block text-xs text-[var(--text-muted)] mb-1">Reporting Lead</label>
                     <select
                       value={leadId}
                       onChange={(e) => setLeadId(e.target.value)}
-                      className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+                      className="w-full bg-[var(--bg-elevated)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)]"
                     >
                       <option value="">— None —</option>
                       {leads.map((p) => (
@@ -353,14 +353,14 @@ export default function AdjustBalanceButton({
                 {role === 'manager' && (
                   <>
                     <div>
-                      <label className="block text-xs text-slate-400 mb-1">Departments Managed</label>
-                      <div className="border border-slate-700 rounded-lg px-3 py-2 max-h-32 overflow-y-auto space-y-1 bg-slate-800">
-                        {departments.length === 0 && <p className="text-slate-500 text-xs">No departments yet.</p>}
+                      <label className="block text-xs text-[var(--text-muted)] mb-1">Departments Managed</label>
+                      <div className="border border-[var(--border)] rounded-lg px-3 py-2 max-h-32 overflow-y-auto space-y-1 bg-[var(--bg-elevated)]">
+                        {departments.length === 0 && <p className="text-[var(--text-muted)] text-xs">No departments yet.</p>}
                         {departments.map((d) => {
                           const checked = managedDepartments.includes(d.department);
                           const takenByOther = d.managerId && d.managerId !== employeeId;
                           return (
-                            <label key={d.department} className="flex items-center gap-2 text-xs text-white cursor-pointer">
+                            <label key={d.department} className="flex items-center gap-2 text-xs text-[var(--text-primary)] cursor-pointer">
                               <input
                                 type="checkbox"
                                 checked={checked}
@@ -380,17 +380,17 @@ export default function AdjustBalanceButton({
                           );
                         })}
                       </div>
-                      <p className="text-slate-500 text-[11px] mt-1">
+                      <p className="text-[var(--text-muted)] text-[11px] mt-1">
                         Checking a department already assigned to another manager reassigns it to this person — every
                         employee in that department will see their manager update automatically.
                       </p>
                     </div>
                     <div>
-                      <label className="block text-xs text-slate-400 mb-1">Reports To (Manager)</label>
+                      <label className="block text-xs text-[var(--text-muted)] mb-1">Reports To (Manager)</label>
                       <select
                         value={managerId}
                         onChange={(e) => setManagerId(e.target.value)}
-                        className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+                        className="w-full bg-[var(--bg-elevated)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)]"
                       >
                         <option value="">— None —</option>
                         {managers
@@ -403,7 +403,7 @@ export default function AdjustBalanceButton({
                   </>
                 )}
                 <div className="flex items-center justify-end gap-2 pt-1">
-                  <button type="button" onClick={close} className="text-slate-400 hover:text-white text-sm px-3 py-2">
+                  <button type="button" onClick={close} className="text-[var(--text-muted)] hover:text-[var(--text-primary)] text-sm px-3 py-2">
                     Cancel
                   </button>
                   <button

@@ -28,17 +28,17 @@ function formatDateRange(start: string, end: string) {
 export default function LeaveHistoryTable({ rows }: { rows: LeaveHistoryRow[] }) {
   if (rows.length === 0) {
     return (
-      <div className="bg-slate-800/40 border border-slate-700 rounded-xl px-4 py-10 text-center text-slate-500 text-sm">
+      <div className="bg-[var(--bg-elevated)]/40 border border-[var(--border)] rounded-xl px-4 py-10 text-center text-[var(--text-muted)] text-sm">
         No leave records match the current filters.
       </div>
     );
   }
 
   return (
-    <div className="bg-slate-800/40 border border-slate-700 rounded-xl overflow-x-auto">
+    <div className="bg-[var(--bg-elevated)]/40 border border-[var(--border)] rounded-xl overflow-x-auto">
       <table className="w-full text-sm">
         <thead>
-          <tr className="text-left text-slate-400 text-xs border-b border-slate-700">
+          <tr className="text-left text-[var(--text-muted)] text-xs border-b border-[var(--border)]">
             <th className="px-4 py-3">Employee</th>
             <th className="px-4 py-3">Type</th>
             <th className="px-4 py-3">Dates</th>
@@ -51,28 +51,28 @@ export default function LeaveHistoryTable({ rows }: { rows: LeaveHistoryRow[] })
         </thead>
         <tbody>
           {rows.map((r) => (
-            <tr key={r.id} className="border-b border-slate-800 last:border-0">
+            <tr key={r.id} className="border-b border-[var(--border)] last:border-0">
               <td className="px-4 py-2.5">
-                <p className="text-white">{r.employeeName}</p>
-                <p className="text-slate-500 text-xs">
+                <p className="text-[var(--text-primary)]">{r.employeeName}</p>
+                <p className="text-[var(--text-muted)] text-xs">
                   {r.employeeCode} · {r.department} · {r.office}
                 </p>
               </td>
-              <td className="px-4 py-2.5 text-slate-300">{r.leaveTypeLabel}</td>
-              <td className="px-4 py-2.5 text-slate-400">{formatDateRange(r.startDate, r.endDate)}</td>
-              <td className="px-4 py-2.5 text-right text-slate-300">{r.totalDays.toFixed(2)}</td>
-              <td className="px-4 py-2.5 text-slate-400">
+              <td className="px-4 py-2.5 text-[var(--text-muted)]">{r.leaveTypeLabel}</td>
+              <td className="px-4 py-2.5 text-[var(--text-muted)]">{formatDateRange(r.startDate, r.endDate)}</td>
+              <td className="px-4 py-2.5 text-right text-[var(--text-muted)]">{r.totalDays.toFixed(2)}</td>
+              <td className="px-4 py-2.5 text-[var(--text-muted)]">
                 {r.isHalfDay ? (r.halfDaySession ?? 'Yes') : '—'}
               </td>
               <td className="px-4 py-2.5">
                 {r.isLwpOverride ? (
                   <span className="text-amber-400 text-xs">Yes</span>
                 ) : (
-                  <span className="text-slate-600 text-xs">—</span>
+                  <span className="text-[var(--text-muted)] text-xs">—</span>
                 )}
               </td>
-              <td className="px-4 py-2.5 text-slate-400">{new Date(r.appliedOn).toLocaleDateString()}</td>
-              <td className="px-4 py-2.5 text-slate-400">{r.recordedBy}</td>
+              <td className="px-4 py-2.5 text-[var(--text-muted)]">{new Date(r.appliedOn).toLocaleDateString()}</td>
+              <td className="px-4 py-2.5 text-[var(--text-muted)]">{r.recordedBy}</td>
             </tr>
           ))}
         </tbody>

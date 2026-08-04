@@ -101,15 +101,15 @@ export default function AddEmployeeForm() {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="bg-slate-800/40 border border-slate-700 rounded-xl p-5 space-y-3">
-      <h2 className="text-sm font-semibold text-white mb-2">Add Employee</h2>
+    <form onSubmit={handleSubmit} className="bg-[var(--bg-elevated)]/40 border border-[var(--border)] rounded-xl p-5 space-y-3">
+      <h2 className="text-sm font-semibold text-[var(--text-primary)] mb-2">Add Employee</h2>
       {error && (
-        <div className="bg-red-900/30 border border-red-500/30 text-red-300 text-xs rounded-lg px-3 py-2">
+        <div className="bg-red-900/30 border border-red-500/30 text-red-700 dark:text-red-300 text-xs rounded-lg px-3 py-2">
           {error}
         </div>
       )}
       {warning && (
-        <div className="bg-amber-900/30 border border-amber-500/30 text-amber-300 text-xs rounded-lg px-3 py-2">
+        <div className="bg-amber-900/30 border border-amber-500/30 text-amber-700 dark:text-amber-300 text-xs rounded-lg px-3 py-2">
           {warning}
         </div>
       )}
@@ -118,11 +118,11 @@ export default function AddEmployeeForm() {
         <Field label="Full Name" value={form.full_name} onChange={(v) => update('full_name', v)} required />
         <Field label="Email" value={form.email} onChange={(v) => update('email', v)} type="email" required />
         <div>
-          <label className="block text-xs text-slate-400 mb-1">Role</label>
+          <label className="block text-xs text-[var(--text-muted)] mb-1">Role</label>
           <select
             value={form.role}
             onChange={(e) => update('role', e.target.value)}
-            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+            className="w-full bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)]"
           >
             {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
           </select>
@@ -132,11 +132,11 @@ export default function AddEmployeeForm() {
         <Field label="Date of Joining" value={form.date_of_joining} onChange={(v) => update('date_of_joining', v)} type="date" required />
         {form.role === 'employee' && (
           <div>
-            <label className="block text-xs text-slate-400 mb-1">Reporting Lead</label>
+            <label className="block text-xs text-[var(--text-muted)] mb-1">Reporting Lead</label>
             <select
               value={form.reporting_lead_id}
               onChange={(e) => update('reporting_lead_id', e.target.value)}
-              className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+              className="w-full bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)]"
             >
               <option value="">— None —</option>
               {leads.map((p) => (
@@ -148,11 +148,11 @@ export default function AddEmployeeForm() {
         {form.role === 'manager' && (
           <>
             <div>
-              <label className="block text-xs text-slate-400 mb-1">Departments Managed</label>
-              <div className="border border-slate-700 rounded-lg px-3 py-2 max-h-32 overflow-y-auto space-y-1 bg-slate-900">
-                {departments.length === 0 && <p className="text-slate-500 text-xs">No departments yet.</p>}
+              <label className="block text-xs text-[var(--text-muted)] mb-1">Departments Managed</label>
+              <div className="border border-[var(--border)] rounded-lg px-3 py-2 max-h-32 overflow-y-auto space-y-1 bg-[var(--bg-surface)]">
+                {departments.length === 0 && <p className="text-[var(--text-muted)] text-xs">No departments yet.</p>}
                 {departments.map((d) => (
-                  <label key={d.department} className="flex items-center gap-2 text-xs text-white cursor-pointer">
+                  <label key={d.department} className="flex items-center gap-2 text-xs text-[var(--text-primary)] cursor-pointer">
                     <input
                       type="checkbox"
                       checked={managedDepartments.includes(d.department)}
@@ -168,11 +168,11 @@ export default function AddEmployeeForm() {
               </div>
             </div>
             <div>
-              <label className="block text-xs text-slate-400 mb-1">Reports To (Manager)</label>
+              <label className="block text-xs text-[var(--text-muted)] mb-1">Reports To (Manager)</label>
               <select
                 value={form.reporting_manager_id}
                 onChange={(e) => update('reporting_manager_id', e.target.value)}
-                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+                className="w-full bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)]"
               >
                 <option value="">— None —</option>
                 {managers.map((p) => (
@@ -201,13 +201,13 @@ function Field({
 }) {
   return (
     <div>
-      <label className="block text-xs text-slate-400 mb-1">{label}</label>
+      <label className="block text-xs text-[var(--text-muted)] mb-1">{label}</label>
       <input
         type={type}
         required={required}
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-emerald-500"
+        className="w-full bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)] focus:outline-none focus:border-emerald-500"
       />
     </div>
   );

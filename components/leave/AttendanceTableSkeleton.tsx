@@ -11,18 +11,18 @@ export default function AttendanceTableSkeleton({
   rows?: number;
 }) {
   return (
-    <div className="bg-slate-800/40 border border-slate-700 rounded-xl overflow-hidden animate-pulse">
-      <div className="border-b border-slate-700 px-4 py-2 flex gap-6">
+    <div className="bg-[var(--bg-elevated)]/40 border border-[var(--border)] rounded-xl overflow-hidden animate-pulse">
+      <div className="border-b border-[var(--border)] px-4 py-2 flex gap-6">
         {Array.from({ length: columns }).map((_, i) => (
-          <div key={i} className="h-3 bg-slate-700/60 rounded w-16" />
+          <div key={i} className="h-3 bg-[var(--bg-elevated)]/60 rounded w-16" />
         ))}
       </div>
       {Array.from({ length: rows }).map((_, r) => (
-        <div key={r} className="px-4 py-3 flex items-center gap-6 border-b border-slate-800 last:border-0">
+        <div key={r} className="px-4 py-3 flex items-center gap-6 border-b border-[var(--border)] last:border-0">
           {Array.from({ length: columns }).map((_, c) => (
             <div
               key={c}
-              className="h-3 bg-slate-700/40 rounded"
+              className="h-3 bg-[var(--bg-elevated)]/40 rounded"
               style={{ width: c === 0 ? '9rem' : '5rem' }}
             />
           ))}

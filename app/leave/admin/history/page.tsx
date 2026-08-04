@@ -243,10 +243,10 @@ export default function LeaveTrackerPage() {
   ];
 
   return (
-    <div className="min-h-screen bg-slate-900 text-white p-8 space-y-6">
+    <div className="min-h-screen bg-[var(--bg-surface)] text-[var(--text-primary)] p-8 space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <a href="/leave/admin" className="text-xs text-slate-400 hover:text-white">← Back to balances</a>
+          <a href="/leave/admin" className="text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)]">← Back to balances</a>
           <h1 className="text-xl font-semibold mt-1">Leave Tracker</h1>
         </div>
         <div className="text-right">
@@ -258,7 +258,7 @@ export default function LeaveTrackerPage() {
             + Record Leave
           </button>
           {!(view === 'table' && tab === 'history') && (
-            <p className="text-[11px] text-slate-500 mt-1 max-w-[220px]">
+            <p className="text-[11px] text-[var(--text-muted)] mt-1 max-w-[220px]">
               For any employee. To act on a row already listed below, use that row&apos;s own action instead.
             </p>
           )}
@@ -266,18 +266,18 @@ export default function LeaveTrackerPage() {
       </div>
 
       {employeesError && (
-        <div className="bg-red-900/30 border border-red-500/30 text-red-300 text-xs rounded-lg px-3 py-2">
+        <div className="bg-red-900/30 border border-red-500/30 text-red-700 dark:text-red-300 text-xs rounded-lg px-3 py-2">
           {employeesError}
         </div>
       )}
 
       {/* Calendar / Table view toggle */}
-      <div className="flex gap-1 border-b border-slate-700">
+      <div className="flex gap-1 border-b border-[var(--border)]">
         <button
           type="button"
           onClick={() => setView('calendar')}
           className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
-            view === 'calendar' ? 'border-emerald-500 text-white' : 'border-transparent text-slate-400 hover:text-white'
+            view === 'calendar' ? 'border-emerald-500 text-[var(--text-primary)]' : 'border-transparent text-[var(--text-muted)] hover:text-[var(--text-primary)]'
           }`}
         >
           Calendar
@@ -286,7 +286,7 @@ export default function LeaveTrackerPage() {
           type="button"
           onClick={() => setView('table')}
           className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
-            view === 'table' ? 'border-emerald-500 text-white' : 'border-transparent text-slate-400 hover:text-white'
+            view === 'table' ? 'border-emerald-500 text-[var(--text-primary)]' : 'border-transparent text-[var(--text-muted)] hover:text-[var(--text-primary)]'
           }`}
         >
           Table view
@@ -295,14 +295,14 @@ export default function LeaveTrackerPage() {
 
       {view === 'calendar' && (
         <>
-          <div className="bg-slate-800/40 border border-slate-700 rounded-xl p-4">
+          <div className="bg-[var(--bg-elevated)]/40 border border-[var(--border)] rounded-xl p-4">
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
               <div>
-                <label className="block text-xs text-slate-400 mb-1">Department (team)</label>
+                <label className="block text-xs text-[var(--text-muted)] mb-1">Department (team)</label>
                 <select
                   value={calendarDepartment}
                   onChange={(e) => setCalendarDepartment(e.target.value)}
-                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+                  className="w-full bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)]"
                 >
                   <option value="">All departments</option>
                   {departments.map((d) => (
@@ -311,20 +311,20 @@ export default function LeaveTrackerPage() {
                 </select>
               </div>
               <div className="sm:col-span-2 lg:col-span-3">
-                <label className="block text-xs text-slate-400 mb-1">Employee search</label>
+                <label className="block text-xs text-[var(--text-muted)] mb-1">Employee search</label>
                 <input
                   type="text"
                   value={calendarSearch}
                   onChange={(e) => setCalendarSearch(e.target.value)}
                   placeholder="Search by name or employee code to narrow to one person's month…"
-                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-500"
+                  className="w-full bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)]"
                 />
               </div>
             </div>
           </div>
 
           {calendarError && (
-            <div className="bg-red-900/30 border border-red-500/30 text-red-300 text-xs rounded-lg px-3 py-2">
+            <div className="bg-red-900/30 border border-red-500/30 text-red-700 dark:text-red-300 text-xs rounded-lg px-3 py-2">
               {calendarError}
             </div>
           )}
@@ -332,7 +332,7 @@ export default function LeaveTrackerPage() {
           {calendarLoading ? (
             <AttendanceTableSkeleton columns={7} rows={5} />
           ) : filteredDayMap.size === 0 && (calendarDepartment || calendarSearch) ? (
-            <div className="bg-slate-800/40 border border-slate-700 rounded-xl px-4 py-10 text-center text-slate-500 text-sm">
+            <div className="bg-[var(--bg-elevated)]/40 border border-[var(--border)] rounded-xl px-4 py-10 text-center text-[var(--text-muted)] text-sm">
               No leave, half-day, or unrecorded-absence activity this month matching your filters.
             </div>
           ) : (
@@ -363,7 +363,7 @@ export default function LeaveTrackerPage() {
       {view === 'table' && (
         <>
           {/* Tabs */}
-          <div className="flex gap-1 border-b border-slate-700">
+          <div className="flex gap-1 border-b border-[var(--border)]">
             {TABS.map((t) => (
               <button
                 key={t.key}
@@ -371,8 +371,8 @@ export default function LeaveTrackerPage() {
                 onClick={() => setTab(t.key)}
                 className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
                   tab === t.key
-                    ? 'border-emerald-500 text-white'
-                    : 'border-transparent text-slate-400 hover:text-white'
+                    ? 'border-emerald-500 text-[var(--text-primary)]'
+                    : 'border-transparent text-[var(--text-muted)] hover:text-[var(--text-primary)]'
                 }`}
               >
                 {t.label}
@@ -381,14 +381,14 @@ export default function LeaveTrackerPage() {
           </div>
 
           {/* Shared Department/Office filter, used by all three tabs */}
-          <div className="bg-slate-800/40 border border-slate-700 rounded-xl p-4 space-y-3">
+          <div className="bg-[var(--bg-elevated)]/40 border border-[var(--border)] rounded-xl p-4 space-y-3">
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
               <div>
-                <label className="block text-xs text-slate-400 mb-1">Department</label>
+                <label className="block text-xs text-[var(--text-muted)] mb-1">Department</label>
                 <select
                   value={department}
                   onChange={(e) => setDepartment(e.target.value)}
-                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+                  className="w-full bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)]"
                 >
                   <option value="">All</option>
                   {departments.map((d) => (
@@ -397,11 +397,11 @@ export default function LeaveTrackerPage() {
                 </select>
               </div>
               <div>
-                <label className="block text-xs text-slate-400 mb-1">Office</label>
+                <label className="block text-xs text-[var(--text-muted)] mb-1">Office</label>
                 <select
                   value={office}
                   onChange={(e) => setOffice(e.target.value)}
-                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+                  className="w-full bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)]"
                 >
                   <option value="">All</option>
                   {offices.map((o) => (
@@ -413,33 +413,33 @@ export default function LeaveTrackerPage() {
               {tab !== 'history' ? (
                 <>
                   <div>
-                    <label className="block text-xs text-slate-400 mb-1">From Date</label>
+                    <label className="block text-xs text-[var(--text-muted)] mb-1">From Date</label>
                     <input
                       type="date"
                       value={attendanceDate}
                       onChange={(e) => setAttendanceDate(e.target.value)}
-                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+                      className="w-full bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)]"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs text-slate-400 mb-1">To Date</label>
+                    <label className="block text-xs text-[var(--text-muted)] mb-1">To Date</label>
                     <input
                       type="date"
                       value={attendanceEndDate}
                       min={attendanceDate || undefined}
                       onChange={(e) => setAttendanceEndDate(e.target.value)}
                       placeholder="Same as From Date"
-                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+                      className="w-full bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)]"
                     />
                   </div>
                   <div className="sm:col-span-2 lg:col-span-2">
-                    <label className="block text-xs text-slate-400 mb-1">Employee Search</label>
+                    <label className="block text-xs text-[var(--text-muted)] mb-1">Employee Search</label>
                     <input
                       type="text"
                       value={attendanceSearch}
                       onChange={(e) => setAttendanceSearch(e.target.value)}
                       placeholder="Search by name or employee code…"
-                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-slate-500"
+                      className="w-full bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)]"
                     />
                   </div>
                   {attendanceEndDate && attendanceEndDate !== attendanceDate && (
@@ -447,7 +447,7 @@ export default function LeaveTrackerPage() {
                       <button
                         type="button"
                         onClick={() => setAttendanceEndDate('')}
-                        className="text-xs text-slate-400 hover:text-white"
+                        className="text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)]"
                       >
                         ✕ Clear &quot;To Date&quot; (back to a single day)
                       </button>
@@ -457,29 +457,29 @@ export default function LeaveTrackerPage() {
               ) : (
                 <>
                   <div>
-                    <label className="block text-xs text-slate-400 mb-1">Start Date</label>
+                    <label className="block text-xs text-[var(--text-muted)] mb-1">Start Date</label>
                     <input
                       type="date"
                       value={startDate}
                       onChange={(e) => setStartDate(e.target.value)}
-                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+                      className="w-full bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)]"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs text-slate-400 mb-1">End Date</label>
+                    <label className="block text-xs text-[var(--text-muted)] mb-1">End Date</label>
                     <input
                       type="date"
                       value={endDate}
                       onChange={(e) => setEndDate(e.target.value)}
-                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+                      className="w-full bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)]"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs text-slate-400 mb-1">Employee</label>
+                    <label className="block text-xs text-[var(--text-muted)] mb-1">Employee</label>
                     <select
                       value={employeeId}
                       onChange={(e) => setEmployeeId(e.target.value)}
-                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+                      className="w-full bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)]"
                     >
                       <option value="">All</option>
                       {employees.map((e) => (
@@ -490,11 +490,11 @@ export default function LeaveTrackerPage() {
                     </select>
                   </div>
                   <div>
-                    <label className="block text-xs text-slate-400 mb-1">Leave Type</label>
+                    <label className="block text-xs text-[var(--text-muted)] mb-1">Leave Type</label>
                     <select
                       value={leaveTypeCode}
                       onChange={(e) => setLeaveTypeCode(e.target.value)}
-                      className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+                      className="w-full bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)]"
                     >
                       <option value="">All</option>
                       {LEAVE_TYPES.map((lt) => (
@@ -517,7 +517,7 @@ export default function LeaveTrackerPage() {
                   {loading ? 'Loading…' : 'Apply Filters'}
                 </button>
                 {historyHasActiveFilters && (
-                  <button type="button" onClick={handleClearHistoryFilters} className="text-xs text-slate-400 hover:text-white">
+                  <button type="button" onClick={handleClearHistoryFilters} className="text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)]">
                     Clear filters
                   </button>
                 )}
@@ -525,7 +525,7 @@ export default function LeaveTrackerPage() {
                   type="button"
                   onClick={handleExportCSV}
                   disabled={rows.length === 0}
-                  className="ml-auto border border-slate-700 hover:border-slate-500 disabled:opacity-40 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+                  className="ml-auto border border-[var(--border)] hover:border-[var(--border)] disabled:opacity-40 text-[var(--text-primary)] text-sm font-medium px-4 py-2 rounded-lg transition-colors"
                 >
                   Export CSV
                 </button>
@@ -558,7 +558,7 @@ export default function LeaveTrackerPage() {
           {tab === 'history' && (
             <>
               {error && (
-                <div className="bg-red-900/30 border border-red-500/30 text-red-300 text-xs rounded-lg px-3 py-2">
+                <div className="bg-red-900/30 border border-red-500/30 text-red-700 dark:text-red-300 text-xs rounded-lg px-3 py-2">
                   {error}
                 </div>
               )}
@@ -566,7 +566,7 @@ export default function LeaveTrackerPage() {
                 <AttendanceTableSkeleton columns={7} />
               ) : (
                 <>
-                  <p className="text-xs text-slate-500">{rows.length} record(s)</p>
+                  <p className="text-xs text-[var(--text-muted)]">{rows.length} record(s)</p>
                   <LeaveHistoryTable rows={department || office ? rows.filter((r) => (!department || r.department === department) && (!office || r.office === office)) : rows} />
                 </>
               )}

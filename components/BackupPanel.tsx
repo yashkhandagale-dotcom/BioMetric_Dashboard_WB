@@ -50,8 +50,8 @@ export default function BackupPanel({ onRestored }: { onRestored?: () => void })
   return (
     <div className="space-y-4">
       <div>
-        <h4 className="text-slate-400 text-xs font-semibold uppercase tracking-wide mb-2">Backup All Data</h4>
-        <p className="text-slate-500 text-xs mb-3">
+        <h4 className="text-[var(--text-muted)] text-xs font-semibold uppercase tracking-wide mb-2">Backup All Data</h4>
+        <p className="text-[var(--text-muted)] text-xs mb-3">
           Download every record, column mapping, leave entry, holiday calendar, and threshold setting as a single JSON file.
         </p>
         <button
@@ -63,28 +63,28 @@ export default function BackupPanel({ onRestored }: { onRestored?: () => void })
       </div>
 
       <div>
-        <h4 className="text-slate-400 text-xs font-semibold uppercase tracking-wide mb-2">Restore From Backup</h4>
-        <p className="text-slate-500 text-xs mb-3">
+        <h4 className="text-[var(--text-muted)] text-xs font-semibold uppercase tracking-wide mb-2">Restore From Backup</h4>
+        <p className="text-[var(--text-muted)] text-xs mb-3">
           Restoring merges the backup into what&apos;s already stored here — matching keys are overwritten.
         </p>
 
         {!confirming ? (
           <button
             onClick={handleImportClick}
-            className="w-full flex items-center justify-center gap-2 bg-slate-700 hover:bg-slate-600 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors"
+            className="w-full flex items-center justify-center gap-2 bg-[var(--bg-elevated)] hover:bg-[var(--bg-elevated)] text-[var(--text-primary)] px-4 py-2 rounded-lg text-sm font-medium transition-colors"
           >
             <Upload className="w-4 h-4" /> Import All Data
           </button>
         ) : (
           <div className="space-y-2">
-            <div className="flex items-start gap-2 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2 text-xs text-amber-300">
+            <div className="flex items-start gap-2 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
               <AlertTriangle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
               <span>This will overwrite any current data with matching keys. Continue?</span>
             </div>
             <div className="flex gap-2">
               <button
                 onClick={() => setConfirming(false)}
-                className="flex-1 bg-slate-700 hover:bg-slate-600 text-white px-3 py-2 rounded-lg text-xs font-medium transition-colors"
+                className="flex-1 bg-[var(--bg-elevated)] hover:bg-[var(--bg-elevated)] text-[var(--text-primary)] px-3 py-2 rounded-lg text-xs font-medium transition-colors"
               >
                 Cancel
               </button>
@@ -103,8 +103,8 @@ export default function BackupPanel({ onRestored }: { onRestored?: () => void })
       {status && (
         <div className={`flex items-start gap-2 rounded-lg px-3 py-2 text-xs border ${
           status.type === 'success'
-            ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-300'
-            : 'bg-red-500/10 border-red-500/20 text-red-300'
+            ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-700 dark:text-emerald-300'
+            : 'bg-red-500/10 border-red-500/20 text-red-700 dark:text-red-300'
         }`}>
           {status.type === 'success' ? <CheckCircle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" /> : <AlertTriangle className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />}
           <span>{status.message}</span>

@@ -86,14 +86,14 @@ export default function InsightsStrip({ summaries, dailyTrend, deptAttendance, r
   if (insights.length === 0) return null;
 
   const typeColors: Record<string, string> = {
-    warn: 'bg-amber-500/10 border-amber-500/20 text-amber-300',
-    danger: 'bg-red-500/10 border-red-500/20 text-red-300',
-    info: 'bg-blue-500/10 border-blue-500/20 text-blue-300',
+    warn: 'bg-amber-500/10 border-amber-500/20 text-amber-700 dark:text-amber-300',
+    danger: 'bg-red-500/10 border-red-500/20 text-red-700 dark:text-red-300',
+    info: 'bg-blue-500/10 border-blue-500/20 text-blue-700 dark:text-blue-300',
   };
 
   return (
     <div className="space-y-2">
-      <h3 className="text-slate-500 text-xs font-semibold uppercase tracking-wide">Insights</h3>
+      <h3 className="text-[var(--text-muted)] text-xs font-semibold uppercase tracking-wide">Insights</h3>
       <div className="flex flex-col gap-2">
         {insights.map((insight, i) => (
           <div key={i} className={`flex items-start gap-2.5 px-4 py-3 rounded-xl border text-sm ${typeColors[insight.type]}`}>

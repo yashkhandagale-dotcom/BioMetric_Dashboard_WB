@@ -80,7 +80,7 @@ export default function InfoTooltip({ title, description, formula, example }: In
       <button
         ref={btnRef}
         onClick={() => setOpen(v => !v)}
-        className="text-slate-500 hover:text-slate-300 transition-colors flex items-center"
+        className="text-[var(--text-muted)] hover:text-[var(--text-muted)] transition-colors flex items-center"
         title={title}
         aria-label={`Info: ${title}`}
       >
@@ -90,19 +90,19 @@ export default function InfoTooltip({ title, description, formula, example }: In
       {open && mounted && createPortal(
         <div
           ref={tipRef}
-          className="fixed z-[9999] bg-slate-900 border border-slate-600 rounded-xl p-4 shadow-2xl text-xs opacity-100"
+          className="fixed z-[9999] bg-[var(--bg-surface)] border border-[var(--border)] rounded-xl p-4 shadow-2xl text-xs opacity-100"
           style={{ width: TIP_W, top: pos.top, left: pos.left }}
         >
-          <p className="text-white font-semibold mb-2">{title}</p>
-          <p className="text-slate-300 mb-2">{description}</p>
+          <p className="text-[var(--text-primary)] font-semibold mb-2">{title}</p>
+          <p className="text-[var(--text-muted)] mb-2">{description}</p>
           {formula && (
-            <div className="bg-slate-800 rounded-lg px-3 py-2 border border-slate-700 mb-2">
-              <p className="text-slate-400 text-[10px] uppercase tracking-wide mb-1">Formula</p>
+            <div className="bg-[var(--bg-elevated)] rounded-lg px-3 py-2 border border-[var(--border)] mb-2">
+              <p className="text-[var(--text-muted)] text-[10px] uppercase tracking-wide mb-1">Formula</p>
               <p className="text-amber-400 font-mono text-xs">{formula}</p>
             </div>
           )}
           {example && (
-            <p className="text-slate-400 italic text-[11px]">{example}</p>
+            <p className="text-[var(--text-muted)] italic text-[11px]">{example}</p>
           )}
         </div>,
         document.body

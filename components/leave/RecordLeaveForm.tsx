@@ -177,28 +177,28 @@ export default function RecordLeaveForm({
   return (
     <div className="space-y-4">
       {employeesError && (
-        <div className="bg-red-900/30 border border-red-500/30 text-red-300 text-xs rounded-lg px-3 py-2">
+        <div className="bg-red-900/30 border border-red-500/30 text-red-700 dark:text-red-300 text-xs rounded-lg px-3 py-2">
           {employeesError}
         </div>
       )}
       {error && (
-        <div className="bg-red-900/30 border border-red-500/30 text-red-300 text-xs rounded-lg px-3 py-2">
+        <div className="bg-red-900/30 border border-red-500/30 text-red-700 dark:text-red-300 text-xs rounded-lg px-3 py-2">
           {error}
         </div>
       )}
 
       {result && (
         <div className="space-y-2">
-          <div className="bg-emerald-900/30 border border-emerald-500/30 text-emerald-300 text-xs rounded-lg px-3 py-2">
+          <div className="bg-emerald-900/30 border border-emerald-500/30 text-emerald-700 dark:text-emerald-300 text-xs rounded-lg px-3 py-2">
             Recorded — {result.leave_request.total_days} day(s) debited.
           </div>
           {result.converted_to_lwp && (
-            <div className="bg-amber-900/30 border border-amber-500/30 text-amber-300 text-xs rounded-lg px-3 py-2">
+            <div className="bg-amber-900/30 border border-amber-500/30 text-amber-700 dark:text-amber-300 text-xs rounded-lg px-3 py-2">
               Insufficient balance for the selected leave type — this entry was recorded as Leave Without Pay (LWP) instead.
             </div>
           )}
           {result.policy_notes.length > 0 && (
-            <ul className="bg-amber-900/30 border border-amber-500/30 text-amber-300 text-xs rounded-lg px-3 py-2 list-disc pl-4 space-y-1">
+            <ul className="bg-amber-900/30 border border-amber-500/30 text-amber-700 dark:text-amber-300 text-xs rounded-lg px-3 py-2 list-disc pl-4 space-y-1">
               {result.policy_notes.map((note, i) => (
                 <li key={i}>{note}</li>
               ))}
@@ -209,7 +209,7 @@ export default function RecordLeaveForm({
 
       <form onSubmit={handleSubmit} className="space-y-4">
         <div className="relative">
-          <label className="block text-xs text-slate-400 mb-1">Employee</label>
+          <label className="block text-xs text-[var(--text-muted)] mb-1">Employee</label>
           <input
             type="text"
             value={selectedEmployee ? `${selectedEmployee.full_name} (${selectedEmployee.employee_code})` : employeeSearch}
@@ -218,11 +218,11 @@ export default function RecordLeaveForm({
               setEmployeeSearch(e.target.value);
             }}
             placeholder="Search by name or employee code…"
-            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+            className="w-full bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)]"
             required
           />
           {!employeeId && employeeSearch && filteredEmployees.length > 0 && (
-            <div className="absolute z-10 mt-1 w-full bg-slate-900 border border-slate-700 rounded-lg overflow-hidden shadow-lg">
+            <div className="absolute z-10 mt-1 w-full bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg overflow-hidden shadow-lg">
               {filteredEmployees.map((e) => (
                 <button
                   type="button"
@@ -231,9 +231,9 @@ export default function RecordLeaveForm({
                     setEmployeeId(e.id);
                     setEmployeeSearch('');
                   }}
-                  className="w-full text-left px-3 py-2 text-sm text-white hover:bg-slate-800"
+                  className="w-full text-left px-3 py-2 text-sm text-[var(--text-primary)] hover:bg-[var(--bg-elevated)]"
                 >
-                  {e.full_name} <span className="text-slate-500">({e.employee_code})</span>
+                  {e.full_name} <span className="text-[var(--text-muted)]">({e.employee_code})</span>
                 </button>
               ))}
             </div>
@@ -242,11 +242,11 @@ export default function RecordLeaveForm({
 
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="block text-xs text-slate-400 mb-1">Leave Type</label>
+            <label className="block text-xs text-[var(--text-muted)] mb-1">Leave Type</label>
             <select
               value={leaveTypeCode}
               onChange={(e) => setLeaveTypeCode(e.target.value as typeof leaveTypeCode)}
-              className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+              className="w-full bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)]"
             >
               {LEAVE_TYPES.map((lt) => (
                 <option key={lt.code} value={lt.code}>{lt.label}</option>
@@ -254,7 +254,7 @@ export default function RecordLeaveForm({
             </select>
           </div>
           <div className="flex items-end pb-2">
-            <label className={`flex items-center gap-2 text-sm ${lockHalfDay ? 'text-slate-500' : 'text-slate-300'}`}>
+            <label className={`flex items-center gap-2 text-sm ${lockHalfDay ? 'text-[var(--text-muted)]' : 'text-[var(--text-muted)]'}`}>
               <input
                 type="checkbox"
                 checked={isHalfDay}
@@ -262,7 +262,7 @@ export default function RecordLeaveForm({
                 onChange={(e) => setIsHalfDay(e.target.checked)}
               />
               Half day
-              {lockHalfDay && <span className="text-[11px] text-slate-500">(punches confirm this is a half day)</span>}
+              {lockHalfDay && <span className="text-[11px] text-[var(--text-muted)]">(punches confirm this is a half day)</span>}
             </label>
           </div>
         </div>
@@ -270,21 +270,21 @@ export default function RecordLeaveForm({
         {isHalfDay ? (
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs text-slate-400 mb-1">Date</label>
+              <label className="block text-xs text-[var(--text-muted)] mb-1">Date</label>
               <input
                 type="date"
                 value={startDate}
                 onChange={(e) => setStartDate(e.target.value)}
-                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+                className="w-full bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)]"
                 required
               />
             </div>
             <div>
-              <label className="block text-xs text-slate-400 mb-1">Session</label>
+              <label className="block text-xs text-[var(--text-muted)] mb-1">Session</label>
               <select
                 value={halfDaySession}
                 onChange={(e) => setHalfDaySession(e.target.value as 'AM' | 'PM')}
-                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+                className="w-full bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)]"
               >
                 <option value="AM">AM</option>
                 <option value="PM">PM</option>
@@ -294,22 +294,22 @@ export default function RecordLeaveForm({
         ) : (
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs text-slate-400 mb-1">Start Date</label>
+              <label className="block text-xs text-[var(--text-muted)] mb-1">Start Date</label>
               <input
                 type="date"
                 value={startDate}
                 onChange={(e) => setStartDate(e.target.value)}
-                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+                className="w-full bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)]"
                 required
               />
             </div>
             <div>
-              <label className="block text-xs text-slate-400 mb-1">End Date</label>
+              <label className="block text-xs text-[var(--text-muted)] mb-1">End Date</label>
               <input
                 type="date"
                 value={endDate}
                 onChange={(e) => setEndDate(e.target.value)}
-                className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+                className="w-full bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)]"
                 required
               />
             </div>
@@ -317,12 +317,12 @@ export default function RecordLeaveForm({
         )}
 
         <div>
-          <label className="block text-xs text-slate-400 mb-1">Reason</label>
+          <label className="block text-xs text-[var(--text-muted)] mb-1">Reason</label>
           <textarea
             value={reason}
             onChange={(e) => setReason(e.target.value)}
             rows={2}
-            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white"
+            className="w-full bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)]"
             required
           />
         </div>

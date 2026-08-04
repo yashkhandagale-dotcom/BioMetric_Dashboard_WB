@@ -33,14 +33,14 @@ export default function EmployeeModal({ employee, onClose, readOnly = false }: E
 
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <div className="bg-slate-800 rounded-2xl border border-slate-700 w-full max-w-lg shadow-2xl max-h-[90vh] flex flex-col">
+      <div className="bg-[var(--bg-elevated)] rounded-2xl border border-[var(--border)] w-full max-w-lg shadow-2xl max-h-[90vh] flex flex-col">
         {/* Header */}
-        <div className="flex items-center justify-between p-5 border-b border-slate-700 flex-shrink-0">
+        <div className="flex items-center justify-between p-5 border-b border-[var(--border)] flex-shrink-0">
           <div>
-            <h3 className="text-white font-semibold">{employee.employeeName}</h3>
-            <p className="text-slate-400 text-sm">{employee.department} · {employee.officeCode}</p>
+            <h3 className="text-[var(--text-primary)] font-semibold">{employee.employeeName}</h3>
+            <p className="text-[var(--text-muted)] text-sm">{employee.department} · {employee.officeCode}</p>
           </div>
-          <button onClick={onClose} className="text-slate-400 hover:text-white transition-colors">
+          <button onClick={onClose} className="text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors">
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -51,27 +51,27 @@ export default function EmployeeModal({ employee, onClose, readOnly = false }: E
             {[
               { label: 'Present Days', value: employee.presentDays, color: 'text-emerald-400' },
               { label: 'On Leave Days', value: employee.absentDays, color: 'text-red-400' },
-              { label: 'Attendance', value: `${rate}%`, color: 'text-white' },
+              { label: 'Attendance', value: `${rate}%`, color: 'text-[var(--text-primary)]' },
               { label: 'Late Count', value: employee.lateCount, color: 'text-amber-400' },
               { label: 'Early Exits', value: employee.earlyExitCount, color: 'text-amber-400' },
               { label: 'Avg Hours/Day', value: employee.avgHoursWorked, color: 'text-blue-400' },
             ].map(({ label, value, color }) => (
-              <div key={label} className="bg-slate-700/50 rounded-xl p-3">
-                <p className="text-slate-400 text-xs mb-1">{label}</p>
+              <div key={label} className="bg-[var(--bg-elevated)]/50 rounded-xl p-3">
+                <p className="text-[var(--text-muted)] text-xs mb-1">{label}</p>
                 <p className={`text-lg font-bold ${color}`}>{value}</p>
               </div>
             ))}
           </div>
 
           {/* Drill-down insights */}
-          <div className="bg-slate-700/30 rounded-xl border border-slate-600/40 p-4 space-y-3">
-            <h4 className="text-slate-300 text-xs font-semibold uppercase tracking-wide">Punctuality Insights</h4>
+          <div className="bg-[var(--bg-elevated)]/30 rounded-xl border border-[var(--border)]/40 p-4 space-y-3">
+            <h4 className="text-[var(--text-muted)] text-xs font-semibold uppercase tracking-wide">Punctuality Insights</h4>
             <div className="grid grid-cols-2 gap-3">
               <div className="flex items-start gap-2">
                 <Clock className="w-4 h-4 text-amber-400 mt-0.5 flex-shrink-0" />
                 <div>
-                  <p className="text-slate-400 text-xs">Avg Late Arrival</p>
-                  <p className="text-white text-sm font-semibold">
+                  <p className="text-[var(--text-muted)] text-xs">Avg Late Arrival</p>
+                  <p className="text-[var(--text-primary)] text-sm font-semibold">
                     {(employee.avgLateMinutes ?? 0) > 0
                       ? `avg ${employee.avgLateMinutes} mins late`
                       : 'Never late'}
@@ -81,8 +81,8 @@ export default function EmployeeModal({ employee, onClose, readOnly = false }: E
               <div className="flex items-start gap-2">
                 <LogOut className="w-4 h-4 text-orange-400 mt-0.5 flex-shrink-0" />
                 <div>
-                  <p className="text-slate-400 text-xs">Avg Early Exit</p>
-                  <p className="text-white text-sm font-semibold">
+                  <p className="text-[var(--text-muted)] text-xs">Avg Early Exit</p>
+                  <p className="text-[var(--text-primary)] text-sm font-semibold">
                     {(employee.avgEarlyExitMinutes ?? 0) > 0
                       ? `avg ${employee.avgEarlyExitMinutes} mins early`
                       : 'No early exits'}
@@ -92,8 +92,8 @@ export default function EmployeeModal({ employee, onClose, readOnly = false }: E
               <div className="flex items-start gap-2">
                 <TrendingUp className="w-4 h-4 text-red-400 mt-0.5 flex-shrink-0" />
                 <div>
-                  <p className="text-slate-400 text-xs">Latest In-Time</p>
-                  <p className="text-white text-sm font-semibold">
+                  <p className="text-[var(--text-muted)] text-xs">Latest In-Time</p>
+                  <p className="text-[var(--text-primary)] text-sm font-semibold">
                     {minsToTimeStr(employee.latestInTime ?? -1)}
                   </p>
                 </div>
@@ -101,8 +101,8 @@ export default function EmployeeModal({ employee, onClose, readOnly = false }: E
               <div className="flex items-start gap-2">
                 <TrendingDown className="w-4 h-4 text-blue-400 mt-0.5 flex-shrink-0" />
                 <div>
-                  <p className="text-slate-400 text-xs">Earliest Out-Time</p>
-                  <p className="text-white text-sm font-semibold">
+                  <p className="text-[var(--text-muted)] text-xs">Earliest Out-Time</p>
+                  <p className="text-[var(--text-primary)] text-sm font-semibold">
                     {minsToTimeStr(employee.earliestOutTime ?? -1)}
                   </p>
                 </div>
@@ -113,17 +113,17 @@ export default function EmployeeModal({ employee, onClose, readOnly = false }: E
           {/* Day-wise late/early list */}
           {dayWise.length > 0 && (
             <div>
-              <h4 className="text-slate-300 text-xs font-semibold uppercase tracking-wide mb-2">
+              <h4 className="text-[var(--text-muted)] text-xs font-semibold uppercase tracking-wide mb-2">
                 Day-wise Late / Early Records ({dayWise.length} days)
               </h4>
               <div className="space-y-1 max-h-52 overflow-y-auto pr-1">
                 {dayWise.map((d) => (
-                  <div key={d.date} className="flex items-center justify-between flex-wrap gap-1 bg-slate-700/30 rounded-lg px-3 py-2 text-xs">
-                    <span className="text-slate-300 font-mono">{d.date}</span>
-                    <span className="text-slate-400">{d.inTime || '—'} → {d.outTime || '—'}</span>
+                  <div key={d.date} className="flex items-center justify-between flex-wrap gap-1 bg-[var(--bg-elevated)]/30 rounded-lg px-3 py-2 text-xs">
+                    <span className="text-[var(--text-muted)] font-mono">{d.date}</span>
+                    <span className="text-[var(--text-muted)]">{d.inTime || '—'} → {d.outTime || '—'}</span>
                     <div className="flex gap-2">
                       {d.lateMinutes > 0 && (
-                        <span className="bg-amber-500/20 text-amber-300 px-1.5 py-0.5 rounded">+{d.lateMinutes}m late</span>
+                        <span className="bg-amber-500/20 text-amber-700 dark:text-amber-300 px-1.5 py-0.5 rounded">+{d.lateMinutes}m late</span>
                       )}
                       {d.earlyMinutes > 0 && (
                         <span className="bg-orange-500/20 text-orange-300 px-1.5 py-0.5 rounded">-{d.earlyMinutes}m early</span>
@@ -142,7 +142,7 @@ export default function EmployeeModal({ employee, onClose, readOnly = false }: E
           )}
 
           {readOnly && (
-            <p className="text-slate-500 text-xs text-center">Read-only view — no edits allowed</p>
+            <p className="text-[var(--text-muted)] text-xs text-center">Read-only view — no edits allowed</p>
           )}
         </div>
       </div>

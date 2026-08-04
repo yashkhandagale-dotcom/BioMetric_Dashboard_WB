@@ -17,18 +17,18 @@ export default async function LeaveApprovalsHome() {
     .eq('employees.reporting_manager_id', employee?.id ?? '');
 
   return (
-    <div className="min-h-screen bg-slate-900 text-white px-6 py-10">
+    <div className="min-h-screen bg-[var(--bg-surface)] text-[var(--text-primary)] px-6 py-10">
       <div className="max-w-2xl mx-auto">
-        <p className="text-slate-500 text-xs mb-1">Leave Tracker</p>
+        <p className="text-[var(--text-muted)] text-xs mb-1">Leave Tracker</p>
         <h1 className="text-xl font-semibold mb-6">Pending Approvals</h1>
-        <div className="bg-slate-800/40 border border-slate-700 rounded-xl p-6 text-sm">
+        <div className="bg-[var(--bg-elevated)]/40 border border-[var(--border)] rounded-xl p-6 text-sm">
           {pending && pending.length > 0 ? (
-            <p className="text-slate-300">{pending.length} request(s) pending your approval.</p>
+            <p className="text-[var(--text-muted)]">{pending.length} request(s) pending your approval.</p>
           ) : (
-            <p className="text-slate-500">No pending requests right now.</p>
+            <p className="text-[var(--text-muted)]">No pending requests right now.</p>
           )}
         </div>
-        <p className="text-slate-600 text-xs mt-6">
+        <p className="text-[var(--text-muted)] text-xs mt-6">
           Approve/reject with violation flags lands in Sprint C.
         </p>
       </div>
