@@ -21,6 +21,7 @@ import { leaveLabelFor, UNMARKED_LEAVE_LABEL } from '@/lib/leaveLabels';
 import InfoTooltip from './InfoTooltip';
 import { useTrendChartLayout, useGranularityOverride, TrendGranularity } from '@/lib/chartLayout';
 import { useThemeColors } from '@/lib/useThemeColors';
+import { effectiveMinutes } from '@/lib/hoursCalc';
 
 function rateColor(rate: number): string {
   if (rate >= 80) return '#34d399';
@@ -869,8 +870,9 @@ export function HoursDistributionChart({ data, allRecords, selectedDepts }: {
     for (const r of allRecords) {
       if (!isPresent(r.status) || r.isShortDay) continue;
       const raw = durationToMinutes(r.duration);
-      if (raw <= 60) continue;
-      const effective = raw - 60; // subtract lunch
+      // subtract lunch — shared with useDashboardData.ts / exportData.ts (lib/hoursCalc.ts)
+      const effective = effectiveMinutes(raw);
+      if (effective === null) continue;
       if (effective <= 0 || effective > 720) continue;
       if (!map.has(r.employeeCode)) {
         map.set(r.employeeCode, { name: r.employeeName || r.employeeCode, code: r.employeeCode, dept: r.department || 'Unknown', effectiveMins: 0, days: 0 });

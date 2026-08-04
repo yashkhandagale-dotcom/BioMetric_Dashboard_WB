@@ -4,6 +4,7 @@ import { AttendanceRecord, EmployeeSummary, LeaveRecord, Thresholds } from './ty
 import { durationToMinutes } from './parseCSV';
 import { getLateMinutes, getEarlyMinutes, computeProductivityLostMinutes, targetShiftMinutes } from './useDashboardData';
 import { DEFAULT_THRESHOLDS } from './settings';
+import { effectiveMinutes, actualMinutes } from './hoursCalc';
 import { leaveLabelFor, UNMARKED_LEAVE_LABEL } from './leaveLabels';
 
 function buildLeaveLookup(leaveRecords: LeaveRecord[] = []): Map<string, LeaveRecord> {
@@ -104,8 +105,9 @@ export function exportExcel(
   // Spec v1 §3: Avg Effective Hours = Σ(duration − 60min lunch) ÷ count of
   // days with duration > 60min — was previously using raw duration with no
   // lunch subtraction, which doesn't match the dashboard's KPI card.
-  const presentWithDuration = presentRecords.filter(r => durationToMinutes(r.duration) > 60);
-  const totalMins = presentWithDuration.reduce((sum, r) => sum + (durationToMinutes(r.duration) - 60), 0);
+  // Shared with useDashboardData.ts / Charts.tsx via lib/hoursCalc.ts.
+  const presentWithDuration = presentRecords.filter(r => effectiveMinutes(durationToMinutes(r.duration)) !== null);
+  const totalMins = presentWithDuration.reduce((sum, r) => sum + (effectiveMinutes(durationToMinutes(r.duration)) ?? 0), 0);
   const avgWorkingHours = presentWithDuration.length > 0 ? totalMins / presentWithDuration.length / 60 : 0;
 
   const offices = [...new Set(records.map(r => r.officeCode))].filter(Boolean).join(', ');
@@ -169,16 +171,42 @@ export function exportExcel(
   XLSX.utils.book_append_sheet(wb, ws2, 'Discipline Issues');
 
   // ── Sheet 3: Department Summary ───────────────────────────────────────────
-  const deptMap = new Map<string, { present: number; absent: number; lateCount: number; earlyCount: number; totalMins: number; presentCount: number; emps: Set<string> }>();
+  // Both "Avg Actual Hours/Day" (raw punch duration, lunch included) and
+  // "Avg Effective Hours/Day" (lunch subtracted) are tracked with their own
+  // count, since a day can count toward "actual" (any duration > 0) without
+  // counting toward "effective" (needs duration > 60min) — see
+  // lib/hoursCalc.ts. Previously this sheet only tracked one unlabeled
+  // "Avg Hours/Day" figure built from raw duration with no lunch
+  // subtraction, which disagreed with the Executive Summary tab (that one
+  // DID subtract lunch) by ~1 hour for the same period.
+  const deptMap = new Map<string, {
+    present: number; absent: number; lateCount: number; earlyCount: number;
+    totalActualMins: number; actualCount: number;
+    totalEffectiveMins: number; effectiveCount: number;
+    emps: Set<string>;
+  }>();
   for (const r of workRecords) {
     const d = r.department || 'Unknown';
-    if (!deptMap.has(d)) deptMap.set(d, { present: 0, absent: 0, lateCount: 0, earlyCount: 0, totalMins: 0, presentCount: 0, emps: new Set() });
+    if (!deptMap.has(d)) deptMap.set(d, {
+      present: 0, absent: 0, lateCount: 0, earlyCount: 0,
+      totalActualMins: 0, actualCount: 0,
+      totalEffectiveMins: 0, effectiveCount: 0,
+      emps: new Set(),
+    });
     const dept = deptMap.get(d)!;
     dept.emps.add(r.employeeCode);
     if (isPresent(r.status)) {
       dept.present++;
       const mins = durationToMinutes(r.duration);
-      if (mins > 0) { dept.totalMins += mins; dept.presentCount++; }
+      if (mins > 0) {
+        dept.totalActualMins += actualMinutes(mins);
+        dept.actualCount++;
+      }
+      const eff = effectiveMinutes(mins);
+      if (eff !== null) {
+        dept.totalEffectiveMins += eff;
+        dept.effectiveCount++;
+      }
       if (lateMinsFor(r, thresholds) > 0) dept.lateCount++;
       if (earlyMinsFor(r, thresholds) > 0) dept.earlyCount++;
     } else if (isAbsent(r.status)) {
@@ -192,7 +220,8 @@ export function exportExcel(
       Department: dept,
       'Total Employees': v.emps.size,
       'Attendance %': `${rate}%`,
-      'Avg Hours/Day': v.presentCount > 0 ? `${(v.totalMins / v.presentCount / 60).toFixed(2)}h` : '—',
+      'Avg Actual Hours/Day': v.actualCount > 0 ? `${(v.totalActualMins / v.actualCount / 60).toFixed(2)}h` : '—',
+      'Avg Effective Hours/Day': v.effectiveCount > 0 ? `${(v.totalEffectiveMins / v.effectiveCount / 60).toFixed(2)}h` : '—',
       'Late Count': v.lateCount,
       'Early Exit Count': v.earlyCount,
       'On Leave Days': v.absent,

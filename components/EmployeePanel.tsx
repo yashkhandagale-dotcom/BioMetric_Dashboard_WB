@@ -5,6 +5,7 @@ import { EmployeeSummary, Holiday, LeaveRecord } from '@/lib/types';
 import { getLateMinutes, getEarlyMinutes } from '@/lib/useDashboardData';
 import { DEFAULT_THRESHOLDS } from '@/lib/settings';
 import { durationToMinutes } from '@/lib/parseCSV';
+import { effectiveMinutes, actualMinutes } from '@/lib/hoursCalc';
 import { getHolidayName } from '@/lib/holidays';
 import {
   setEmployeeDepartment,
@@ -12,6 +13,7 @@ import {
 } from '@/lib/employeeStore';
 import { PersonalHeatmap } from './Charts';
 import { LEAVE_COLORS, leaveLabelFor, UNMARKED_LEAVE_LABEL } from '@/lib/leaveLabels';
+import InfoTooltip from './InfoTooltip';
 
 interface EmployeePanelProps {
   employee: EmployeeSummary | null;
@@ -281,7 +283,27 @@ employee, onClose, readOnly, leaveReadOnly, holidays = [], graceMinutes = DEFAUL
                     <th className="px-2 py-2 text-left font-medium">Status</th>
                     <th className="px-2 py-2 text-left font-medium">In</th>
                     <th className="px-2 py-2 text-left font-medium">Out</th>
-                    <th className="px-2 py-2 text-left font-medium">Hrs</th>
+                    <th className="px-2 py-2 text-left font-medium">
+                      <span className="inline-flex items-center gap-0.5">
+                        Actual
+                        <InfoTooltip
+                          title="Actual Hours"
+                          description="Raw punch duration for the day, lunch included — the out-punch minus the in-punch, unchanged."
+                          position="bottom"
+                        />
+                      </span>
+                    </th>
+                    <th className="px-2 py-2 text-left font-medium">
+                      <span className="inline-flex items-center gap-0.5">
+                        Effective
+                        <InfoTooltip
+                          title="Effective Hours"
+                          description="Actual hours minus a 60-minute lunch. Shown as — on days with 60 minutes or less of raw duration, since there isn't enough time recorded to meaningfully subtract a lunch."
+                          formula="Effective = Actual − 60 min lunch (only when Actual > 60 min)"
+                          position="bottom"
+                        />
+                      </span>
+                    </th>
                     <th className="px-2 py-2 text-left font-medium">Flags</th>
                   </tr>
                 </thead>
@@ -299,10 +321,18 @@ employee, onClose, readOnly, leaveReadOnly, holidays = [], graceMinutes = DEFAUL
                       return (
                         <tr key={i} className="border-t border-[var(--border)]/50 bg-purple-900/10">
                           <td className="px-3 py-2 text-[var(--text-muted)] font-mono">{r.date.slice(5)}</td>
-                          <td colSpan={5} className="px-2 py-2 text-purple-400 text-[10px]">🗓 {holidayName}</td>
+                          <td colSpan={6} className="px-2 py-2 text-purple-400 text-[10px]">🗓 {holidayName}</td>
                         </tr>
                       );
                     }
+
+                    // Actual = raw duration, lunch included. Effective = lunch
+                    // subtracted (null when there isn't enough duration to
+                    // subtract from). Shared with the rest of the app via
+                    // lib/hoursCalc.ts so this never drifts from the
+                    // Executive/Department Summary export numbers again.
+                    const actualMins = actualMinutes(dur);
+                    const effMins = effectiveMinutes(dur);
 
                     return (
                       <tr key={i} className={`border-t border-[var(--border)]/50 hover:bg-[var(--bg-elevated)]/30 ${r.isShortDay ? 'bg-orange-900/10' : ''}`}>
@@ -312,7 +342,8 @@ employee, onClose, readOnly, leaveReadOnly, holidays = [], graceMinutes = DEFAUL
                         <td className={`px-2 py-2 ${missingOut ? 'bg-orange-500/10 border border-orange-500/20 text-orange-400' : 'text-[var(--text-muted)]'}`}>
                           {missingOut ? <span title="Missing out-punch — duration may be inaccurate">⚠ —</span> : (r.outTime || '—')}
                         </td>
-                        <td className="px-2 py-2 text-[var(--text-muted)]">{dur > 0 ? `${(dur/60).toFixed(1)}h` : '—'}</td>
+                        <td className="px-2 py-2 text-[var(--text-muted)]">{actualMins > 0 ? `${(actualMins / 60).toFixed(1)}h` : '—'}</td>
+                        <td className="px-2 py-2 text-[var(--text-muted)]">{effMins !== null ? `${(effMins / 60).toFixed(1)}h` : '—'}</td>
                         <td className="px-2 py-2">
                           <div className="flex items-center gap-1 relative">
                             {lateMin > 0 && (
