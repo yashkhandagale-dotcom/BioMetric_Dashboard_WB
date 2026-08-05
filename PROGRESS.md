@@ -367,3 +367,461 @@ This pivot supersedes what Sprint 3 in the original plan would have done
 row in the sprint plan can be treated as done differently than originally
 scoped, not skipped.
 
+## Leave Policy Violation Rules + Login Fix (leave-policy-violation-rules
+## prompt, worked alongside the calendar-view prompt)
+
+### Login bug — root cause and fix
+`lib/leaveSupabase/client.ts` and `lib/leaveSupabase/server.ts` had
+drifted from the single-DB pivot above: they were still reading
+`NEXT_PUBLIC_LEAVE_SUPABASE_URL` / `NEXT_PUBLIC_LEAVE_SUPABASE_ANON_KEY` /
+`LEAVE_SUPABASE_SERVICE_ROLE_KEY`, none of which appear in `.env.example`
+or anywhere else in the repo — those names belonged to the pre-pivot
+split-project setup and were never removed when the pivot landed. Every
+Leave Tracker auth call (sign-in, `getUser`, the `employees` lookup) was
+therefore hitting an undefined Supabase project URL/key, while the
+Dashboard's own login kept working because `lib/supabase/*` already read
+the correct unified vars. Fixed by pointing both files at
+`NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY` /
+`SUPABASE_SERVICE_ROLE_KEY`, same as the Dashboard's client files. The
+distinct `sb-leave-auth` cookie name was correct already and is
+untouched. Not verified against the actual deployed DB (the SQL export
+mentioned as attached to the prompt wasn't actually provided) — worth a
+quick check that `employees.auth_user_id` values in the real project
+still resolve correctly, but the code-level cause is unambiguous and
+isolated (grepped the whole repo; those var names appear nowhere else).
+
+### 2a/2b/2c/3a — new/changed policy checks
+Per section 5's confirmed design questions: check logic lives in a new
+shared module, **`lib/leavePolicy.ts`** (not inlined into the route),
+since the future employee self-apply / manager-approval routes (still
+unbuilt) will need the same functions. The half-day check extends the
+existing `ViolationType` union rather than getting its own endpoint.
+
+- **2a (new) — combining-leaves adjacency.** `checkCombiningLeaves()` in
+  `lib/leavePolicy.ts`: flags (advisory `policy_notes` entry, never
+  blocks/converts) when a new request is adjacent — zero working days of
+  gap, computed via the existing `getPredefinedHolidays()` — to an
+  existing pending/approved request of a *different* leave type for the
+  same employee. Wired into `app/api/leave/employees/requests/route.ts`,
+  checked against the originally-requested leave type code.
+- **2b (behavior change) — probation-period leave, any type, auto-LWP.**
+  `getProbationLwpReason()` / `getAutoLwpConversionReason()` in
+  `lib/leavePolicy.ts`. No longer PL-only and no longer advisory-only:
+  any leave type starting before `date_of_joining + 4 months` is
+  retyped to LWP at recording time (before the balance-debit step),
+  `is_lwp_override = true`, `lwp_override_reason = 'Leave during
+  probation period (before month-4 unlock)'`. Submission is never
+  blocked. The old `early_probation_pl` case in
+  `GET /api/leave/violations` is commented as legacy-only — historical
+  rows still render, but new rows land under `lwp_conversion` instead.
+- **2c (new) — notice-period leave auto-LWP.**
+  `getNoticePeriodLwpReason()` in `lib/leavePolicy.ts`: triggers when
+  `employment_status = 'notice_period'` and `start_date` falls on/after
+  `date_of_exit - notice_period_days` (or, with no `date_of_exit` set
+  yet, any date from today onward). Same auto-LWP mechanism as 2b,
+  `lwp_override_reason = 'Leave during notice period'`. No schema
+  changes, no last-working-day extension logic, per the finalized
+  decision.
+- **3a (follow-on) — half-day minimum-hours cross-check.** New
+  `half_day_shortfall` entry added to the existing `ViolationType` union
+  in `app/api/leave/violations/route.ts` (not a new endpoint), reusing
+  `HALF_DAY_THRESHOLD_MINUTES` (now exported from
+  `lib/attendanceExceptions.ts`) and `durationToMinutes` from
+  `lib/parseCSV.ts` rather than reclassifying punch data independently.
+  Cross-references approved half-day `leave_requests` rows against
+  `attendance_records` by `employee_code` + date. Naturally post-hoc
+  (attendance data usually lands after the leave is recorded), so it
+  lives in the `GET` violations query, not the synchronous recording
+  path.
+
+### A gap the prompt didn't call out
+`app/leave/admin/violations/page.tsx` keeps its own local `ViolationType`
+union and `TYPE_LABELS` map for grouping/display, separate from the one
+in `violations/route.ts`. Without updating it, `half_day_shortfall`
+violations would compute correctly server-side but silently never render
+in any group on the page (the grouping loop only iterates
+`Object.keys(TYPE_LABELS)`). Added the label there too; also updated the
+`lwp_conversion` / `early_probation_pl` labels to reflect 2b's behavior
+change.
+
+### Explicitly not touched (per section 4)
+Maternity/paternity eligibility enforcement, employee self-apply /
+manager-approval mutation routes, the calendar view, and any
+notice-period-extension tracking — all out of scope here, as specified.
+
+**Verified this sprint:** `npx tsc --noEmit` clean, `npx next build`
+succeeds end-to-end (dummy env vars, no live credentials available in
+this sandbox).
+
+## Workstream 1 — Chart scaling fix (Master Plan, "what's next" run #1)
+
+Context: `MASTER_PLAN.md` (new, at project root) is a consolidated plan
+covering chart scaling, dark/light mode, and the leave-tracker redesign
+(Sprints B–J, extending `LEAVE_TRACKER_OVERHAUL_PLAN.md`'s A–G). This entry
+covers only Workstream 1, the first item actually implemented.
+
+### Problem
+`DailyTrendChart` and `ComparisonTrendChart` in `components/Charts.tsx`
+rendered inside a fixed `<ResponsiveContainer width="100%" height={...}>`
+with `interval="preserveStartEnd"` on the X-axis. Any number of data points
+— 20 days or 200 — were squeezed into the same pixel width, so points
+overlapped and only the first/last date label survived past roughly a
+month of data. The attendance heatmap in the same file already solved this
+correctly (`overflow-x-auto` + a `minWidth` that scales with date count) —
+that pattern is now shared, not reinvented per chart.
+
+### What changed
+- **New file `lib/chartLayout.ts`** — `useTrendChartLayout()` hook +
+  supporting functions (`pickGranularity`, `chartMinWidth`,
+  `aggregateTrend`). Central place for "how should this trend chart size
+  itself and does it need to aggregate" so future trend charts don't
+  reintroduce the bug.
+  - **≤ 45 days:** stays daily, chart grows horizontally
+    (`overflow-x-auto` + `minWidth`) instead of squeezing.
+  - **45–180 days:** auto-aggregates to weekly buckets (ISO week, averaged
+    per numeric field).
+  - **> 180 days (~6 months):** auto-aggregates to monthly buckets.
+  - A `GranularityToggle` (Auto / Daily / Weekly / Monthly) lets the user
+    override the automatic choice in either direction.
+- **`components/Charts.tsx`:**
+  - `DailyTrendChart` — now computes `{ data: chartData, granularity,
+    minWidth, isAggregated }` via the hook (`averageKeys:
+    ['attendanceRate']`, `sumKeys` for the count fields), wraps the chart
+    in the scrollable/`minWidth` container, and adds the granularity
+    toggle next to the existing info tooltip.
+  - `ComparisonTrendChart` — same treatment; `averageKeys` is the dynamic
+    per-department column list (`depts`) since those column names vary by
+    selection. Renamed its internal raw-daily memo from `chartData` to
+    `dailyRows` to avoid shadowing the new aggregated `chartData`.
+  - **Click-to-drill-into-a-day behavior is now guarded by
+    `isAggregated`.** A weekly/monthly point represents a range of days,
+    not one day, so double-click-to-see-absentees and the `onDateClick`
+    callback are intentionally no-ops in aggregated view — this is a
+    deliberate UX decision, not a missed case. Switching the toggle back
+    to Daily restores the previous click behavior exactly as it was.
+  - Removed three leftover `console.log` calls in `handleChartClick`
+    (`"CLICK"`, `"Invalid index"`, `"Opening modal"`) — debug logging that
+    predated this change, cleaned up while already editing this function.
+  - X-axis `interval` changed from `"preserveStartEnd"` to
+    `"preserveStart"` on both charts — with the new scrolling/aggregation
+    in place, letting Recharts drop only from one end (not skip the whole
+    middle) reads better once there's room to scroll.
+
+### Decisions made
+- Auto-aggregation thresholds (45 days → weekly, 180 days → monthly) are a
+  starting point, not backed by user testing — flagged as an open question
+  in `MASTER_PLAN.md` in case you want them tuned.
+- Aggregated points intentionally drop their `absentees` list (can't
+  represent "who was absent" for a multi-day bucket meaningfully) — the
+  tooltip and click-through are the features that change behavior in
+  aggregated view, nothing else in the surrounding dashboard.
+- Did **not** touch the other bar/heatmap charts in the same file
+  (`DeptRankingChart`, `EmployeeDrillChart`, the heatmap, etc.) — those
+  either already scale correctly (heatmap) or aren't affected by
+  multi-month selection the same way (per-employee/per-department
+  snapshots, not date-series). Only the two date-series line charts had
+  the bug described.
+
+### Unrelated pre-existing issue found and fixed
+`npx next build` was failing **before this change too**, unrelated to
+charts: `backup_before_leave_policy/` (a backup folder at the repo root,
+not under `app/` or `components/`) has relative imports
+(`./parseCSV`, `./useDashboardData`, `./predefinedHolidays`) that don't
+resolve from that location. `tsconfig.json`'s `include` is `**/*.ts`, so
+TypeScript picked it up and failed the build even though Next.js never
+routes through it. Fixed by adding `"backup_before_leave_policy"` to
+`tsconfig.json`'s `exclude`. This folder still exists on disk as a backup
+(untouched) — only excluded from the TS build.
+
+### Files touched this workstream
+- `lib/chartLayout.ts` (new)
+- `components/Charts.tsx` (edited — see above)
+- `tsconfig.json` (edited — excluded the broken backup folder)
+- `MASTER_PLAN.md` (new, at project root — the consolidated plan this
+  entry implements the first piece of)
+
+**Verified:** `npx tsc --noEmit` clean (aside from the now-excluded backup
+folder), `npx next build` succeeds end-to-end with dummy env vars — 34
+routes compiled, no errors.
+
+**Not done yet — next up per `MASTER_PLAN.md`'s sequencing:**
+1. Apply pending Supabase migrations (0007/0008/0009) to production —
+   deployment step, not code, fixes the `department_managers` error from
+   `Feature.txt`.
+2. Dark/light mode foundation (Workstream 2).
+3. Leave Tracker Sprint B (employee self-apply form) — see
+   `LEAVE_TRACKER_OVERHAUL_PLAN.md` section 5a and `MASTER_PLAN.md`'s
+   Sprint B/C/I sequencing notes for what it needs to reuse
+   (`RecordLeaveForm`'s validation, the future
+   `applyLeavePolicyAndMutateBalance()` service function).
+
+---
+
+## Workstream: Hours calculation consolidation + Actual/Effective hours everywhere
+
+### Part 1 — Consolidate the duplicated "subtract 60min lunch" logic
+
+**Problem:** the "if raw duration > 60min, effective = raw - 60, else
+excluded" rule was independently re-implemented in three places —
+`lib/useDashboardData.ts` (4 separate spots: `computeEmployeeKPIs`, the
+`kpi` memo, the `employeeSummaries` accumulation loop, and its per-employee
+average), `components/Charts.tsx`'s `HoursDistributionChart`, and
+`lib/exportData.ts`'s Executive Summary calc — and had already drifted once
+(see Part 2 below).
+
+**Fix:** added `lib/hoursCalc.ts` with two exported functions:
+- `effectiveMinutes(rawMinutes): number | null` — `rawMinutes - 60` if
+  `rawMinutes > 60`, else `null` (day excluded from effective-hours
+  averages, matching prior behavior everywhere).
+- `actualMinutes(rawMinutes): number` — returns `rawMinutes` unchanged.
+
+All duplicated inline copies of this rule in `lib/useDashboardData.ts`,
+`components/Charts.tsx` (`HoursDistributionChart`), and
+`lib/exportData.ts` (Executive Summary calc) now call
+`effectiveMinutes()`/`actualMinutes()` instead of re-deriving the
+subtraction. **Behavior of these three call sites is unchanged** — this
+was pure consolidation, confirmed by `npx tsc --noEmit` (clean) and
+`npx next build` (succeeds, 35 routes).
+
+### Part 2 — Show both Actual and Effective hours, everywhere, clearly labeled
+
+**Confirmed root cause of the mismatch:** `lib/exportData.ts`'s Department
+Summary sheet computed "Avg Hours/Day" from raw duration with **no** lunch
+subtraction, while the Executive Summary tab in the same export file
+(`avgWorkingHours`) DID subtract it — same file, two tabs, ~1h apart for
+the same period. Verified with a 5-record sample set
+(`9:15, 8:50, 9:40, 8:05, 0:45`):
+
+| Metric | Before fix | After fix |
+|---|---|---|
+| Department Summary "Avg Hours/Day" (old, unlabeled) | **7.32h** | *(column removed)* |
+| Department Summary "Avg Actual Hours/Day" (new) | — | **7.32h** |
+| Department Summary "Avg Effective Hours/Day" (new) | — | **7.96h** |
+| Executive Summary "Avg Working Hours / Day" | 7.96h | 7.96h *(unchanged)* |
+
+Department Summary's new "Avg Effective Hours/Day" (**7.96h**) now matches
+Executive Summary's "Avg Working Hours / Day" (**7.96h**) exactly, for the
+same sample period — previously 7.32h vs 7.96h, a 0.64h (~40min, growing to
+~1h on real monthly data) disagreement. The new "Avg Actual Hours/Day"
+(7.32h) is the honest raw-duration figure, now clearly labeled instead of
+being silently presented as if it were the effective figure.
+
+Note: the 5th sample record (`0:45`) has ≤60min raw duration, so it counts
+toward Actual (n=5, any duration > 0) but is correctly excluded from
+Effective (n=4) — this is why the two columns can have different sample
+counts, by design (see `lib/hoursCalc.ts`'s `effectiveMinutes` doc comment).
+
+**Files changed:**
+- `lib/exportData.ts` — Department Summary sheet: replaced the single
+  unlabeled/wrong "Avg Hours/Day" column with two columns, both from the
+  shared helper: **"Avg Actual Hours/Day"** and **"Avg Effective
+  Hours/Day"**, each with their own independent sample count (a day can
+  count toward Actual without counting toward Effective).
+- `components/EmployeePanel.tsx` — per-day table: the single "Hrs" column
+  is now two columns, **"Actual"** and **"Effective"**, each with a header
+  `InfoTooltip` (reusing `components/InfoTooltip.tsx`, already used
+  elsewhere in the app) explaining the figure and, for Effective, the
+  formula. Holiday-row `colSpan` bumped from 5 to 6 to account for the
+  extra column. EmployeePanel's daily Effective-hours rows now use the
+  exact same `effectiveMinutes()` helper as the employee's summary card
+  average (`avgHoursWorked`, computed in `lib/useDashboardData.ts`'s
+  `employeeSummaries`), so day-by-day figures mathematically average out
+  to match the displayed summary — they were already both routed through
+  the (now-shared) same formula, so this was consolidation, not a new fix.
+
+**Other unlabeled single-hours-figure spots found, intentionally NOT
+touched (out of this prompt's scope: `exportData.ts` + `EmployeePanel.tsx`
+only) — flagging as follow-up prompts:**
+- `components/KPICards.tsx` line ~132 — the single-day view's "Avg Working
+  Hours" card is effective hours but doesn't say so in the label (the
+  monthly view's equivalent card, ~10 lines down, is already correctly
+  labeled "Avg Effective Hours").
+- `lib/exportData.ts`'s **Employee Summary** sheet (Sheet 4, distinct from
+  the Department Summary sheet touched above) — "Avg Hours/Day" column
+  uses `emp.avgHoursWorked`, which is effective hours, unlabeled as such.
+- `components/Charts.tsx`'s `HoursDistributionChart` drill-down list —
+  each employee row shows `{avgHours}h avg`; the chart title/tooltip do
+  say "effective" but the drill-down row itself doesn't repeat the word.
+
+**Verify:** `npx tsc --noEmit` clean. `npx next build` succeeds (35 routes,
+no errors). Re-exporting the same sample data before/after confirms
+Executive Summary and Department Summary now report the same
+actual-hours and same effective-hours figures for the same period (see
+table above) — this was checked against real before/after numbers, not
+just re-asserted from the code.
+
+### Files touched this workstream
+- `lib/hoursCalc.ts` (new — `effectiveMinutes()` / `actualMinutes()`)
+- `lib/useDashboardData.ts` (edited — 4 call sites now use the shared
+  helper; no behavior change)
+- `components/Charts.tsx` (edited — `HoursDistributionChart` now uses the
+  shared helper; no behavior change)
+- `lib/exportData.ts` (edited — Executive Summary consolidated onto the
+  shared helper (no behavior change); Department Summary sheet gained
+  "Avg Actual Hours/Day" + "Avg Effective Hours/Day", replacing the old
+  wrong single column)
+- `components/EmployeePanel.tsx` (edited — per-day table's single "Hrs"
+  column split into labeled "Actual" + "Effective" columns with
+  `InfoTooltip`s; `colSpan` fix for the holiday row)
+
+---
+
+## Workstream: Consolidate the leave-balance write path
+
+**Read fully before starting, per this prompt's instruction:**
+`supabase-leave/schema.sql` (all 5 migrations) and `lib/leavePolicy.ts`.
+
+### What's actually in the schema (not guessed)
+
+- `leave_requests.source` has a DB-level check constraint allowing only
+  `('employee_apply', 'hr_manual')` (schema.sql:154-155) — there is no
+  migration anywhere in the file that widens it. The prompt's requested
+  function signature uses a four-value vocabulary (`self_apply` /
+  `manager_approval` / `hr_manual` / `cancellation`). These are **not**
+  the same thing: the four-value vocabulary describes who/what is
+  *calling* the function; the two-value column records how a request
+  *originated*. `lib/leaveSupabase/applyLeavePolicyAndMutateBalance.ts`'s
+  `dbSourceFor()` maps `self_apply` and `manager_approval` both onto
+  `employee_apply` (an approval doesn't change how the request
+  originated) and leaves `hr_manual` as-is; `cancellation` never writes
+  the `source` column at all since it acts on an existing row. Flagging
+  this explicitly rather than silently picking one of the four literal
+  strings and having every write to `leave_requests.source` start
+  failing its check constraint.
+- `fn_debit_leave_on_approval` (schema.sql §6) is only ever invoked once
+  a row is `status = 'approved'`. So `self_apply` requests are created as
+  `'pending'` and are **not** debited at creation — only a later
+  `manager_approval` call (once that route exists) flips them to
+  `'approved'` and debits them. This matches the schema's own comment on
+  that function ("currently only the hr_manual path").
+- There is no SQL function that reverses a debit. `'leave_cancelled'` is
+  a legal `balance_transactions.reason` (schema.sql:110) but nothing in
+  `schema.sql` ever writes it. The `cancellation` branch does the
+  credit-back directly against `leave_balances`/`balance_transactions`
+  (same FY-boundary rule as `fn_debit_leave_on_approval`, reimplemented
+  string-wise in `fyStartYearForDate()` rather than reusing
+  `fyHelpers.ts`'s `getFYStartYear()` — that one takes a `Date` and reads
+  it in local time, which is fine for "what FY is today" but risky for a
+  fixed calendar date that must match the DB function's date-only math
+  exactly).
+- `lib/leavePolicy.ts` does **not** contain a "max-consecutive-days"
+  check or an app-layer notice-period check as importable functions —
+  those exist as `leave_types.max_consecutive_days` (a column, currently
+  unused by any app code) and `fn_check_planned_leave_notice` (a SQL
+  RPC, already called from the route via `service.rpc(...)`, not from
+  `leavePolicy.ts`). `applyLeavePolicyAndMutateBalance.ts` calls the same
+  RPC the same way the old route did, rather than inventing a TS
+  reimplementation that doesn't exist in this codebase yet.
+
+### 1. New `lib/leaveSupabase/applyLeavePolicyAndMutateBalance.ts`
+
+The only function allowed to write to `leave_balances`,
+`balance_transactions`, or `leave_requests` going forward. Internally:
+runs `lib/leavePolicy.ts`'s `getAutoLwpConversionReason()` (probation +
+notice-period auto-LWP) and `checkCombiningLeaves()`, plus the existing
+`fn_check_planned_leave_notice` RPC for PL notice shortfall; creates or
+updates the `leave_requests` row depending on `source`; writes the
+`balance_transactions` row for approve (`fn_debit_leave_on_approval`, via
+a new shared `debitWithLwpFallback()` helper) and cancel
+(`leave_cancelled`, hand-written per the point above); calls
+`notifyLeaveEvent()` at three points (submitted / approved / cancelled).
+
+**`notifyLeaveEvent()` — Part 3 doesn't exist in this codebase yet**
+(confirmed: `grep -rl notifyLeaveEvent` found nothing before this
+change). Rather than skip the call site or invent what Part 3's real
+implementation does, a same-shaped, local no-op stub lives at the bottom
+of `applyLeavePolicyAndMutateBalance.ts` with a comment explaining it's
+meant to be deleted and replaced with a real import once Part 3 lands —
+every call site already passes the right event/requestId/employeeId/
+source, so nothing else in the file should need to change then.
+
+**Two additive, disclosed deviations from the prompt's literal
+signature** (both documented at the top of the new file):
+- Added `existingRequestId?: string` — `manager_approval` and
+  `cancellation` act on an *existing* `leave_requests` row; there is no
+  schema-legal way to approve or cancel a request without knowing which
+  one, and the literal signature has no request id.
+- `requestId` in the return type is `string | null`, not always
+  `string` — on a genuine hard failure (e.g. neither the requested type
+  nor LWP could be debited) the pre-existing route deletes the row it
+  just inserted, so there is no id to return; `violation` carries the
+  reason instead.
+
+**Only `hr_manual` (via the route below) is wired to a real caller and
+exercised by this prompt's required verification.** `self_apply`,
+`manager_approval`, and `cancellation` are implemented directly against
+what `schema.sql` documents (see above), but have no route calling them
+yet — flagging that rather than claiming they're tested.
+
+### 2. Migrated `app/api/leave/employees/requests/route.ts`
+
+Every side effect that used to run inline in this route (policy checks,
+the `leave_requests` insert, the debit-with-LWP-fallback, the synthetic
+`approval_steps` row) now happens inside
+`applyLeavePolicyAndMutateBalance({ ..., source: 'hr_manual' })`. The
+route itself now only does request-shape validation (missing fields,
+`leave_type_code` in the valid set, `half_day_session` required when
+half-day) and reshapes the shared function's result back into the exact
+JSON contract this route already had:
+- Success: `{ leave_request, converted_to_lwp, policy_notes }`, 201 —
+  `leave_request` is still the full persisted row (post any LWP
+  conversion) with `leave_type_id` set to the *final* type, same as
+  before.
+- `debit_failed` violation: `{ error, policy_notes }`, 400 — the one
+  case the old code returned `policy_notes` alongside an error.
+- Every other violation: `{ error }`, 400.
+
+One reordering, no behavior change: resolving `hrEmployeeId` (the
+`employees` row for the signed-in `auth_user_id`, used for the
+`approval_steps` audit row) now happens up front instead of at the very
+end, since `applyLeavePolicyAndMutateBalance` needs it as an input
+rather than something the route wires in after the fact. Same lookup,
+same "skip the audit row if unresolved" fallback — only the position of
+that one read moved.
+
+`components/leave/RecordLeaveForm.tsx` needed **no changes**: it only
+ever talks to this route's request/response contract (POST body shape
+in, `SubmitResult` shape out), which this refactor left byte-identical.
+Confirmed by reading the component fully — it does not call any
+Supabase/server code directly, so there was no separate write path in it
+to migrate.
+
+### Verification
+
+`npx tsc --noEmit` — clean. `npx next build` — succeeds, 35 routes, no
+errors (same route count as before this change; `requests` route is
+still present, now just delegating).
+
+Structural before/after check (no live Supabase instance available in
+this environment, so this checks the exact payloads each version would
+send rather than a live round-trip) for a representative HR-manual entry
+— PL, 2026-09-01 to 2026-09-03, no half-day:
+
+| | Old inline route | New shared function (source: 'hr_manual') |
+|---|---|---|
+| `total_days` sent to insert | 3 | 3 |
+| `end_date` sent to insert | 2026-09-03 | 2026-09-03 |
+| `status` sent to insert | `approved` | `approved` |
+| `source` sent to insert | `hr_manual` | `hr_manual` (via `dbSourceFor('hr_manual')`) |
+| `half_day_session` sent | `null` | `null` |
+| `action_plan` sent | *(key omitted — column defaults to null)* | `null` *(explicit — same stored value, RecordLeaveForm.tsx doesn't send this field)* |
+| Debit call | `fn_debit_leave_on_approval(p_leave_request_id)` | `fn_debit_leave_on_approval(p_leave_request_id)` — identical RPC, identical arg |
+
+`fn_debit_leave_on_approval`'s actual balance arithmetic lives entirely
+inside the SQL function (schema.sql §6) — neither the old nor the new
+code path touches or reimplements that math, so it cannot have changed;
+both call sites invoke it identically. Manually recording a leave via
+the live `RecordLeaveForm` UI against a real Supabase project (not
+available in this sandboxed environment) is the remaining step to
+confirm end-to-end, using the same PL/3-day scenario above and checking
+`leave_balances.used`/`closing_balance` before and after match this
+table's numbers.
+
+### Files touched this workstream
+- `lib/leaveSupabase/applyLeavePolicyAndMutateBalance.ts` (new — the only
+  function now allowed to write `leave_balances` /
+  `balance_transactions` / `leave_requests`)
+- `app/api/leave/employees/requests/route.ts` (edited — delegates to the
+  new function; request/response contract unchanged)
+- `components/leave/RecordLeaveForm.tsx` — **not edited**; confirmed no
+  changes needed (see above)

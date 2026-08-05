@@ -1,38 +1,31 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createLeaveClient, createLeaveServiceClient } from '@/lib/leaveSupabase/server';
 import { TrackerLeaveTypeCode } from '@/lib/leaveSupabase/leaveTypeMap';
-import { checkCombiningLeaves, getAutoLwpConversionReason } from '@/lib/leavePolicy';
+import { applyLeavePolicyAndMutateBalance } from '@/lib/leaveSupabase/applyLeavePolicyAndMutateBalance';
 
 const VALID_CODES: TrackerLeaveTypeCode[] = ['SL', 'CL', 'PL', 'LWP'];
 
-function daysBetweenInclusive(start: string, end: string): number {
-  const a = new Date(`${start}T00:00:00Z`).getTime();
-  const b = new Date(`${end}T00:00:00Z`).getTime();
-  return Math.round((b - a) / (24 * 60 * 60 * 1000)) + 1;
-}
-
 // This route is the one and only place a leave gets recorded by HR
 // directly (source='hr_manual', status='approved' from the start — no
-// approval_steps chain actually runs). Every side effect it triggers —
-// balance debit, audit row, cross-project sync — lives here so a future
-// employee-initiated apply flow can reuse the pieces without inheriting
-// the "already approved" assumption.
+// approval_steps chain actually runs). D2-4: request/response contract
+// is unchanged from Day 2.
 //
-// D2-4: request/response contract is unchanged from Day 2. D4-1: the
-// LWP-conversion branch below now also sets is_lwp_override/
-// lwp_override_reason on the row — those columns already existed on
-// leave_requests but were never written, so GET /api/leave/violations
-// would otherwise have nothing to detect for this category. This is a
-// bug fix to the column D4-1 is defined against, not a contract change.
+// Refactor (see PROGRESS.md, "Consolidate the leave-balance write
+// path"): every side effect this route used to run inline — policy
+// checks (lib/leavePolicy.ts), the leave_requests insert, the balance
+// debit (with its insufficient-balance -> LWP fallback), and the
+// synthetic approval_steps audit row — now lives in
+// lib/leaveSupabase/applyLeavePolicyAndMutateBalance.ts instead, so a
+// future employee self-apply / manager-approval route can reuse the
+// exact same write path (source: 'self_apply' / 'manager_approval')
+// rather than re-deriving it. This route now only does request-shape
+// validation and reshapes the shared function's result back into the
+// exact JSON contract this route already had — no behavior change for
+// HR's existing manual-entry flow (verified in PROGRESS.md with real
+// before/after balance numbers).
 //
-// 2a/2b/2c (leave-policy-violation-rules prompt): combining-leaves
-// adjacency, probation-period auto-LWP (now any leave type, not just
-// PL — see lib/leavePolicy.ts's getAutoLwpConversionReason), and
-// notice-period auto-LWP all hook in here, since this is still the only
-// live leave-insertion path. The actual check logic lives in
-// lib/leavePolicy.ts as small importable functions (not inlined here) so
-// the future employee self-apply / manager-approval routes can call the
-// same functions without duplicating policy logic.
+// RecordLeaveForm.tsx needed no changes for this refactor: it only ever
+// talks to this route's request/response contract, which is unchanged.
 export async function POST(req: NextRequest) {
   const sessionClient = await createLeaveClient();
   const { data: { user } } = await sessionClient.auth.getUser();
@@ -49,6 +42,7 @@ export async function POST(req: NextRequest) {
     is_half_day,
     half_day_session,
     reason,
+    action_plan,
   }: {
     employee_id?: string;
     leave_type_code?: string;
@@ -57,6 +51,11 @@ export async function POST(req: NextRequest) {
     is_half_day?: boolean;
     half_day_session?: 'AM' | 'PM';
     reason?: string;
+    // Additive/optional — supabase-leave/schema.sql already has this
+    // column, RecordLeaveForm.tsx just never sent it. Accepting it here
+    // is backward compatible: omitted (as today) behaves identically to
+    // before (stored as null).
+    action_plan?: string;
   } = body;
 
   if (!employee_id || !leave_type_code || !start_date || !reason) {
@@ -72,207 +71,48 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'half_day_session (AM or PM) is required when is_half_day is true' }, { status: 400 });
   }
 
-  // A half day is always a single date — end_date from the client is
-  // ignored/overridden rather than trusted, so a stray multi-day range
-  // can't sneak past the 0.5-day total below.
-  const effectiveEndDate = is_half_day ? start_date : (end_date || start_date);
-  if (new Date(effectiveEndDate) < new Date(start_date)) {
-    return NextResponse.json({ error: 'end_date cannot be before start_date' }, { status: 400 });
-  }
-
-  const total_days = is_half_day ? 0.5 : daysBetweenInclusive(start_date, effectiveEndDate);
-
+  // Who is recording this (for the synthetic approval_steps audit row) —
+  // resolved up front now, instead of at the very end as the pre-refactor
+  // inline version did, since applyLeavePolicyAndMutateBalance needs it
+  // as an input rather than something the route wires in after the fact.
+  // Same lookup, same fallback (skip the audit row if unresolved) as
+  // before — just earlier in the sequence, which has no effect on the
+  // outcome.
   const service = createLeaveServiceClient();
-
-  const { data: employee, error: empError } = await service
-    .from('employees')
-    .select(
-      'id, employee_code, office, full_name, date_of_joining, employment_status, date_of_exit, notice_period_days'
-    )
-    .eq('id', employee_id)
-    .single();
-  if (empError || !employee) {
-    return NextResponse.json({ error: `Employee not found: ${empError?.message ?? employee_id}` }, { status: 400 });
-  }
-
-  const { data: leaveType, error: ltError } = await service
-    .from('leave_types')
-    .select('id, code, requires_certificate_after_days')
-    .eq('code', leave_type_code)
-    .single();
-  if (ltError || !leaveType) {
-    return NextResponse.json({ error: `Leave type not found: ${ltError?.message ?? leave_type_code}` }, { status: 400 });
-  }
-
-  // Relevant policy checks are applied and surfaced, but never block an
-  // HR override — HR recording leave directly is frequently the
-  // exception case (backdated entries, negotiated exceptions), so these
-  // come back as advisory notes rather than errors.
-  const policy_notes: string[] = [];
-  if (
-    leaveType.code === 'SL' &&
-    !is_half_day &&
-    leaveType.requires_certificate_after_days != null &&
-    total_days > leaveType.requires_certificate_after_days
-  ) {
-    policy_notes.push(
-      `Handbook normally requires a medical certificate for SL beyond ${leaveType.requires_certificate_after_days} consecutive days — not enforced for this HR entry.`
-    );
-  }
-  if (leaveType.code === 'PL') {
-    const { data: shortfall } = await service.rpc('fn_check_planned_leave_notice', {
-      p_applied_on: new Date().toISOString().slice(0, 10),
-      p_start_date: start_date,
-      p_leave_length_days: total_days,
-    });
-    if (typeof shortfall === 'number' && shortfall > 0) {
-      policy_notes.push(
-        `Notice given falls short of the PL policy tier by an equivalent of ${shortfall} day(s) — not auto-converted to LWP for this HR entry.`
-      );
-    }
-  }
-
-  // 2a — combining-leaves adjacency. Advisory only, checked against the
-  // ORIGINALLY requested leave type (not whatever 2b/2c below might
-  // convert it to) — an SL-turned-LWP during probation adjacent to a PL
-  // is still worth flagging, per the finalized ordering.
-  const combiningNote = await checkCombiningLeaves(
-    service,
-    employee_id,
-    employee.office,
-    leaveType.code,
-    start_date,
-    effectiveEndDate
-  );
-  if (combiningNote) policy_notes.push(combiningNote);
-
-  // 2b/2c — probation-period and notice-period leave auto-convert to LWP
-  // at recording time; submission is never blocked. Probation is checked
-  // first (see getAutoLwpConversionReason). If triggered, this swaps in
-  // the LWP leave type BEFORE insert, same mechanism as the pre-existing
-  // insufficient-balance conversion below, which does it post-insert.
-  let leaveTypeForInsert = leaveType;
-  let autoLwpReason: string | null = null;
-  let autoLwpTypeRow: typeof leaveType | null = null;
-
-  if (leaveType.code !== 'LWP') {
-    autoLwpReason = getAutoLwpConversionReason(employee, start_date);
-  }
-  if (autoLwpReason) {
-    const { data: lwpType, error: lwpFetchError } = await service
-      .from('leave_types')
-      .select('id, code, requires_certificate_after_days')
-      .eq('code', 'LWP')
-      .single();
-    if (!lwpFetchError && lwpType) {
-      autoLwpTypeRow = lwpType;
-      leaveTypeForInsert = lwpType;
-      policy_notes.push(`${autoLwpReason} — recorded as LWP instead of ${leaveType.code}.`);
-    }
-  }
-
-  const { data: created, error: insertError } = await service
-    .from('leave_requests')
-    .insert({
-      employee_id,
-      leave_type_id: leaveTypeForInsert.id,
-      start_date,
-      end_date: effectiveEndDate,
-      is_half_day: !!is_half_day,
-      half_day_session: is_half_day ? half_day_session : null,
-      total_days,
-      reason,
-      status: 'approved',
-      source: 'hr_manual',
-      is_lwp_override: !!(autoLwpReason && autoLwpTypeRow),
-      lwp_override_reason: autoLwpReason && autoLwpTypeRow ? autoLwpReason : null,
-    })
-    .select()
-    .single();
-  if (insertError || !created) {
-    return NextResponse.json({ error: insertError?.message ?? 'Failed to create leave request' }, { status: 400 });
-  }
-
-  // S1-1: debit the balance atomically. fn_debit_leave_on_approval() raises
-  // when the requested paid type (SL/CL/PL) doesn't have enough balance.
-  // Per spec, that is never a hard rejection: the entry is auto-converted
-  // to LWP (which draws from no pool, so it always succeeds) and HR is
-  // told why. Only a genuine second failure (e.g. no LWP balance row
-  // provisioned at all) falls back to rejecting and undoing the insert.
-  let finalLeaveType = leaveTypeForInsert;
-  let convertedToLwp = !!(autoLwpReason && autoLwpTypeRow);
-
-  let { error: debitError } = await service.rpc('fn_debit_leave_on_approval', {
-    p_leave_request_id: created.id,
-  });
-
-  if (debitError && finalLeaveType.code !== 'LWP') {
-    const { data: lwpType, error: lwpError } = await service
-      .from('leave_types')
-      .select('id, code, requires_certificate_after_days')
-      .eq('code', 'LWP')
-      .single();
-
-    if (!lwpError && lwpType) {
-      const { error: retypeError } = await service
-        .from('leave_requests')
-        .update({
-          leave_type_id: lwpType.id,
-          is_lwp_override: true,
-          lwp_override_reason: `Insufficient ${finalLeaveType.code} balance at time of recording — auto-converted to LWP.`,
-        })
-        .eq('id', created.id);
-
-      if (!retypeError) {
-        const retry = await service.rpc('fn_debit_leave_on_approval', {
-          p_leave_request_id: created.id,
-        });
-        if (!retry.error) {
-          const priorCode = finalLeaveType.code;
-          finalLeaveType = lwpType;
-          convertedToLwp = true;
-          debitError = null;
-          policy_notes.push(
-            `Insufficient ${priorCode} balance — recorded as LWP instead.`
-          );
-        } else {
-          debitError = retry.error;
-        }
-      }
-    }
-  }
-
-  if (debitError) {
-    await service.from('leave_requests').delete().eq('id', created.id);
-    return NextResponse.json({ error: debitError.message, policy_notes }, { status: 400 });
-  }
-
-  // S1-3: synthetic approval_steps row so the audit trail reads
-  // consistently even though no real lead -> manager -> HR chain
-  // ran for this hr_manual entry.
-  let hrEmployeeId: string | null = null;
   const { data: hrEmployee } = await service
     .from('employees')
     .select('id')
     .eq('auth_user_id', user.id)
     .maybeSingle();
-  hrEmployeeId = hrEmployee?.id ?? null;
+  const hrEmployeeId: string | null = hrEmployee?.id ?? null;
 
-  if (hrEmployeeId) {
-    await service.from('approval_steps').insert({
-      leave_request_id: created.id,
-      approver_id: hrEmployeeId,
-      approver_role: 'hr',
-      sequence_order: 1,
-      status: 'approved',
-      comment: 'Recorded directly by HR (hr_manual) — no approval chain run.',
-      acted_on: new Date().toISOString(),
-    });
+  const result = await applyLeavePolicyAndMutateBalance({
+    employeeId: employee_id,
+    leaveTypeCode: leave_type_code as TrackerLeaveTypeCode,
+    startDate: start_date,
+    endDate: end_date ?? null,
+    isHalfDay: !!is_half_day,
+    halfDaySession: is_half_day ? half_day_session : undefined,
+    reason,
+    actionPlan: action_plan,
+    source: 'hr_manual',
+    actingEmployeeId: hrEmployeeId,
+  });
+
+  if (result.violation) {
+    // 'debit_failed' is the one case the pre-refactor route surfaced
+    // policy_notes alongside the error (so HR can see e.g. the notice-
+    // period note even though the request that triggered it was rolled
+    // back) — every other violation type keeps the plain `{ error }`
+    // shape it always had.
+    if (result.violation.type === 'debit_failed') {
+      return NextResponse.json(
+        { error: result.violation.reason, policy_notes: result.policyNotes },
+        { status: 400 }
+      );
+    }
+    return NextResponse.json({ error: result.violation.reason }, { status: 400 });
   }
-  // If the signed-in auth user has no matching `employees` row (auth_user_id
-  // unset), we skip the audit row rather than fail the whole request or
-  // guess an approver — see the "single shared workspace" note in
-  // app/leave/admin/layout.tsx for why that link can be missing today.
 
   // No write-through sync step: the main attendance dashboard now reads
   // leave data live from this project at render time (see
@@ -280,12 +120,9 @@ export async function POST(req: NextRequest) {
   // push and nothing that can drift.
   return NextResponse.json(
     {
-      leave_request: {
-        ...created,
-        leave_type_id: finalLeaveType.id,
-      },
-      converted_to_lwp: convertedToLwp,
-      policy_notes,
+      leave_request: result.leaveRequest,
+      converted_to_lwp: result.convertedToLwp,
+      policy_notes: result.policyNotes,
     },
     { status: 201 }
   );
