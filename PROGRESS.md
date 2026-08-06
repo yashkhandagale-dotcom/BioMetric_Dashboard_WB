@@ -1,4 +1,4 @@
-# BioMetric Dashboard — Fix-It Progress Log
+﻿# BioMetric Dashboard — Fix-It Progress Log
 
 ---
 
@@ -825,3 +825,201 @@ table's numbers.
   new function; request/response contract unchanged)
 - `components/leave/RecordLeaveForm.tsx` — **not edited**; confirmed no
   changes needed (see above)
+
+## Workstream: Leave Tracker self-service (Sprint B) + manager approvals
+## (Sprint C), done together in one session per the combined prompt
+
+Implements `/leave/me` (Part A) and `/leave/approvals` (Part B) fully.
+Read every file the prompt named before writing anything —
+`applyLeavePolicyAndMutateBalance()` already existed (see the workstream
+above) and was reused as-is; `notifyLeaveEvent()` did not exist (it was
+a documented no-op stub inside that file) and was built for real here.
+
+### Part A — `/leave/me`
+
+**A1 (KPI extraction).** `EmployeeModal.tsx`/`EmployeeTable.tsx` never
+computed KPIs themselves — they render a precomputed `EmployeeSummary`
+whose numbers already come from the one shared, pure, non-React
+function every other KPI consumer imports:
+`computeEmployeeKPIs()` in `lib/useDashboardData.ts`. Nothing about
+attendance rate / late count / early-exit count / absent days /
+productivity loss was reimplemented. What didn't exist yet was a
+*server-side, single-employee, employee_id+date-range* caller — every
+existing caller built `computeEmployeeKPIs`'s input client-side from an
+already-uploaded in-memory CSV. New file
+`lib/leaveSupabase/getEmployeeAttendanceKPIs.ts` is exactly that
+plumbing: fetches `attendance_records` (paged via `selectAllRows`, the
+same helper `lib/attendanceExceptions.ts` uses for wide-range queries)
++ approved `leave_requests` + `custom_holidays`/predefined holidays for
+one employee over a window, shapes them into what `computeEmployeeKPIs`
+expects, and calls it. Confirmed via `lib/leaveSupabase/server.ts` that
+the Dashboard and Leave Tracker share one unified Supabase project, so
+`attendance_records` is the literal same table — `/leave/me`'s numbers
+are guaranteed to match the main dashboard for the same person/period,
+there's no second copy to drift.
+
+**A2 (Personal attendance report panel).** New
+`components/leave/PersonalAttendanceReport.tsx` (client) + backing route
+`app/api/leave/me/attendance/route.ts` (always resolves employee from
+the session, never trusts a client-supplied id). Month selector reuses
+`lib/leaveCalendar.ts`'s existing `currentMonthKey`/`monthLabel`/
+`shiftMonthKey`/`monthBounds` — no new date-math helpers added. Hours
+are shown as a labeled Actual/Effective pair (never a bare number) per
+the convention in `lib/hoursCalc.ts`.
+
+**A3 (Leave balance cards).** New `components/leave/LeaveBalanceCards.tsx`.
+`getEmployeeBalances.ts`'s existing `getEmployeeBalancesByFY` only
+exposes the *pivoted* `closing_balance` (remaining) — no
+entitled/used split — so rather than have the component re-query
+`leave_balances` itself (a second, independently-drifting read of a
+table that file already owns), added one small **additive** export to
+that same file, `getEmployeeBalanceBreakdown()`: same table, same
+`fy_start_year`/`employee_id` scoping, just also selecting
+`opening_balance`/`accrued`/`manual_adjustment`/`used` alongside
+`closing_balance` instead of only the latter. No new balance math —
+"entitled" is literally `opening_balance + accrued + manual_adjustment`,
+the exact terms the DB's own generated `closing_balance` column already
+sums.
+
+**A4 (Leave history).** Reused `LeaveHistoryTable.tsx` as-is, scoped by
+querying `leave_requests` with `employee_id = <me>` the same way
+`app/api/leave/history/route.ts` already does (same columns, same
+`recordedBy` derivation). One real fix inside the table itself: its
+row type already had a `status` field, but the table never rendered a
+Status column — added one (color-coded, same badge style as the rest of
+the app) since A4 explicitly asks for
+pending/approved/rejected/cancelled to be visible. Purely additive; the
+admin History page (the table's other caller) is unaffected.
+
+**A5 (Apply for Leave form).** New `components/leave/ApplyLeaveForm.tsx`
++ `ApplyLeaveDrawer.tsx` (matches `RecordLeaveDrawer.tsx`'s slide-over
+pattern exactly — same mount/Escape/close behavior), posting to new
+route `app/api/leave/me/requests/route.ts` with
+`source: 'self_apply'`. Adds `action_plan`, required for Planned leave
+per the schema's own comment on that column (`RecordLeaveForm.tsx`
+never collects it, since it's the HR-side form). Policy violations are
+never submit-blocking: the route always returns 201 with `policy_notes`
+populated for a warning, exactly like the existing HR route already
+does for `hr_manual`; only genuine hard failures (bad dates, missing
+required fields, insert failure) return a 4xx. The client renders
+`policy_notes` as a non-blocking amber banner ("This request violates
+policy... It will still be sent for approval") and the request has
+already been created by the time it's shown.
+
+**A6.** `app/leave/me/page.tsx` rewritten as an async Server Component:
+fetches employee + balance breakdown + full history in parallel, renders
+attendance report (left/wide) + balance cards (top-right) + history
+(full-width, bottom). The one client island is `MeNavbar.tsx`, which
+owns the Apply-for-Leave button + drawer and calls `router.refresh()` on
+a successful submit so the balance cards and history immediately reflect
+the new pending row without a full reload.
+
+### Part B — `/leave/approvals`
+
+**B1 (Approval queue UI).** `app/leave/approvals/page.tsx` rewritten as
+a real queue: one `ApprovalCard` per pending request, direct-reports-only
+via the exact same `employees!inner(...).eq('employees.reporting_manager_id',
+manager.id)` filter the Sprint A scaffold already proved out (no
+recursive walk — HR/HR-super-admin additionally see the queue org-wide,
+matching the approve/reject routes' own authorization). Balance snapshot
+per card reuses A3's `getEmployeeBalanceBreakdown` (one call per
+distinct employee in the queue, not per row). Violation badge reuses
+`ViolationBadge.tsx` as-is, keyed off `is_lwp_override`.
+
+**B2 (Approve/Reject/Cancel wiring).**
+- **Approve** — new route `app/api/leave/approvals/[id]/approve/route.ts`
+  authorizes (own manager, or HR) then calls
+  `applyLeavePolicyAndMutateBalance({ source: 'manager_approval',
+  existingRequestId })`, which was already fully implemented (see the
+  prior workstream) — reused unchanged.
+- **Reject** — this path genuinely did not exist. Added
+  `rejectExistingRequest()` inside
+  `applyLeavePolicyAndMutateBalance.ts` (new `manager_reject` source),
+  wired through new route `app/api/leave/approvals/[id]/reject/route.ts`
+  (requires a comment, same authorization as approve). Moves
+  `leave_requests.status` to `'rejected'` — already a valid value in the
+  existing schema check constraint, so no migration needed for this
+  part — records the comment on an `approval_steps` row, no balance
+  touch (rejected rows were never debited), notifies the employee only.
+- **Cancellation** — new route
+  `app/api/leave/requests/[id]/cancel/route.ts`. Authorizes exactly the
+  two roles the prompt names (the request's own employee, or HR/HR-super-
+  admin — manager is deliberately not given a separate cancel path here,
+  since the plan never lists cancel as a manager action). Blocks
+  cancelling a request whose leave has already started. Delegates to the
+  existing `cancelExistingRequest()` (source: `'cancellation'`),
+  untouched.
+
+### notifyLeaveEvent() — now real
+
+Replaced the no-op stub with `lib/leaveSupabase/notifyLeaveEvent.ts`,
+implementing `LEAVE_TRACKER_OVERHAUL_PLAN.md` §6's fan-out matrix
+exactly: submitted → manager (+ violation flag); approved → employee +
+HR + lead + (whole team if Planned/Casual full-day, else just the
+manager — wide vs narrow broadcast); rejected → employee only (+
+reason); cancelled → same recipient set the original event used. New
+migration `supabase-leave/migrations/004_notifications.sql` adds the
+`notifications` table (same wide-open "authenticated read/write" RLS
+posture every other table in this project already has — every write
+here goes through the service-role client regardless, so this doesn't
+widen anything).
+
+**Disclosed scope deviation:** the plan's confirmed assumption #4 asks
+for "in-app + email from the start." This implements the in-app half
+only. Email needs a provider (Resend/SendGrid/etc.) chosen and an API
+key added to `.env` — the plan itself flags that as separate integration
+work, and there is no key available in this environment to wire it up
+for real. `notifyLeaveEvent.ts` has `// EMAIL:` comments marking exactly
+where a send call would go once a provider is picked. This does not
+block anything in Parts A/B's own acceptance criteria — every
+notification requirement there ("the manager gets a notification",
+"only the employee is notified") is about a notification existing at
+all, which the in-app row satisfies.
+
+### Verification
+
+- `npx tsc --noEmit` — clean.
+- `npx next build` — succeeds (using placeholder Supabase env vars,
+  since no live project is reachable from this environment — every
+  `/leave/**` route is dynamically rendered (session-dependent), so
+  nothing tries to actually connect during the build). 37 routes,
+  including the 5 new ones: `/api/leave/me/requests`,
+  `/api/leave/me/attendance`, `/api/leave/approvals/[id]/approve`,
+  `/api/leave/approvals/[id]/reject`, `/api/leave/requests/[id]/cancel`.
+- The prompt's remaining acceptance criteria (matching numbers against
+  the live dashboard, a real submit-and-approve round trip, notification
+  rows actually landing) need a live Supabase project — not available in
+  this sandboxed environment. Everything above was checked as far as
+  static typing + build correctness + reading every touched query
+  against the real schema (`supabase-leave/schema.sql`) can confirm;
+  the migration (`004_notifications.sql`) still needs to be run against
+  the live project before `notifyLeaveEvent` can insert anything.
+
+### Files touched this workstream
+
+New:
+- `lib/leaveSupabase/getEmployeeAttendanceKPIs.ts`
+- `lib/leaveSupabase/notifyLeaveEvent.ts`
+- `supabase-leave/migrations/004_notifications.sql`
+- `components/leave/PersonalAttendanceReport.tsx`
+- `components/leave/LeaveBalanceCards.tsx`
+- `components/leave/ApplyLeaveForm.tsx`
+- `components/leave/ApplyLeaveDrawer.tsx`
+- `components/leave/MeNavbar.tsx`
+- `components/leave/ApprovalCard.tsx`
+- `app/api/leave/me/requests/route.ts`
+- `app/api/leave/me/attendance/route.ts`
+- `app/api/leave/approvals/[id]/approve/route.ts`
+- `app/api/leave/approvals/[id]/reject/route.ts`
+- `app/api/leave/requests/[id]/cancel/route.ts`
+
+Edited:
+- `app/leave/me/page.tsx` (Sprint A stub → full Part A assembly)
+- `app/leave/approvals/page.tsx` (Sprint A stub → full Part B queue)
+- `lib/leaveSupabase/applyLeavePolicyAndMutateBalance.ts` (wired the real
+  `notifyLeaveEvent`; added `manager_reject` source +
+  `rejectExistingRequest()`)
+- `lib/leaveSupabase/getEmployeeBalances.ts` (added
+  `getEmployeeBalanceBreakdown` export, additive)
+- `components/leave/LeaveHistoryTable.tsx` (added the Status column its
+  own row type already had data for)
