@@ -1,7 +1,8 @@
-import type { SupabaseClient } from '@supabase/supabase-js';
+﻿import type { SupabaseClient } from '@supabase/supabase-js';
 import { createLeaveServiceClient } from './server';
 import { TrackerLeaveTypeCode } from './leaveTypeMap';
 import { checkCombiningLeaves, getAutoLwpConversionReason, EmployeeForConversionCheck } from '../leavePolicy';
+import { notifyLeaveEvent as notifyLeaveEventReal } from './notifyLeaveEvent';
 
 // =====================================================================
 // applyLeavePolicyAndMutateBalance
@@ -38,7 +39,7 @@ import { checkCombiningLeaves, getAutoLwpConversionReason, EmployeeForConversion
 //     wasn't in scope for this prompt.
 // =====================================================================
 
-export type ApplyLeaveSource = 'self_apply' | 'manager_approval' | 'hr_manual' | 'cancellation';
+export type ApplyLeaveSource = 'self_apply' | 'manager_approval' | 'manager_reject' | 'hr_manual' | 'cancellation';
 
 export interface ApplyLeavePolicyAndMutateBalanceParams {
   employeeId: string;
@@ -68,6 +69,10 @@ export interface ApplyLeavePolicyAndMutateBalanceParams {
   // Defaults to 'hr' for hr_manual and 'manager' for manager_approval —
   // override if a lead-level approval needs to be recorded instead.
   approverRole?: 'lead' | 'manager' | 'hr';
+  // manager_reject only — the manager's short comment, required by the
+  // approvals-queue UI (see components/leave/ApprovalCard.tsx) and
+  // surfaced verbatim to the employee via notifyLeaveEvent.
+  rejectionComment?: string;
 }
 
 export interface ApplyLeavePolicyAndMutateBalanceResult {
@@ -125,25 +130,30 @@ function dbSourceFor(source: ApplyLeaveSource): 'employee_apply' | 'hr_manual' {
 }
 
 // ---------------------------------------------------------------------
-// notifyLeaveEvent — Part 3 stub
+// notifyLeaveEvent — now a real implementation (lib/leaveSupabase/
+// notifyLeaveEvent.ts), replacing the no-op stub that used to live here
+// (see PROGRESS.md's "notifyLeaveEvent() — Part 3 doesn't exist in this
+// codebase yet" entry for the original reasoning). Thin local wrapper so
+// every call site below — which already passes event/requestId/
+// employeeId/source — didn't need to change shape, just gains a few more
+// (optional) fields the real fan-out logic needs to pick wide vs narrow
+// broadcast scope.
 // ---------------------------------------------------------------------
-// Part 3 (notifications) hasn't landed in this codebase yet — there is
-// no lib/.../notifyLeaveEvent to import yet. Rather than skip the call
-// site (this prompt's scope asks for it "at the right point") or guess
-// at what Part 3's real implementation does, this is a same-shaped,
-// safe no-op kept local to this file. When Part 3 lands: delete this
-// stub, import the real notifyLeaveEvent instead, and nothing else in
-// this file should need to change — every call site below already
-// passes the right event/requestId/employeeId/source.
 interface LeaveEvent {
-  type: 'submitted' | 'approved' | 'cancelled';
+  type: 'submitted' | 'approved' | 'rejected' | 'cancelled';
   requestId: string;
   employeeId: string;
   source: ApplyLeaveSource;
   convertedToLwp?: boolean;
+  leaveTypeCode?: TrackerLeaveTypeCode;
+  isHalfDay?: boolean;
+  startDate?: string;
+  endDate?: string;
+  rejectionComment?: string;
+  violationNote?: string | null;
 }
-async function notifyLeaveEvent(_event: LeaveEvent): Promise<void> {
-  // no-op until Part 3 exists
+async function notifyLeaveEvent(service: SupabaseClient, event: LeaveEvent): Promise<void> {
+  await notifyLeaveEventReal(service, event);
 }
 
 // ---------------------------------------------------------------------
@@ -341,7 +351,17 @@ async function createAndMaybeApprove(
 
   if (initialStatus === 'pending') {
     // self_apply — nothing to debit yet; that happens on manager_approval.
-    await notifyLeaveEvent({ type: 'submitted', requestId: created.id, employeeId, source });
+    await notifyLeaveEvent(service, {
+      type: 'submitted',
+      requestId: created.id,
+      employeeId,
+      source,
+      leaveTypeCode: leaveTypeForInsert.code as TrackerLeaveTypeCode,
+      isHalfDay: !!isHalfDay,
+      startDate,
+      endDate: effectiveEndDate,
+      violationNote: policyNotes[0] ?? null,
+    });
     return {
       requestId: created.id,
       convertedToLwp: false,
@@ -390,7 +410,17 @@ async function createAndMaybeApprove(
     });
   }
 
-  await notifyLeaveEvent({ type: 'approved', requestId: created.id, employeeId, source, convertedToLwp });
+  await notifyLeaveEvent(service, {
+    type: 'approved',
+    requestId: created.id,
+    employeeId,
+    source,
+    convertedToLwp,
+    leaveTypeCode: finalLeaveType.code as TrackerLeaveTypeCode,
+    isHalfDay: !!isHalfDay,
+    startDate,
+    endDate: effectiveEndDate,
+  });
 
   return {
     requestId: created.id,
@@ -489,7 +519,17 @@ async function approveExistingRequest(
     });
   }
 
-  await notifyLeaveEvent({ type: 'approved', requestId: existingRequestId, employeeId: existing.employee_id, source: 'manager_approval', convertedToLwp });
+  await notifyLeaveEvent(service, {
+    type: 'approved',
+    requestId: existingRequestId,
+    employeeId: existing.employee_id,
+    source: 'manager_approval',
+    convertedToLwp,
+    leaveTypeCode: finalLeaveType.code as TrackerLeaveTypeCode,
+    isHalfDay: !!existing.is_half_day,
+    startDate: existing.start_date,
+    endDate: existing.end_date,
+  });
 
   return {
     requestId: existingRequestId,
@@ -497,6 +537,97 @@ async function approveExistingRequest(
     policyNotes,
     totalDays: existing.total_days,
     leaveRequest: { ...existing, leave_type_id: finalLeaveType.id, status: 'approved' },
+  };
+}
+
+// ---------------------------------------------------------------------
+// manager_reject — moves an existing 'pending' row to 'rejected'. No
+// balance change (it was never debited — only approved/auto_lwp rows
+// are), no LWP fallback, no team broadcast. Requires a comment (the
+// approvals queue UI enforces this client-side too, but it's re-checked
+// here since this function is the actual write boundary).
+// ---------------------------------------------------------------------
+async function rejectExistingRequest(
+  service: SupabaseClient,
+  existingRequestId: string | undefined,
+  actingEmployeeId: string | null | undefined,
+  rejectionComment: string | undefined
+): Promise<ApplyLeavePolicyAndMutateBalanceResult> {
+  if (!existingRequestId) {
+    return {
+      requestId: null,
+      violation: { type: 'missing_request_id', reason: 'manager_reject requires existingRequestId — there is no request to reject without it.' },
+      convertedToLwp: false, policyNotes: [], totalDays: 0, leaveRequest: null,
+    };
+  }
+  if (!rejectionComment || !rejectionComment.trim()) {
+    return {
+      requestId: existingRequestId,
+      violation: { type: 'missing_comment', reason: 'A short comment is required to reject a leave request.' },
+      convertedToLwp: false, policyNotes: [], totalDays: 0, leaveRequest: null,
+    };
+  }
+
+  const { data: existing, error: fetchError } = await service
+    .from('leave_requests')
+    .select('*, leave_types ( id, code )')
+    .eq('id', existingRequestId)
+    .single();
+  if (fetchError || !existing) {
+    return {
+      requestId: null,
+      violation: { type: 'request_not_found', reason: fetchError?.message ?? `leave_requests row ${existingRequestId} not found` },
+      convertedToLwp: false, policyNotes: [], totalDays: 0, leaveRequest: null,
+    };
+  }
+  if (existing.status !== 'pending') {
+    return {
+      requestId: existingRequestId,
+      violation: { type: 'invalid_status', reason: `Cannot reject a request in status '${existing.status}' — only 'pending' requests can be rejected.` },
+      convertedToLwp: false, policyNotes: [], totalDays: existing.total_days, leaveRequest: existing,
+    };
+  }
+
+  const { error: updateError } = await service
+    .from('leave_requests')
+    .update({ status: 'rejected', updated_at: new Date().toISOString() })
+    .eq('id', existingRequestId);
+  if (updateError) {
+    return {
+      requestId: existingRequestId,
+      violation: { type: 'update_failed', reason: updateError.message },
+      convertedToLwp: false, policyNotes: [], totalDays: existing.total_days, leaveRequest: existing,
+    };
+  }
+
+  if (actingEmployeeId) {
+    await service.from('approval_steps').insert({
+      leave_request_id: existingRequestId,
+      approver_id: actingEmployeeId,
+      approver_role: 'manager',
+      sequence_order: 1,
+      status: 'rejected',
+      comment: rejectionComment,
+      acted_on: new Date().toISOString(),
+    });
+  }
+
+  await notifyLeaveEvent(service, {
+    type: 'rejected',
+    requestId: existingRequestId,
+    employeeId: existing.employee_id,
+    source: 'manager_reject',
+    rejectionComment,
+    startDate: existing.start_date,
+    endDate: existing.end_date,
+  });
+
+  return {
+    requestId: existingRequestId,
+    convertedToLwp: false,
+    policyNotes: [],
+    totalDays: existing.total_days,
+    leaveRequest: { ...existing, status: 'rejected' },
   };
 }
 
@@ -596,7 +727,16 @@ async function cancelExistingRequest(
     };
   }
 
-  await notifyLeaveEvent({ type: 'cancelled', requestId: existingRequestId, employeeId: existing.employee_id, source: 'cancellation' });
+  await notifyLeaveEvent(service, {
+    type: 'cancelled',
+    requestId: existingRequestId,
+    employeeId: existing.employee_id,
+    source: 'cancellation',
+    leaveTypeCode: leaveType?.code as TrackerLeaveTypeCode | undefined,
+    isHalfDay: !!existing.is_half_day,
+    startDate: existing.start_date,
+    endDate: existing.end_date,
+  });
 
   return {
     requestId: existingRequestId,
@@ -621,6 +761,9 @@ export async function applyLeavePolicyAndMutateBalance(
   }
   if (params.source === 'manager_approval') {
     return approveExistingRequest(service, params.existingRequestId, params.actingEmployeeId, approverRole);
+  }
+  if (params.source === 'manager_reject') {
+    return rejectExistingRequest(service, params.existingRequestId, params.actingEmployeeId, params.rejectionComment);
   }
   // self_apply / hr_manual
   return createAndMaybeApprove(service, params);
