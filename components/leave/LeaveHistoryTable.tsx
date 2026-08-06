@@ -1,4 +1,4 @@
-export type LeaveHistoryRow = {
+﻿export type LeaveHistoryRow = {
   id: string;
   employeeId: string;
   employeeName: string;
@@ -22,6 +22,19 @@ function formatDateRange(start: string, end: string) {
   return start === end ? start : `${start} → ${end}`;
 }
 
+const STATUS_STYLE: Record<string, string> = {
+  pending: 'bg-amber-500/20 text-amber-700 dark:text-amber-300',
+  approved: 'bg-emerald-500/20 text-emerald-700 dark:text-emerald-300',
+  auto_lwp: 'bg-emerald-500/20 text-emerald-700 dark:text-emerald-300',
+  rejected: 'bg-red-500/20 text-red-700 dark:text-red-300',
+  cancelled: 'bg-[var(--text-muted)]/20 text-[var(--text-muted)]',
+};
+
+function statusLabel(status: string): string {
+  if (status === 'auto_lwp') return 'Approved (LWP)';
+  return status.charAt(0).toUpperCase() + status.slice(1);
+}
+
 // D3-2: columns are exactly employee, type, dates, days, half-day flag,
 // LWP-override, applied-on, recorded-by — the list from the Sprint
 // Tracker's Acceptance Criteria for this file, nothing added.
@@ -43,6 +56,7 @@ export default function LeaveHistoryTable({ rows }: { rows: LeaveHistoryRow[] })
             <th className="px-4 py-3">Type</th>
             <th className="px-4 py-3">Dates</th>
             <th className="px-4 py-3 text-right">Days</th>
+            <th className="px-4 py-3">Status</th>
             <th className="px-4 py-3">Half-day</th>
             <th className="px-4 py-3">LWP override</th>
             <th className="px-4 py-3">Applied On</th>
@@ -61,6 +75,11 @@ export default function LeaveHistoryTable({ rows }: { rows: LeaveHistoryRow[] })
               <td className="px-4 py-2.5 text-[var(--text-muted)]">{r.leaveTypeLabel}</td>
               <td className="px-4 py-2.5 text-[var(--text-muted)]">{formatDateRange(r.startDate, r.endDate)}</td>
               <td className="px-4 py-2.5 text-right text-[var(--text-muted)]">{r.totalDays.toFixed(2)}</td>
+              <td className="px-4 py-2.5">
+                <span className={`text-[11px] font-medium rounded-full px-2 py-0.5 ${STATUS_STYLE[r.status] ?? 'bg-[var(--text-muted)]/20 text-[var(--text-muted)]'}`}>
+                  {statusLabel(r.status)}
+                </span>
+              </td>
               <td className="px-4 py-2.5 text-[var(--text-muted)]">
                 {r.isHalfDay ? (r.halfDaySession ?? 'Yes') : '—'}
               </td>
