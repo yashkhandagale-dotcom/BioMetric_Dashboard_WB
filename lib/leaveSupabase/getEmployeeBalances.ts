@@ -1,4 +1,4 @@
-import type { SupabaseClient } from '@supabase/supabase-js';
+﻿import type { SupabaseClient } from '@supabase/supabase-js';
 import { getFYStartYear } from './fyHelpers';
 
 // Single source of truth for "pivot leave_balances into one row per
@@ -82,4 +82,61 @@ export async function getEmployeeBalancesByFY(
     rows: Array.from(byEmployee.values()).sort((a, b) => a.name.localeCompare(b.name)),
     error: error ? { message: error.message } : null,
   };
+}
+
+// ---------------------------------------------------------------------
+// A3 — LeaveBalanceCards needs entitled/used/remaining per leave type,
+// not just the closing_balance the pivot above exposes. Rather than
+// having the component re-query leave_balances itself (a second,
+// independently-drifting read of the same table this file already owns
+// — see the header comment above), this is an additive export in the
+// same file: same table, same fy_start_year/employee_id scoping, just
+// selecting the columns that were already there
+// (opening_balance/accrued/manual_adjustment/used) instead of only the
+// generated closing_balance column. No new balance math — "entitled" is
+// literally opening_balance + accrued + manual_adjustment, the exact
+// terms the DB's own `closing_balance` generated column is defined from
+// (see supabase-leave/schema.sql), just not summed away.
+// ---------------------------------------------------------------------
+export type LeaveBalanceBreakdown = {
+  code: 'SL' | 'CL' | 'PL' | 'LWP';
+  label: string;
+  entitled: number;
+  used: number;
+  remaining: number;
+};
+
+type BreakdownRow = {
+  opening_balance: number;
+  accrued: number;
+  used: number;
+  manual_adjustment: number;
+  closing_balance: number;
+  leave_types: { code: string; display_name: string } | null;
+};
+
+export async function getEmployeeBalanceBreakdown(
+  supabase: SupabaseClient,
+  employeeId: string,
+  fyStartYear: number = getFYStartYear()
+): Promise<{ rows: LeaveBalanceBreakdown[]; error: { message: string } | null }> {
+  const { data, error } = await supabase
+    .from('leave_balances')
+    .select('opening_balance, accrued, used, manual_adjustment, closing_balance, leave_types ( code, display_name )')
+    .eq('employee_id', employeeId)
+    .eq('fy_start_year', fyStartYear)
+    .returns<BreakdownRow[]>();
+
+  const rows = (data ?? [])
+    .filter((r) => r.leave_types)
+    .map((r) => ({
+      code: r.leave_types!.code as 'SL' | 'CL' | 'PL' | 'LWP',
+      label: r.leave_types!.display_name,
+      entitled: r.opening_balance + r.accrued + r.manual_adjustment,
+      used: r.used,
+      remaining: r.closing_balance,
+    }))
+    .sort((a, b) => ['PL', 'CL', 'SL', 'LWP'].indexOf(a.code) - ['PL', 'CL', 'SL', 'LWP'].indexOf(b.code));
+
+  return { rows, error: error ? { message: error.message } : null };
 }
