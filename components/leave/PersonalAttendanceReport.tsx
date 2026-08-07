@@ -111,12 +111,12 @@ export default function PersonalAttendanceReport() {
           <div className="grid grid-cols-2 gap-2">
             <div className="bg-[var(--bg-elevated)]/50 rounded-xl p-3">
               <p className="text-[var(--text-muted)] text-xs mb-1">Actual Hours / Day</p>
-              <p className="text-lg font-bold text-blue-400">{kpis.avgActualHoursPerDay.toFixed(1)}h</p>
+              <p className="text-lg font-bold text-[var(--accent)]">{kpis.avgActualHoursPerDay.toFixed(1)}h</p>
               <p className="text-[10px] text-[var(--text-muted)] mt-0.5">Raw punch duration, lunch included</p>
             </div>
             <div className="bg-[var(--bg-elevated)]/50 rounded-xl p-3">
               <p className="text-[var(--text-muted)] text-xs mb-1">Effective Hours / Day</p>
-              <p className="text-lg font-bold text-blue-400">{kpis.avgEffectiveHoursPerDay.toFixed(1)}h</p>
+              <p className="text-lg font-bold text-[var(--accent)]">{kpis.avgEffectiveHoursPerDay.toFixed(1)}h</p>
               <p className="text-[10px] text-[var(--text-muted)] mt-0.5">Minus a 60-min lunch</p>
             </div>
           </div>
