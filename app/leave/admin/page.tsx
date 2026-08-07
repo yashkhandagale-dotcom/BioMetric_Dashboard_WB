@@ -94,49 +94,19 @@ export default async function LeaveAdminHome() {
 
   return (
     <div className="min-h-screen bg-[var(--bg-surface)] text-[var(--text-primary)] p-8 space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <a href="/" className="text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)]">← Back to Dashboard</a>
-          <h1 className="text-xl font-semibold mt-1">Leave Balances — {formatFYLabel(fyStartYear)}</h1>
-          <p className="text-[var(--text-muted)] text-xs mt-1">Signed in as {user?.email}</p>
+      <div className="space-y-2">
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="rounded-2xl bg-[var(--accent)]/10 px-3 py-2 text-sm font-semibold text-[var(--accent)]">
+            Employees
+          </div>
+          <p className="text-[var(--text-muted)] text-sm">
+            {employees?.length ?? 0} employees · {formatFYLabel(fyStartYear)}
+          </p>
         </div>
-        <div className="flex items-center gap-2">
-          <a
-            href="/leave/admin/analytics"
-            className="bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
-          >
-            Leave Analytics
-          </a>
-          <a
-            href="/leave/admin/history"
-            className="border border-[var(--border)] hover:border-[var(--border)] text-[var(--text-primary)] text-sm font-medium px-4 py-2 rounded-lg transition-colors"
-          >
-            Leave Tracker
-          </a>
-          <a
-            href="/leave/admin/violations"
-            className="border border-red-500/40 hover:border-red-400 text-red-700 dark:text-red-300 hover:text-red-700 dark:hover:text-red-200 text-sm font-medium px-4 py-2 rounded-lg transition-colors"
-          >
-            Violations
-          </a>
-          <a
-            href="/leave/admin/bulk-events"
-            className="border border-[var(--border)] hover:border-[var(--border)] text-[var(--text-primary)] text-sm font-medium px-4 py-2 rounded-lg transition-colors"
-          >
-            Bulk Events
-          </a>
-          <a
-            href="/leave/admin/organization"
-            className="border border-[var(--border)] hover:border-[var(--border)] text-[var(--text-primary)] text-sm font-medium px-4 py-2 rounded-lg transition-colors"
-          >
-            Organization
-          </a>
-          <a
-            href="/leave/admin/bulk-logins"
-            className="border border-[var(--border)] hover:border-[var(--border)] text-[var(--text-primary)] text-sm font-medium px-4 py-2 rounded-lg transition-colors"
-          >
-            Bulk Logins
-          </a>
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="rounded-2xl bg-[var(--bg-elevated)]/80 border border-[var(--border)] px-3 py-2 text-sm text-[var(--text-primary)]">
+            HR-facing directory and balance management
+          </div>
           <PolicyInfoButton />
         </div>
       </div>
