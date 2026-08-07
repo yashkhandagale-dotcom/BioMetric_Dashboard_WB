@@ -184,7 +184,7 @@ export default function AbsenteesPanel({
                         setDrawerEmployeeId(r.employeeId);
                         setDrawerDate(r.date);
                       }}
-                      className="text-xs bg-blue-600 hover:bg-blue-500 text-white font-medium px-2.5 py-1.5 rounded-lg transition-colors"
+                      className="text-xs bg-[var(--accent)] hover:bg-[var(--accent)]/90 text-white font-medium px-2.5 py-1.5 rounded-lg transition-colors"
                     >
                       Record Leave
                     </button>

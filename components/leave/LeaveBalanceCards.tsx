@@ -13,7 +13,7 @@
 const CARD_COLOR: Record<string, string> = {
   SL: 'text-violet-400',
   CL: 'text-cyan-400',
-  PL: 'text-blue-400',
+  PL: 'text-[var(--accent)]',
   LWP: 'text-orange-400',
 };
 

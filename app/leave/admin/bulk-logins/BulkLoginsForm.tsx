@@ -11,7 +11,7 @@ type RowResult = {
 
 const STATUS_STYLE: Record<RowResult['status'], string> = {
   created: 'bg-emerald-500/20 text-emerald-700 dark:text-emerald-300',
-  already_linked: 'bg-blue-500/20 text-blue-700 dark:text-blue-300',
+  already_linked: 'bg-[var(--accent)]/20 text-[var(--accent)] dark:text-[var(--accent)]',
   not_found: 'bg-amber-500/20 text-amber-700 dark:text-amber-300',
   invalid_email: 'bg-amber-500/20 text-amber-700 dark:text-amber-300',
   weak_password: 'bg-amber-500/20 text-amber-700 dark:text-amber-300',
@@ -142,7 +142,7 @@ export default function BulkLoginsForm() {
       <div className="bg-[var(--bg-elevated)]/40 border border-[var(--border)] rounded-xl p-4 space-y-3">
         <div className="flex items-center justify-between">
           <label className="text-xs text-[var(--text-muted)]">CSV (employee_code, login_email, password)</label>
-          <label className="text-xs text-blue-400 hover:text-blue-300 cursor-pointer">
+          <label className="text-xs text-[var(--accent)] hover:text-[var(--accent)]/90 cursor-pointer">
             Upload file…
             <input type="file" accept=".csv,text/csv" className="hidden" onChange={handleFile} />
           </label>
@@ -167,7 +167,7 @@ export default function BulkLoginsForm() {
           type="button"
           onClick={handleSubmit}
           disabled={submitting || !parsedCount}
-          className="w-full bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-sm font-medium py-2.5 rounded-lg transition-colors"
+          className="w-full bg-[var(--accent)] hover:bg-[var(--accent)]/90 disabled:opacity-50 text-white text-sm font-medium py-2.5 rounded-lg transition-colors"
         >
           {submitting ? `Creating logins for ${parsedCount ?? 0} rows…` : `Create Logins${parsedCount ? ` (${parsedCount})` : ''}`}
         </button>
@@ -178,7 +178,7 @@ export default function BulkLoginsForm() {
           <span className="bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 rounded-lg px-3 py-1.5">
             {summary.created} created
           </span>
-          <span className="bg-blue-500/20 text-blue-700 dark:text-blue-300 rounded-lg px-3 py-1.5">
+          <span className="bg-[var(--accent)]/20 text-[var(--accent)] dark:text-[var(--accent)] rounded-lg px-3 py-1.5">
             {summary.already_linked} already linked
           </span>
           <span className="bg-red-500/20 text-red-700 dark:text-red-300 rounded-lg px-3 py-1.5">

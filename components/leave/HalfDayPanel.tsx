@@ -116,7 +116,7 @@ export default function HalfDayPanel({
   if (loading) {
     return (
       <div>
-        <p className="text-xs text-[var(--text-muted)] mb-2">Loading…</p>
+        <p className="text-xs text-slate-500 mb-2">Loading…</p>
         <AttendanceTableSkeleton columns={columnCount} />
       </div>
     );
@@ -125,24 +125,24 @@ export default function HalfDayPanel({
   return (
     <div>
       {error && (
-        <div className="mb-3 bg-red-900/30 border border-red-500/30 text-red-700 dark:text-red-300 text-xs rounded-lg px-3 py-2">
+        <div className="mb-3 bg-red-900/30 border border-red-500/30 text-red-300 text-xs rounded-lg px-3 py-2">
           {error}
         </div>
       )}
-      <p className="text-xs text-[var(--text-muted)] mb-2">
+      <p className="text-xs text-slate-500 mb-2">
         {filtered.length} record{filtered.length === 1 ? '' : 's'} to review for {periodLabel}
       </p>
 
       {filtered.length === 0 ? (
-        <div className="bg-[var(--bg-elevated)]/40 border border-[var(--border)] rounded-xl px-4 py-10 text-center text-[var(--text-muted)] text-sm">
+        <div className="bg-slate-800/40 border border-slate-700 rounded-xl px-4 py-10 text-center text-slate-500 text-sm">
           No half-day or missed-punch candidates for this {isMultiDate ? 'period' : 'date'}
           {department || office || search ? ' matching your filters' : ''}.
         </div>
       ) : (
-        <div className="bg-[var(--bg-elevated)]/40 border border-[var(--border)] rounded-xl overflow-x-auto">
+        <div className="bg-slate-800/40 border border-slate-700 rounded-xl overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
-              <tr className="text-[var(--text-muted)] text-xs border-b border-[var(--border)]">
+              <tr className="text-slate-500 text-xs border-b border-slate-700">
                 {isMultiDate && <th className="text-left font-medium px-4 py-2">Date</th>}
                 <th className="text-left font-medium px-4 py-2">Employee</th>
                 <th className="text-left font-medium px-4 py-2">Department</th>
@@ -156,19 +156,19 @@ export default function HalfDayPanel({
             </thead>
             <tbody>
               {filtered.map((r) => (
-                <tr key={`${r.employeeId}-${r.date}`} className="border-b border-[var(--border)] last:border-0">
-                  {isMultiDate && <td className="px-4 py-2 text-[var(--text-muted)]">{r.date}</td>}
-                  <td className="px-4 py-2 text-[var(--text-primary)]">
+                <tr key={`${r.employeeId}-${r.date}`} className="border-b border-slate-800 last:border-0">
+                  {isMultiDate && <td className="px-4 py-2 text-slate-300">{r.date}</td>}
+                  <td className="px-4 py-2 text-white">
                     {r.employeeName}
-                    <span className="text-[var(--text-muted)]"> · {r.employeeCode}</span>
+                    <span className="text-slate-500"> · {r.employeeCode}</span>
                   </td>
-                  <td className="px-4 py-2 text-[var(--text-muted)]">{r.department}</td>
-                  <td className="px-4 py-2 text-[var(--text-muted)]">{r.office}</td>
-                  <td className="px-4 py-2 text-[var(--text-muted)]">{r.firstPunch ?? '--'}</td>
-                  <td className="px-4 py-2 text-[var(--text-muted)]">{r.lastPunch ?? '--'}</td>
-                  <td className="px-4 py-2 text-[var(--text-muted)]">{r.workingHours}</td>
+                  <td className="px-4 py-2 text-slate-300">{r.department}</td>
+                  <td className="px-4 py-2 text-slate-300">{r.office}</td>
+                  <td className="px-4 py-2 text-slate-300">{r.firstPunch ?? '--'}</td>
+                  <td className="px-4 py-2 text-slate-300">{r.lastPunch ?? '--'}</td>
+                  <td className="px-4 py-2 text-slate-300">{r.workingHours}</td>
                   <td className="px-4 py-2">
-                    <span className="border border-amber-500/30 bg-amber-900/30 text-amber-700 dark:text-amber-300 rounded-full px-2 py-0.5 text-xs">
+                    <span className="border border-amber-500/30 bg-amber-900/30 text-amber-300 rounded-full px-2 py-0.5 text-xs">
                       {r.reason}
                     </span>
                   </td>
@@ -179,7 +179,7 @@ export default function HalfDayPanel({
                         setDrawerEmployeeId(r.employeeId);
                         setDrawerDate(r.date);
                       }}
-                      className="text-xs bg-blue-600 hover:bg-blue-500 text-white font-medium px-2.5 py-1.5 rounded-lg transition-colors"
+                      className="text-xs bg-[var(--accent)] hover:bg-[var(--accent)]/90 text-white font-medium px-2.5 py-1.5 rounded-lg transition-colors"
                     >
                       Record Leave
                     </button>

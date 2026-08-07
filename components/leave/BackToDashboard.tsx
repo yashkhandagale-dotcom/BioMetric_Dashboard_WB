@@ -8,10 +8,10 @@ export default function BackToDashboard({ className = '' }: { className?: string
   return (
     <a
       href="/"
-      className={`inline-flex items-center gap-1.5 text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors group focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 rounded-md ${className}`}
+      className={`inline-flex items-center gap-1.5 text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors group focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] rounded-md ${className}`}
     >
       <ArrowLeft className="w-3.5 h-3.5 transition-transform group-hover:-translate-x-0.5" />
       Back to Dashboard
     </a>
-  );
+    );
 }

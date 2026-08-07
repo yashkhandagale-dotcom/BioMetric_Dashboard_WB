@@ -75,7 +75,7 @@ export default function MeNavbar({
           <button
             type="button"
             onClick={() => setOpen(true)}
-            className="bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+            className="bg-[var(--accent)] hover:bg-[var(--accent)]/90 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
           >
             + Apply for Leave
           </button>

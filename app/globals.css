@@ -35,7 +35,7 @@
   --border: #334155;       /* slate-700 */
   --text-primary: #f8fafc; /* slate-50 / white */
   --text-muted: #94a3b8;   /* slate-400 */
-  --accent: #38bdf8;       /* sky-400 */
+  --accent: #fb923c;       /* warm terracotta */
   --danger: #f87171;       /* red-400 */
   --success: #4ade80;      /* green-400 */
 }
@@ -46,7 +46,7 @@
   --border: #e2e8f0;
   --text-primary: #0f172a;
   --text-muted: #64748b;
-  --accent: #0284c7;
+  --accent: #ea580c;      /* warm terracotta */
   --danger: #dc2626;
   --success: #16a34a;
 }

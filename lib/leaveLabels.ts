@@ -14,7 +14,7 @@ export const LEAVE_LABELS: Record<LeaveType, string> = {
 };
 
 export const LEAVE_COLORS: Record<LeaveType, string> = {
-  planned: 'bg-blue-500/20 text-blue-400',
+  planned: 'bg-[var(--accent)]/20 text-[var(--accent)]',
   casual: 'bg-cyan-500/20 text-cyan-400',
   sick: 'bg-violet-500/20 text-violet-400',
   lwp: 'bg-orange-500/20 text-orange-400',
