@@ -18,9 +18,16 @@ import { cookies } from 'next/headers';
 // Leave Tracker auth call (sign-in, getUser, the employees lookup) was
 // failing while the Dashboard's own login kept working fine — it reads
 // the correct unified vars via lib/supabase/server.ts. Fixed here to read
-// the same unified vars; the distinct `sb-leave-auth` cookie name below
-// is unrelated to this bug and stays as-is (that's what keeps the two
-// apps' sessions from colliding, per PROGRESS.md point 5).
+// the same unified vars.
+//
+// Single-login pivot: the cookie name below is now 'sb-auth', shared
+// with lib/supabase/server.ts, instead of a separate 'sb-leave-auth'.
+// That separate-cookie split is exactly what PROGRESS.md point 5 flagged
+// as "Auth is flagged, not silently merged" — it was why signing into
+// the Dashboard didn't also sign you into the Leave Tracker (and vice
+// versa) even though both already read the same auth.users pool. One
+// cookie now means one login. Role-based authorization is unaffected —
+// still enforced per-route by middleware.ts and each layout guard.
 export async function createLeaveClient() {
   const cookieStore = await cookies();
 
@@ -28,7 +35,7 @@ export async function createLeaveClient() {
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
-      cookieOptions: { name: 'sb-leave-auth' },
+      cookieOptions: { name: 'sb-auth' },
       cookies: {
         getAll() {
           return cookieStore.getAll();

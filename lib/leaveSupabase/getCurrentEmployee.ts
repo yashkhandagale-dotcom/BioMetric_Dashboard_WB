@@ -59,17 +59,27 @@ export async function getCurrentEmployee(): Promise<CurrentEmployee | null> {
 }
 
 // Where each role lands right after login / when they hit a route their
-// role doesn't own. Centralized here so the login page and every layout
-// guard agree on the same mapping instead of each hardcoding it.
+// role doesn't own. Centralized here so the single /login page and every
+// layout guard agree on the same mapping instead of each hardcoding it.
+//
+// Single-login pivot: hr / hr_super_admin now land on the unified
+// Dashboard ('/') — that's the whole point of merging the two logins
+// (see middleware.ts's header comment and PROGRESS.md point 5). A
+// "Leave Tracker" button in the Dashboard header (app/DashboardClient.tsx)
+// gets them to '/leave/admin' from there for full read/write access.
+//
+// manager and lead both land on '/leave/me' first — their own leave data
+// — with an "Approve Team Leaves" button to '/leave/approvals' and a
+// "Team Dashboard" button to '/' (read-only, filtered to their team) from
+// there. Treated identically here per the confirmed decision that lead
+// should behave like a mini-manager, not a lesser role.
 export function homeRouteForRole(role: EmployeeRole): string {
   switch (role) {
     case 'hr':
     case 'hr_super_admin':
-      return '/leave/admin';
+      return '/';
     case 'manager':
-      return '/leave/approvals';
     case 'lead':
-      return '/leave/team';
     case 'employee':
     default:
       return '/leave/me';

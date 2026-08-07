@@ -10,6 +10,20 @@
   --foreground: #ededed;
 }
 
+/* `--background`/`--foreground` used to only be defined once, in :root,
+   with no .light override — so <body> stayed near-black permanently
+   regardless of theme. Invisible on any page whose content div fully
+   covers the viewport (bg-[var(--bg-surface)] painted over it), but
+   app/leave/layout.tsx wraps every /leave/** page in a top strip (the
+   theme-toggle row) with no background class of its own — so it showed
+   raw <body> through it: a black bar across the top of every Leave
+   Tracker page, un-affected by the toggle. Fix: make --background/
+   --foreground theme-aware too, same as every other token below. */
+.light {
+  --background: #ffffff;
+  --foreground: #0f172a;
+}
+
 /* Semantic tokens (Workstream 2, step 1 — foundation only).
    Nothing in components/ reads these yet; that's the later migration-pass
    subpart. These values are chosen to match the app's CURRENT hardcoded

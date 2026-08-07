@@ -1,12 +1,18 @@
 import { redirect } from 'next/navigation';
 import { getCurrentEmployee, homeRouteForRole } from '@/lib/leaveSupabase/getCurrentEmployee';
 
-// Protects app/leave/team/** — the lead's read-only view of their direct
-// reports' leave (plan section 2/3). Lead-only for now: manager and HR
-// already get an org-wide equivalent (approvals queue / admin calendar),
-// so they're bounced to their own home rather than shown a second,
-// narrower version of the same information. Revisit if HR/manager ever
-// want this exact "my direct reports" slice too.
+// Protects app/leave/team/** — the read-only leave-records view of a
+// manager or lead's own team (plan section 2/3): roster + balances +
+// leave history, no edit actions anywhere.
+//
+// Single-login pivot: opened up to manager as well as lead (was
+// lead-only). Reachable from both the approvals queue ("Leave Tracker
+// (Team)" button) and /leave/me ("Team Dashboard" goes to the main
+// attendance Dashboard instead — this page is specifically the Leave
+// Tracker's own read-only team view, the equivalent of what HR gets at
+// /leave/admin but scoped and non-editable). HR already has the org-wide
+// equivalent at /leave/admin, so HR is bounced there instead of shown
+// this narrower version.
 export default async function LeaveTeamLayout({
   children,
 }: {
@@ -18,7 +24,7 @@ export default async function LeaveTeamLayout({
     redirect('/leave/login');
   }
 
-  if (employee.role !== 'lead') {
+  if (employee.role !== 'lead' && employee.role !== 'manager') {
     redirect(homeRouteForRole(employee.role));
   }
 

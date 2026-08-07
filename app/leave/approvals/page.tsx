@@ -2,6 +2,7 @@
 import { createLeaveClient } from '@/lib/leaveSupabase/server';
 import { getCurrentEmployee } from '@/lib/leaveSupabase/getCurrentEmployee';
 import { getEmployeeBalanceBreakdown } from '@/lib/leaveSupabase/getEmployeeBalances';
+import { getManagedEmployeeIds } from '@/lib/leaveSupabase/organization';
 import ApprovalCard, { PendingApprovalRequest } from '@/components/leave/ApprovalCard';
 
 type PendingRow = {
@@ -15,9 +16,10 @@ type PendingRow = {
   reason: string;
   is_lwp_override: boolean;
   lwp_override_reason: string | null;
-  employees: { full_name: string; employee_code: string; department: string; reporting_manager_id: string | null } | null;
+  employees: { full_name: string; employee_code: string; department: string; reporting_lead_id: string | null } | null;
   leave_types: { code: string; display_name: string } | null;
 };
+
 
 // B1 — real approval queue: one card per pending request from the
 // logged-in manager's DIRECT reports only (reporting_manager_id, no
@@ -32,11 +34,25 @@ export default async function LeaveApprovalsHome() {
     redirect('/leave/login');
   }
   const isHr = employee.role === 'hr' || employee.role === 'hr_super_admin';
-  if (employee.role !== 'manager' && !isHr) {
+  const isLead = employee.role === 'lead';
+  const isManager = employee.role === 'manager';
+  if (!isManager && !isLead && !isHr) {
     redirect('/leave/me');
   }
 
   const supabase = await createLeaveClient();
+
+  // Manager's queue is scoped by department (department_managers — see
+  // getManagedEmployeeIds's own comment for why that's the correct field,
+  // not reporting_manager_id), computed before building the query since
+  // Supabase's query builder can't express "IN this dynamically-sized set
+  // of ids" as a single filter chained after an inner join the same way
+  // reporting_lead_id's direct column match can.
+  let managedIds: string[] = [];
+  if (isManager) {
+    const { employeeIds } = await getManagedEmployeeIds(supabase, employee.id);
+    managedIds = employeeIds;
+  }
 
   let query = supabase
     .from('leave_requests')
@@ -44,7 +60,7 @@ export default async function LeaveApprovalsHome() {
       `
       id, employee_id, start_date, end_date, is_half_day, half_day_session,
       total_days, reason, is_lwp_override, lwp_override_reason,
-      employees!inner ( full_name, employee_code, department, reporting_manager_id ),
+      employees!inner ( full_name, employee_code, department, reporting_lead_id ),
       leave_types ( code, display_name )
     `
     )
@@ -52,11 +68,16 @@ export default async function LeaveApprovalsHome() {
     .order('start_date', { ascending: true });
 
   // HR sees every pending request org-wide (their own approve/reject
-  // authorization already allows this); a manager only ever sees their
-  // own direct reports — enforced the same way the Sprint A scaffold
-  // already did.
-  if (!isHr) {
-    query = query.eq('employees.reporting_manager_id', employee.id);
+  // authorization already allows this); a lead only sees their own direct
+  // reports (reporting_lead_id, unchanged); a manager sees every pending
+  // request from an employee/lead in a department they manage
+  // (department_managers, via managedIds above) — single-login pivot:
+  // lead is now a mini-manager with its own scoped queue, not just a
+  // read-only role.
+  if (isLead) {
+    query = query.eq('employees.reporting_lead_id', employee.id);
+  } else if (isManager) {
+    query = managedIds.length > 0 ? query.in('employee_id', managedIds) : query.eq('employee_id', '00000000-0000-0000-0000-000000000000');
   }
 
   const { data: pending, error } = await query.returns<PendingRow[]>();
@@ -101,8 +122,29 @@ export default async function LeaveApprovalsHome() {
   return (
     <div className="min-h-screen bg-[var(--bg-surface)] text-[var(--text-primary)] px-6 py-10">
       <div className="max-w-3xl mx-auto">
-        <p className="text-[var(--text-muted)] text-xs mb-1">Leave Tracker</p>
-        <h1 className="text-xl font-semibold mb-1">Pending Approvals</h1>
+        <div className="flex flex-wrap items-start justify-between gap-3 mb-1">
+          <div>
+            <p className="text-[var(--text-muted)] text-xs mb-1">Leave Tracker</p>
+            <h1 className="text-xl font-semibold">Pending Approvals</h1>
+          </div>
+          {!isHr && (
+            <div className="flex items-center gap-2">
+              <a
+                href="/leave/team"
+                className="flex items-center gap-1.5 bg-emerald-600/20 border border-emerald-500/30 text-emerald-400 px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-emerald-600/30 transition-colors"
+                title="Read-only leave records for your team"
+              >
+                Leave Tracker (Team)
+              </a>
+              <a
+                href="/leave/me"
+                className="text-[var(--text-muted)] hover:text-[var(--text-primary)] px-3 py-1.5 rounded-lg text-xs transition-colors"
+              >
+                My Leave
+              </a>
+            </div>
+          )}
+        </div>
         <p className="text-[var(--text-muted)] text-xs mb-6">
           {isHr ? 'All pending requests org-wide.' : 'Your direct reports\u2019 pending requests.'}
         </p>

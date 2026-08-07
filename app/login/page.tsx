@@ -3,6 +3,29 @@ import { useState, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 
+// The ONE login page for the whole app (single-login pivot — see
+// middleware.ts's header comment and PROGRESS.md point 5). Used to be
+// two separate logins (this page, HR-only, plus a second one at
+// /leave/login with its own role-aware redirect) even though both
+// already authenticated against the same Supabase auth pool — see
+// lib/supabase/client.ts's comment for why that was, and why it's fixed
+// now. /leave/login still exists as a redirect here for old links (see
+// that file), so bookmarks/emails keep working.
+//
+// After sign-in, look up the employees row (employee record is now the
+// one source of truth for role, for both apps) and send the person to
+// their role's home route — same ROLE_HOME → homeRouteForRole mapping
+// the old /leave/login used, just centralized in
+// lib/leaveSupabase/getCurrentEmployee.ts now so this page and every
+// layout guard's "wrong role, bounce home" redirect agree.
+const ROLE_HOME: Record<string, string> = {
+  hr: '/',
+  hr_super_admin: '/',
+  manager: '/leave/me',
+  lead: '/leave/me',
+  employee: '/leave/me',
+};
+
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -16,13 +39,33 @@ function LoginForm() {
     setError(null);
     setLoading(true);
     const supabase = createClient();
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    setLoading(false);
+    const { data: signInData, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) {
+      setLoading(false);
       setError(error.message);
       return;
     }
-    const next = searchParams.get('next') || '/';
+
+    let next = searchParams.get('next');
+    if (!next) {
+      const { data: employeeRow } = await supabase
+        .from('employees')
+        .select('role')
+        .eq('auth_user_id', signInData.user.id)
+        .maybeSingle();
+
+      if (!employeeRow) {
+        setLoading(false);
+        setError(
+          "This account isn't linked to an employee record yet. Ask HR to link it, then try again."
+        );
+        await supabase.auth.signOut();
+        return;
+      }
+      next = ROLE_HOME[employeeRow.role] || '/leave/me';
+    }
+
+    setLoading(false);
     router.replace(next);
     router.refresh();
   }
@@ -35,8 +78,8 @@ function LoginForm() {
             <span className="text-white text-xs font-bold">WB</span>
           </div>
           <div>
-            <h1 className="text-[var(--text-primary)] font-semibold text-sm">Attendance Dashboard</h1>
-            <p className="text-[var(--text-muted)] text-xs">WonderBiz Technologies · HR Login</p>
+            <h1 className="text-[var(--text-primary)] font-semibold text-sm">WonderBiz Technologies</h1>
+            <p className="text-[var(--text-muted)] text-xs">Attendance &amp; Leave Tracker</p>
           </div>
         </div>
 
@@ -54,7 +97,7 @@ function LoginForm() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               className="w-full bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)] focus:outline-none focus:border-blue-500"
-              placeholder="hr@wonderbiz.com"
+              placeholder="you@wonderbiz.com"
             />
           </div>
           <div>
@@ -77,7 +120,9 @@ function LoginForm() {
           </button>
         </form>
         <p className="text-[var(--text-muted)] text-xs text-center mt-4">
-          Accounts are created by an admin in the Supabase dashboard — there&apos;s no self-signup.
+          One login for both attendance and leave. Admins land on the dashboard;
+          everyone else lands on their own leave page. Accounts are created by HR —
+          check your email for an invite link if you don&apos;t have a password yet.
         </p>
       </div>
     </div>

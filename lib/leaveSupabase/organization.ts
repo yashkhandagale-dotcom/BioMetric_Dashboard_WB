@@ -68,6 +68,41 @@ export type ManagerSummary = {
   reportingManagerName: string | null;
 };
 
+// The single lookup every manager-scoped read/write should use — approvals
+// queue, the read-only /leave/team view, and the manager's filtered Team
+// Dashboard all need "which employees does this manager effectively
+// manage", and per the design already established on the admin grid (see
+// app/leave/admin/page.tsx's `effectiveManagerId` — "the auto-updated
+// everywhere hierarchy is entirely driven off department_managers"), that
+// answer is: every role='employee'/'lead' member of a department this
+// manager owns in `department_managers`. NOT `employees.reporting_manager_id`
+// — that column is for a *manager's own* reporting chain (who they report
+// to), not for who reports to them; using it for scoping was the bug that
+// made a freshly-assigned department manager see an empty approval queue
+// and an empty team dashboard despite the assignment existing.
+export async function getManagedEmployeeIds(
+  supabase: SupabaseClient,
+  managerId: string
+): Promise<{ employeeIds: string[]; departments: string[]; error: string | null }> {
+  const { data: deptRows, error: deptError } = await supabase
+    .from('department_managers')
+    .select('department')
+    .eq('manager_id', managerId);
+  if (deptError) return { employeeIds: [], departments: [], error: deptError.message };
+
+  const departments = (deptRows ?? []).map((d) => d.department);
+  if (departments.length === 0) return { employeeIds: [], departments: [], error: null };
+
+  const { data: empRows, error: empError } = await supabase
+    .from('employees')
+    .select('id')
+    .in('department', departments)
+    .in('role', ['employee', 'lead']);
+  if (empError) return { employeeIds: [], departments, error: empError.message };
+
+  return { employeeIds: (empRows ?? []).map((e) => e.id), departments, error: null };
+}
+
 export type LeadSummary = {
   id: string;
   employeeCode: string;

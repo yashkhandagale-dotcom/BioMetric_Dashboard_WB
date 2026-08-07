@@ -12,6 +12,11 @@ import { useEmployeeDirectorySync } from '@/lib/employeeStore';
 interface ExportPanelProps {
   uploadedMonths: UploadedMonth[];
   thresholds: Thresholds;
+  // Team Dashboard (manager/lead) passes their team's employee_codes here
+  // so every export — regardless of which months/office/departments they
+  // pick in the dialog — only ever contains their own team's rows, never
+  // the wider org. HR (no restriction passed) is unaffected.
+  restrictToEmployeeCodes?: string[];
 }
 
 const MONTH_NAMES = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -28,7 +33,7 @@ function periodLabel(key: string): string {
 // FR-11D: dedicated multi-month export dialog — From-month / To-month /
 // Office / Department selectors spanning every uploaded month, rather than
 // just exporting whatever happens to be on screen right now.
-export default function ExportPanel({ uploadedMonths, thresholds }: ExportPanelProps) {
+export default function ExportPanel({ uploadedMonths, thresholds, restrictToEmployeeCodes }: ExportPanelProps) {
   const directoryVersion = useEmployeeDirectorySync();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -88,10 +93,15 @@ export default function ExportPanel({ uploadedMonths, thresholds }: ExportPanelP
     let cancelled = false;
     Promise.all(scopedMonths.map(m => getRecords(m.key)))
       .then(results => {
-        if (!cancelled) setScopedRecords(results.flat());
+        if (cancelled) return;
+        const flat = results.flat();
+        const restricted = restrictToEmployeeCodes
+          ? flat.filter(r => restrictToEmployeeCodes.includes(r.employeeCode))
+          : flat;
+        setScopedRecords(restricted);
       });
     return () => { cancelled = true; };
-  }, [scopedMonths, directoryVersion]);
+  }, [scopedMonths, directoryVersion, restrictToEmployeeCodes]);
 
   const departments = useMemo(() => {
     return Array.from(new Set(scopedRecords.map(r => r.department))).filter(Boolean).sort();
@@ -135,13 +145,18 @@ export default function ExportPanel({ uploadedMonths, thresholds }: ExportPanelP
     let cancelled = false;
     getAllLeaveRecords(scopedMonths.map(m => m.key))
       .then(records => {
-        if (!cancelled) { setLeaveRecords(records); setLeaveLoadError(null); }
+        if (cancelled) return;
+        const restricted = restrictToEmployeeCodes
+          ? records.filter(r => restrictToEmployeeCodes.includes(r.employeeCode))
+          : records;
+        setLeaveRecords(restricted);
+        setLeaveLoadError(null);
       })
       .catch((err) => {
         if (!cancelled) setLeaveLoadError(`Could not load leave data from the Leave Tracker — exports may be missing leave columns: ${err instanceof Error ? err.message : 'Unknown error'}`);
       });
     return () => { cancelled = true; };
-  }, [scopedMonths]);
+  }, [scopedMonths, restrictToEmployeeCodes]);
 
   const { employeeSummaries } = useDashboardData(
     filteredRecords, 'ALL', [], [], holidays, thresholds, leaveRecords
@@ -208,7 +223,11 @@ export default function ExportPanel({ uploadedMonths, thresholds }: ExportPanelP
             <div className="px-5 py-4 border-b border-[var(--border)] flex items-start justify-between gap-3">
               <div>
                 <h3 className="text-[var(--text-primary)] font-semibold text-sm">Export Data</h3>
-                <p className="text-[var(--text-muted)] text-xs mt-1">Choose the months, office and departments to include — spans every uploaded month, not just what's on screen.</p>
+                <p className="text-[var(--text-muted)] text-xs mt-1">
+                  {restrictToEmployeeCodes
+                    ? "Choose the months, office and departments to include — scoped to your team only."
+                    : "Choose the months, office and departments to include — spans every uploaded month, not just what's on screen."}
+                </p>
               </div>
               <button onClick={() => setDialogOpen(false)} className="text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors flex-shrink-0">
                 <X className="w-4 h-4" />
