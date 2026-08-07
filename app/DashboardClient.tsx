@@ -37,6 +37,16 @@ import SettingsPanel from '@/components/SettingsPanel';
 import ThemeToggle from '@/components/ThemeToggle';
 
 type AppState = 'upload' | 'mapping' | 'dashboard';
+
+function syncThemeToServer(theme: 'dark' | 'light') {
+  fetch('/api/leave/theme', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ theme }),
+  }).catch(() => {
+    // Non-blocking; theme still applies locally.
+  });
+}
 // Single-login pivot: 'team' is new — an authenticated manager/lead
 // hitting '/' directly (not via the legacy unauthenticated share-link
 // token, which stays 'manager'/'denied' exactly as before). Kept as a
@@ -157,10 +167,10 @@ function ManagerView({
             </>
           )}
           <div className="flex items-center gap-2 bg-[var(--bg-elevated)] border border-[var(--border)] px-3 py-1.5 rounded-lg">
-            <Eye className="w-3.5 h-3.5 text-blue-400 flex-shrink-0" />
+            <Eye className="w-3.5 h-3.5 text-[var(--accent)] flex-shrink-0" />
             <span className="text-[var(--text-muted)] text-xs">Read-only · {records.length.toLocaleString()} records</span>
           </div>
-          <ThemeToggle />
+          <ThemeToggle onChange={syncThemeToServer} />
         </div>
       </header>
       <main className="px-4 sm:px-6 py-6 max-w-7xl mx-auto space-y-6">
@@ -701,7 +711,7 @@ function HRDashboard() {
               className="text-[var(--text-muted)] hover:text-[var(--text-muted)] px-2 py-1.5 rounded-lg text-xs transition-colors">
               Sign out
             </button>
-            <ThemeToggle />
+            <ThemeToggle onChange={syncThemeToServer} />
           </div>
         )}
       </header>
@@ -1082,6 +1092,7 @@ export default function DashboardClient({
 }) {
   const [viewMode, setViewMode] = useState<ViewMode>('loading');
   const [managerRecords, setManagerRecords] = useState<AttendanceRecord[]>([]);
+
 
   useEffect(() => {
     const qp = new URLSearchParams(window.location.search);

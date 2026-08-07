@@ -6,9 +6,9 @@ import ThemeToggle from '@/components/ThemeToggle';
 
 // Wraps the shared ThemeToggle for every /leave/** route: on mount, pulls
 // the logged-in employee's saved theme_preference from the DB (via
-// app/api/leave/theme) and applies it, so the choice follows them across
-// devices/logins — not just this browser's next-themes localStorage copy.
-// On every toggle click, also PUTs the new choice back to the same row.
+// app/api/leave/theme) and applies it only when no local theme is already
+// persisted. This avoids overwriting a user's resolved preference when
+// they toggle theme from the Dashboard first.
 export default function LeaveThemeSync() {
   const { setTheme } = useTheme();
   const appliedServerValue = useRef(false);
@@ -16,6 +16,12 @@ export default function LeaveThemeSync() {
   useEffect(() => {
     if (appliedServerValue.current) return;
     appliedServerValue.current = true;
+
+    const localTheme = typeof window !== 'undefined' ? window.localStorage.getItem('theme') : null;
+    if (localTheme === 'dark' || localTheme === 'light') {
+      return;
+    }
+
     fetch('/api/leave/theme')
       .then((r) => (r.ok ? r.json() : null))
       .then((body) => {
@@ -25,8 +31,7 @@ export default function LeaveThemeSync() {
       })
       .catch(() => {
         // Not logged in yet, or the fetch failed — fall back to whatever
-        // next-themes already resolved locally. Not surfaced to the user,
-        // this is a best-effort sync for a cosmetic preference.
+        // next-themes already resolved locally. Not surfaced to the user.
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -38,8 +43,7 @@ export default function LeaveThemeSync() {
       body: JSON.stringify({ theme }),
     }).catch(() => {
       // Theme still applies locally via next-themes even if the server
-      // sync fails (e.g. a transient network issue) — just won't follow
-      // the employee to their next device until a later successful sync.
+      // sync fails.
     });
   };
 
