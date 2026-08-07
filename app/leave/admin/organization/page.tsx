@@ -154,12 +154,12 @@ export default function OrganizationManagementPage() {
 
   return (
     <div className="min-h-screen bg-[var(--bg-surface)] text-[var(--text-primary)] p-8 space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="space-y-2">
+        <p className="text-[var(--text-muted)] text-xs uppercase tracking-[0.24em]">Admin</p>
         <div>
-          <a href="/leave/admin" className="text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)]">← Back to Leave Management</a>
-          <h1 className="text-xl font-semibold mt-1">Organization Management</h1>
-          <p className="text-[var(--text-muted)] text-xs mt-1">
-            Department managers, lead assignment, and the manager reporting hierarchy.
+          <h1 className="text-2xl font-semibold">Organization Management</h1>
+          <p className="text-[var(--text-muted)] text-sm mt-1">
+            Assign managers, leads, and review reporting relationships clearly.
           </p>
         </div>
       </div>

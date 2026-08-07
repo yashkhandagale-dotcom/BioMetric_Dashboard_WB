@@ -110,17 +110,15 @@ export default function BulkEventsPage() {
 
   return (
     <div className="min-h-screen bg-[var(--bg-surface)] text-[var(--text-primary)] p-8 space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold">Bulk Workforce Events</h1>
-        <a href="/leave/admin" className="text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)]">
-          ← Back to balances
-        </a>
+      <div className="space-y-2">
+        <p className="text-[var(--text-muted)] text-xs uppercase tracking-[0.24em]">Admin</p>
+        <div>
+          <h1 className="text-2xl font-semibold">Bulk Workforce Events</h1>
+          <p className="text-[var(--text-muted)] text-sm mt-1 max-w-2xl">
+            WFH, Business Travel, and Office Shutdown events are recorded here without affecting leave balances.
+          </p>
+        </div>
       </div>
-
-      <p className="text-[var(--text-muted)] text-xs max-w-2xl">
-        WFH, Business Travel, and Office Shutdown are workforce signals, not leave — recording one here never touches
-        anyone&apos;s SL/CL/PL/LWP balance.
-      </p>
 
       {employeesError && (
         <div className="bg-red-900/30 border border-red-500/30 text-red-700 dark:text-red-300 text-xs rounded-lg px-3 py-2">

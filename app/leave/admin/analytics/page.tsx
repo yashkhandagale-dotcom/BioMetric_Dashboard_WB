@@ -10,9 +10,9 @@ export default async function LeaveAnalyticsPage() {
 
   return (
     <div className="min-h-screen bg-[var(--bg-surface)] text-[var(--text-primary)] p-8 space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold">Leave Analytics — {formatFYLabel(fyStartYear)}</h1>
-        <a href="/leave/admin" className="text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)]">← Back to balances</a>
+      <div className="space-y-2">
+        <p className="text-[var(--text-muted)] text-xs uppercase tracking-[0.24em]">Reports</p>
+        <h1 className="text-2xl font-semibold">Leave Analytics — {formatFYLabel(fyStartYear)}</h1>
       </div>
 
       <LeaveAnalytics fyStartYear={fyStartYear} />
