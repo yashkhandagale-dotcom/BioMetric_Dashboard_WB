@@ -4,6 +4,7 @@ import { getEmployeeBalancesByFY } from '@/lib/leaveSupabase/getEmployeeBalances
 import { getManagedEmployeeIds } from '@/lib/leaveSupabase/organization';
 import { selectAllRows } from '@/lib/attendanceExceptions';
 import LeaveHistoryTable, { LeaveHistoryRow } from '@/components/leave/LeaveHistoryTable';
+import Link from 'next/link';
 
 type HistoryRow = {
   id: string;
@@ -120,18 +121,18 @@ export default async function LeaveTeamHome() {
             <h1 className="text-xl font-semibold">My Team</h1>
           </div>
           <div className="flex items-center gap-2">
-            <a
+            <Link
               href="/leave/approvals"
               className="flex items-center gap-1.5 bg-amber-600/20 border border-amber-500/30 text-amber-500 dark:text-amber-400 px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-amber-600/30 transition-colors"
             >
               Pending Approvals
-            </a>
-            <a
+            </Link>
+            <Link
               href="/leave/me"
               className="text-[var(--text-muted)] hover:text-[var(--text-primary)] px-3 py-1.5 rounded-lg text-xs transition-colors"
             >
               My Leave
-            </a>
+            </Link>
           </div>
         </div>
         <p className="text-[var(--text-muted)] text-xs mb-6">

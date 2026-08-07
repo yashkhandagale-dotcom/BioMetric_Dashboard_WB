@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import ApplyLeaveDrawer from './ApplyLeaveDrawer';
 import type { ApplySubmitResult } from './ApplyLeaveForm';
+import Link from 'next/link';
 
 // A5/A6 — "Add an 'Apply for Leave' button in the navbar on /leave/me
 // that opens this form (modal or drawer, match the existing
@@ -50,28 +51,34 @@ export default function MeNavbar({
         <div className="flex items-center gap-2 flex-wrap">
           {isApprover && (
             <>
-              <a
+              <Link
                 href="/leave/approvals"
                 className="flex items-center gap-1.5 bg-amber-600/20 border border-amber-500/30 text-amber-500 dark:text-amber-400 px-3 py-2 rounded-lg text-sm font-medium hover:bg-amber-600/30 transition-colors"
               >
                 Approve Team Leaves
-              </a>
-              <a
+              </Link>
+              <Link
                 href="/"
                 className="flex items-center gap-1.5 bg-[var(--bg-elevated)] border border-[var(--border)] text-[var(--text-primary)] px-3 py-2 rounded-lg text-sm font-medium hover:bg-[var(--bg-elevated)]/70 transition-colors"
               >
                 Team Dashboard
-              </a>
+              </Link>
             </>
           )}
           {isHr && (
-            <a
+            <Link
               href="/"
               className="flex items-center gap-1.5 bg-[var(--bg-elevated)] border border-[var(--border)] text-[var(--text-primary)] px-3 py-2 rounded-lg text-sm font-medium hover:bg-[var(--bg-elevated)]/70 transition-colors"
             >
               Dashboard
-            </a>
+            </Link>
           )}
+          <Link
+            href="/leave/change-password"
+            className="flex items-center gap-1.5 border border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:border-[var(--border)] px-3 py-2 rounded-lg text-sm font-medium transition-colors"
+          >
+            Change Password
+          </Link>
           <button
             type="button"
             onClick={() => setOpen(true)}

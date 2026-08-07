@@ -1,4 +1,5 @@
 import { ArrowLeft } from 'lucide-react';
+import Link from 'next/link';
 
 // Single source of truth for the "← Back to Dashboard" link so every
 // /leave/** page looks and behaves the same way (Phase 6 of the UI
@@ -6,12 +7,12 @@ import { ArrowLeft } from 'lucide-react';
 // in both themes, with a small hover animation.
 export default function BackToDashboard({ className = '' }: { className?: string }) {
   return (
-    <a
+    <Link
       href="/"
       className={`inline-flex items-center gap-1.5 text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors group focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] rounded-md ${className}`}
     >
       <ArrowLeft className="w-3.5 h-3.5 transition-transform group-hover:-translate-x-0.5" />
       Back to Dashboard
-    </a>
-    );
+    </Link>
+  );
 }

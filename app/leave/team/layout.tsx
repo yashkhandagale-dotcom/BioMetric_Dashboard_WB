@@ -24,6 +24,10 @@ export default async function LeaveTeamLayout({
     redirect('/leave/login');
   }
 
+  if (employee.must_change_password) {
+    redirect('/leave/change-password');
+  }
+
   if (employee.role !== 'lead' && employee.role !== 'manager') {
     redirect(homeRouteForRole(employee.role));
   }

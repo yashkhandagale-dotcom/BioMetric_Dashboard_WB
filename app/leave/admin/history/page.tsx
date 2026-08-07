@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import LeaveHistoryTable, { LeaveHistoryRow } from '@/components/leave/LeaveHistoryTable';
 import AbsenteesPanel from '@/components/leave/AbsenteesPanel';
@@ -244,25 +245,22 @@ export default function LeaveTrackerPage() {
 
   return (
     <div className="min-h-screen bg-[var(--bg-surface)] text-[var(--text-primary)] p-8 space-y-6">
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+      <div className="flex items-center justify-between">
         <div>
-          <p className="text-[var(--text-muted)] text-xs uppercase tracking-[0.24em]">Reports</p>
-          <h1 className="text-2xl font-semibold">Leave Tracker</h1>
-          <p className="text-[var(--text-muted)] text-sm mt-1 max-w-2xl">
-            Calendar-first leave review with table-based absentees, half days, and history views.
-          </p>
+          <Link href="/leave/admin" className="text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)]">← Back to balances</Link>
+          <h1 className="text-xl font-semibold mt-1">Leave Tracker</h1>
         </div>
-        <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center">
+        <div className="text-right">
           <button
             type="button"
             onClick={() => setRecordLeaveOpen(true)}
-            className="bg-[var(--accent)] hover:bg-[var(--accent)]/90 text-white text-sm font-medium px-4 py-2 rounded-2xl transition-colors"
+            className="bg-[var(--accent)] hover:bg-[var(--accent)]/90 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
           >
             + Record Leave
           </button>
           {!(view === 'table' && tab === 'history') && (
-            <p className="text-[11px] text-[var(--text-muted)] max-w-[220px]">
-              For any employee. Use row actions for items already listed below.
+            <p className="text-[11px] text-[var(--text-muted)] mt-1 max-w-[220px]">
+              For any employee. To act on a row already listed below, use that row&apos;s own action instead.
             </p>
           )}
         </div>

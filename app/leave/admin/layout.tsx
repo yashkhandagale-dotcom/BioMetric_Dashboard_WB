@@ -1,6 +1,5 @@
 import { redirect } from 'next/navigation';
 import { getCurrentEmployee, homeRouteForRole } from '@/lib/leaveSupabase/getCurrentEmployee';
-import LeaveAdminShell from '@/components/leave/LeaveAdminShell';
 
 // Protects everything under app/leave/admin/**. Deliberately a layout,
 // not middleware.ts — this only runs for this route subtree, so it can
@@ -25,9 +24,13 @@ export default async function LeaveAdminLayout({
     redirect('/leave/login');
   }
 
+  if (employee.must_change_password) {
+    redirect('/leave/change-password');
+  }
+
   if (employee.role !== 'hr' && employee.role !== 'hr_super_admin') {
     redirect(homeRouteForRole(employee.role));
   }
 
-  return <LeaveAdminShell>{children}</LeaveAdminShell>;
+  return <>{children}</>;
 }

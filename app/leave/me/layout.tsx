@@ -19,5 +19,9 @@ export default async function LeaveMeLayout({
     redirect('/leave/login');
   }
 
+  if (employee.must_change_password) {
+    redirect('/leave/change-password');
+  }
+
   return <>{children}</>;
 }

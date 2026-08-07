@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import Link from 'next/link';
 
 type DepartmentRow = { department: string; managerId: string | null; managerName: string | null };
 type ManagerRow = {
@@ -22,6 +23,8 @@ type OrgTreeNode = {
   department: string | null;
   children: OrgTreeNode[];
 };
+
+type OrgTab = 'chart' | 'departments' | 'managers' | 'leads';
 
 const ROLE_LABEL: Record<string, string> = {
   hr_super_admin: 'HR (Super Admin)',
@@ -86,6 +89,7 @@ export default function OrganizationManagementPage() {
   const [error, setError] = useState<string | null>(null);
   const [savingKey, setSavingKey] = useState<string | null>(null);
   const [toast, setToast] = useState<{ kind: 'success' | 'error'; text: string } | null>(null);
+  const [tab, setTab] = useState<OrgTab>('chart');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -154,12 +158,12 @@ export default function OrganizationManagementPage() {
 
   return (
     <div className="min-h-screen bg-[var(--bg-surface)] text-[var(--text-primary)] p-8 space-y-6">
-      <div className="space-y-2">
-        <p className="text-[var(--text-muted)] text-xs uppercase tracking-[0.24em]">Admin</p>
+      <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-semibold">Organization Management</h1>
-          <p className="text-[var(--text-muted)] text-sm mt-1">
-            Assign managers, leads, and review reporting relationships clearly.
+          <Link href="/leave/admin" className="text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)]">← Back to Leave Management</Link>
+          <h1 className="text-xl font-semibold mt-1">Organization Management</h1>
+          <p className="text-[var(--text-muted)] text-xs mt-1">
+            Department managers, lead assignment, and the manager reporting hierarchy.
           </p>
         </div>
       </div>
@@ -183,7 +187,37 @@ export default function OrganizationManagementPage() {
         <p className="text-[var(--text-muted)] text-sm">Loading…</p>
       ) : (
         <>
+          <div className="flex items-center gap-1 border-b border-[var(--border)]">
+            {(
+              [
+                { key: 'chart', label: 'Org Chart', badge: orgTreeUnassignedCount > 0 ? orgTreeUnassignedCount : undefined },
+                { key: 'departments', label: 'Departments', badge: undefined },
+                { key: 'managers', label: 'Managers', badge: undefined },
+                { key: 'leads', label: 'Leads', badge: undefined },
+              ] as { key: OrgTab; label: string; badge?: number }[]
+            ).map((t) => (
+              <button
+                key={t.key}
+                type="button"
+                onClick={() => setTab(t.key)}
+                className={`relative px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
+                  tab === t.key
+                    ? 'border-[var(--accent)] text-[var(--text-primary)]'
+                    : 'border-transparent text-[var(--text-muted)] hover:text-[var(--text-primary)]'
+                }`}
+              >
+                {t.label}
+                {!!t.badge && (
+                  <span className="ml-1.5 inline-flex items-center justify-center bg-amber-500 text-white text-[10px] font-bold rounded-full min-w-[1.1rem] h-[1.1rem] px-1 align-middle">
+                    {t.badge}
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+
           {/* ── Org Chart: read-only nested view of who reports to whom ── */}
+          {tab === 'chart' && (
           <section className="bg-[var(--bg-elevated)]/40 border border-[var(--border)] rounded-xl p-4 space-y-2">
             <div className="flex items-center justify-between">
               <h2 className="text-[var(--text-primary)] font-semibold text-sm">Org Chart</h2>
@@ -204,8 +238,10 @@ export default function OrganizationManagementPage() {
               {orgTree.length === 0 && <p className="text-[var(--text-muted)] text-sm py-4 text-center">No employees yet.</p>}
             </div>
           </section>
+          )}
 
           {/* ── Departments: assign / change manager ─────────────────── */}
+          {tab === 'departments' && (
           <section className="bg-[var(--bg-elevated)]/40 border border-[var(--border)] rounded-xl p-4 space-y-3">
             <h2 className="text-[var(--text-primary)] font-semibold text-sm">Departments — Manager Assignment</h2>
             <div className="overflow-x-auto">
@@ -276,8 +312,10 @@ export default function OrganizationManagementPage() {
               department at once.
             </p>
           </section>
+          )}
 
           {/* ── Managers: reporting hierarchy ─────────────────────────── */}
+          {tab === 'managers' && (
           <section className="bg-[var(--bg-elevated)]/40 border border-[var(--border)] rounded-xl p-4 space-y-3">
             <h2 className="text-[var(--text-primary)] font-semibold text-sm">Managers — Reporting Hierarchy</h2>
             <div className="overflow-x-auto">
@@ -330,8 +368,10 @@ export default function OrganizationManagementPage() {
               instead of silently applying.
             </p>
           </section>
+          )}
 
           {/* ── Leads: read-only summary ─────────────────────────── */}
+          {tab === 'leads' && (
           <section className="bg-[var(--bg-elevated)]/40 border border-[var(--border)] rounded-xl p-4 space-y-3">
             <h2 className="text-[var(--text-primary)] font-semibold text-sm">Leads</h2>
             <div className="overflow-x-auto">
@@ -362,6 +402,7 @@ export default function OrganizationManagementPage() {
               Details tab — this page adds the bulk, department-level action above it, it doesn't replace it.
             </p>
           </section>
+          )}
         </>
       )}
     </div>

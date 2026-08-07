@@ -24,6 +24,10 @@ export default async function LeaveApprovalsLayout({
     redirect('/leave/login');
   }
 
+  if (employee.must_change_password) {
+    redirect('/leave/change-password');
+  }
+
   if (!['manager', 'lead', 'hr', 'hr_super_admin'].includes(employee.role)) {
     redirect(homeRouteForRole(employee.role));
   }

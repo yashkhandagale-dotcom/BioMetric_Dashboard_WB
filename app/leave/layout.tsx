@@ -1,5 +1,11 @@
 import LeaveThemeSync from '@/components/leave/LeaveThemeSync';
 
+// must_change_password is enforced per-subtree (app/leave/me/layout.tsx,
+// team/layout.tsx, approvals/layout.tsx, admin/layout.tsx) rather than
+// here — this root layout wraps /leave/change-password too, and a plain
+// Next.js layout has no reliable way to read the current pathname to
+// exempt just that one route from a check made here.
+
 // Wraps every /leave/** route (admin, me, team, approvals, login) —
 // Next.js nests each subtree's own layout.tsx (auth guards) inside this
 // one. This file itself does NOT gate anything; it only mounts the theme

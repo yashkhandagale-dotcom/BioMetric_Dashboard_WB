@@ -3,7 +3,9 @@ import { createLeaveClient } from '@/lib/leaveSupabase/server';
 import { getCurrentEmployee } from '@/lib/leaveSupabase/getCurrentEmployee';
 import { getEmployeeBalanceBreakdown } from '@/lib/leaveSupabase/getEmployeeBalances';
 import { getManagedEmployeeIds } from '@/lib/leaveSupabase/organization';
-import ApprovalCard, { PendingApprovalRequest } from '@/components/leave/ApprovalCard';
+import { PendingApprovalRequest } from '@/components/leave/ApprovalCard';
+import ApprovalsList from '@/components/leave/ApprovalsList';
+import Link from 'next/link';
 
 type PendingRow = {
   id: string;
@@ -124,24 +126,34 @@ export default async function LeaveApprovalsHome() {
       <div className="max-w-3xl mx-auto">
         <div className="flex flex-wrap items-start justify-between gap-3 mb-1">
           <div>
-            <p className="text-[var(--text-muted)] text-xs mb-1">Leave Tracker</p>
-            <h1 className="text-xl font-semibold">Pending Approvals</h1>
+            <Link href={isHr ? '/leave/admin' : '/leave/me'} className="text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)]">
+              ← {isHr ? 'Back to Leave Management' : 'Back to My Leave'}
+            </Link>
+            <p className="text-[var(--text-muted)] text-xs mt-1 mb-1">Leave Tracker</p>
+            <h1 className="text-xl font-semibold flex items-center gap-2">
+              Pending Approvals
+              {requests.length > 0 && (
+                <span className="inline-flex items-center justify-center bg-amber-500 text-white text-xs font-bold rounded-full min-w-[1.4rem] h-[1.4rem] px-1.5">
+                  {requests.length}
+                </span>
+              )}
+            </h1>
           </div>
           {!isHr && (
             <div className="flex items-center gap-2">
-              <a
+              <Link
                 href="/leave/team"
                 className="flex items-center gap-1.5 bg-emerald-600/20 border border-emerald-500/30 text-emerald-400 px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-emerald-600/30 transition-colors"
                 title="Read-only leave records for your team"
               >
                 Leave Tracker (Team)
-              </a>
-              <a
+              </Link>
+              <Link
                 href="/leave/me"
                 className="text-[var(--text-muted)] hover:text-[var(--text-primary)] px-3 py-1.5 rounded-lg text-xs transition-colors"
               >
                 My Leave
-              </a>
+              </Link>
             </div>
           )}
         </div>
@@ -155,17 +167,7 @@ export default async function LeaveApprovalsHome() {
           </div>
         )}
 
-        {requests.length === 0 ? (
-          <div className="bg-[var(--bg-elevated)]/40 border border-[var(--border)] rounded-xl p-6 text-center text-[var(--text-muted)] text-sm">
-            No pending requests right now.
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {requests.map((r) => (
-              <ApprovalCard key={r.id} request={r} />
-            ))}
-          </div>
-        )}
+        <ApprovalsList requests={requests} isHr={isHr} />
       </div>
     </div>
   );
