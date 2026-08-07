@@ -34,36 +34,41 @@ export default function LeaveCalendar({
   }
 
   return (
-    <div className="bg-[var(--bg-elevated)]/40 border border-[var(--border)] rounded-xl p-4" tabIndex={0} onKeyDown={handleKeyDown}>
-      <div className="flex items-center justify-between mb-4">
-        <button
-          type="button"
-          onClick={() => shift(-1)}
-          aria-label="Previous month"
-          className="p-1.5 rounded-lg border border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:border-[var(--border)] transition-colors"
-        >
-          <ChevronLeft size={16} />
-        </button>
-        <h2 className="text-[var(--text-primary)] font-semibold text-sm">{monthLabel(monthKey)}</h2>
-        <button
-          type="button"
-          onClick={() => shift(1)}
-          aria-label="Next month"
-          className="p-1.5 rounded-lg border border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:border-[var(--border)] transition-colors"
-        >
-          <ChevronRight size={16} />
-        </button>
+    <div className="bg-[var(--bg-elevated)]/40 border border-[var(--border)] rounded-3xl p-4" tabIndex={0} onKeyDown={handleKeyDown}>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4">
+        <div>
+          <p className="text-[var(--text-muted)] text-xs uppercase tracking-[0.24em]">Leave Calendar</p>
+          <h2 className="text-[var(--text-primary)] font-semibold text-lg">{monthLabel(monthKey)}</h2>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => shift(-1)}
+            aria-label="Previous month"
+            className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-[var(--border)] bg-[var(--bg-surface)] text-[var(--text-primary)] hover:border-[var(--accent)] hover:text-[var(--accent)] transition-colors"
+          >
+            <ChevronLeft size={18} />
+          </button>
+          <button
+            type="button"
+            onClick={() => shift(1)}
+            aria-label="Next month"
+            className="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-[var(--border)] bg-[var(--bg-surface)] text-[var(--text-primary)] hover:border-[var(--accent)] hover:text-[var(--accent)] transition-colors"
+          >
+            <ChevronRight size={18} />
+          </button>
+        </div>
       </div>
 
-      <div className="grid grid-cols-7 gap-px bg-[var(--bg-elevated)] rounded-lg overflow-hidden text-[11px] text-[var(--text-muted)] mb-px">
+      <div className="grid grid-cols-7 gap-0 border-t border-l border-[var(--border)] text-[11px] text-[var(--text-muted)]">
         {WEEKDAY_LABELS.map((d) => (
-          <div key={d} className="bg-[var(--bg-surface)] px-2 py-1.5 text-center font-medium">
+          <div key={d} className="border-b border-r border-[var(--border)] bg-[var(--bg-surface)] px-3 py-2 text-center font-semibold uppercase tracking-[0.12em]">
             {d}
           </div>
         ))}
       </div>
 
-      <div className="grid grid-cols-7 gap-px bg-[var(--bg-elevated)] rounded-lg overflow-hidden">
+      <div className="grid grid-cols-7 gap-0 border-t border-l border-[var(--border)] rounded-3xl overflow-hidden">
         {cells.map(({ date, inMonth }) => {
           const entries = dayMap.get(date) ?? [];
           const holidayNames = holidaysByDate.get(date);
@@ -76,16 +81,14 @@ export default function LeaveCalendar({
               key={date}
               type="button"
               onClick={() => onDayClick(date)}
-              className={`bg-[var(--bg-surface)] min-h-[92px] p-1.5 text-left flex flex-col gap-1 transition-colors hover:bg-[var(--bg-elevated)] ${
-                inMonth ? '' : 'opacity-40'
-              }`}
+              className={`group border-b border-r border-[var(--border)] bg-[var(--bg-surface)] p-3 text-left transition-colors ${
+                inMonth ? 'text-[var(--text-primary)]' : 'bg-[var(--bg-surface)]/75 text-[var(--text-muted)]'
+              } hover:bg-[var(--bg-elevated)]`}
             >
-              <div className="flex items-center justify-between">
+              <div className="flex items-start justify-between gap-2">
                 <span
-                  className={`text-xs ${
-                    isToday
-                      ? 'bg-blue-600 text-white rounded-full w-5 h-5 flex items-center justify-center font-semibold'
-                      : 'text-[var(--text-muted)]'
+                  className={`inline-flex h-9 w-9 items-center justify-center rounded-2xl font-semibold ${
+                    isToday ? 'bg-[var(--accent)] text-white shadow-sm' : 'bg-[var(--bg-elevated)] text-[var(--text-primary)]'
                   }`}
                 >
                   {Number(date.slice(8, 10))}
@@ -93,27 +96,34 @@ export default function LeaveCalendar({
                 {holidayNames && holidayNames.length > 0 && (
                   <span
                     title={holidayNames.join(', ')}
-                    className="text-[9px] text-[var(--text-muted)] truncate max-w-[52px]"
+                    className="rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-medium text-amber-500"
                   >
                     {holidayNames[0]}
                   </span>
                 )}
               </div>
 
-              <div className="flex flex-wrap gap-1">
+              <div className="mt-3 space-y-2">
                 {visible.map((entry) => (
-                  <span
+                  <div
                     key={entry.employeeId}
                     title={`${entry.employeeName} — ${entry.label}${entry.status === 'pending' ? ' (pending)' : ''}`}
-                    className={`inline-flex items-center rounded-full px-1.5 py-0.5 text-[9px] leading-none ${entry.colorClass} ${
-                      entry.status === 'pending' ? 'border border-dashed border-current' : ''
-                    } ${entry.status === 'unrecorded' ? 'border border-dotted border-current' : ''}`}
+                    className={`flex items-center justify-between gap-3 rounded-2xl border px-2 py-1 text-[11px] ${
+                      entry.status === 'pending'
+                        ? 'border-dashed border-[var(--accent)]/50 bg-[var(--accent)]/10 text-[var(--accent)]'
+                        : entry.status === 'unrecorded'
+                        ? 'border-dotted border-amber-400/50 bg-amber-100/30 text-amber-700'
+                        : 'border-[var(--border)] bg-[var(--bg-elevated)]'
+                    }`}
                   >
-                    {initials(entry.employeeName)}
-                  </span>
+                    <span className="font-semibold">{initials(entry.employeeName)}</span>
+                    <span className="truncate text-[10px] text-[var(--text-muted)]">{entry.label}</span>
+                  </div>
                 ))}
                 {overflow > 0 && (
-                  <span className="text-[9px] text-[var(--text-muted)] self-center">+{overflow} more</span>
+                  <span className="inline-flex items-center rounded-full bg-[var(--bg-elevated)]/80 px-2 py-1 text-[11px] font-medium text-[var(--text-primary)]">
+                    +{overflow} more
+                  </span>
                 )}
               </div>
             </button>
@@ -138,7 +148,7 @@ function initials(name: string): string {
 function Legend() {
   return (
     <div className="flex flex-wrap gap-x-4 gap-y-1.5 mt-4 pt-3 border-t border-[var(--border)] text-[11px] text-[var(--text-muted)]">
-      <LegendItem swatchClass="bg-blue-500/20 text-blue-400" label="Planned Leave" />
+      <LegendItem swatchClass="bg-[var(--accent)]/20 text-[var(--accent)]" label="Planned Leave" />
       <LegendItem swatchClass="bg-cyan-500/20 text-cyan-400" label="Casual Leave" />
       <LegendItem swatchClass="bg-violet-500/20 text-violet-400" label="Sick Leave" />
       <LegendItem swatchClass="bg-orange-500/20 text-orange-400" label="LWP" />
