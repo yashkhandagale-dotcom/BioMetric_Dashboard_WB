@@ -1,6 +1,7 @@
 'use client';
 import { useState, useEffect, useCallback, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import Link from 'next/link';
 import { Upload, CheckCircle, Eye, ShieldX, Calendar, ClipboardList, Settings as SettingsIcon, X as XIcon, ArrowLeft } from 'lucide-react';
 import { AttendanceRecord, ColumnMapping, EmployeeSummary, UploadedMonth, Holiday, Thresholds, LeaveRecord } from '@/lib/types';
 import {
@@ -152,18 +153,18 @@ function ManagerView({
           {teamMode && (
             <>
               <ExportPanel uploadedMonths={uploadedMonths} thresholds={thresholds} restrictToEmployeeCodes={teamCodes ?? []} />
-              <a
+              <Link
                 href="/leave/approvals"
                 className="flex items-center gap-1.5 bg-amber-600/20 border border-amber-500/30 text-amber-500 dark:text-amber-400 px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-amber-600/30 transition-colors"
               >
                 Approve Team Leaves
-              </a>
-              <a
+              </Link>
+              <Link
                 href="/leave/me"
                 className="text-[var(--text-muted)] hover:text-[var(--text-primary)] px-3 py-1.5 rounded-lg text-xs transition-colors"
               >
                 My Leave
-              </a>
+              </Link>
             </>
           )}
           <div className="flex items-center gap-2 bg-[var(--bg-elevated)] border border-[var(--border)] px-3 py-1.5 rounded-lg">
@@ -694,14 +695,13 @@ function HRDashboard() {
             >
               <SettingsIcon className="w-3.5 h-3.5" /> Settings
             </button>
-            <a
-            
+            <Link
               href="/leave/admin"
               className="flex items-center gap-1.5 bg-emerald-600/20 border border-emerald-500/30 text-emerald-400 px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-emerald-600/30 transition-colors"
               title="Record and manage employee leave"
             >
               <ClipboardList className="w-3.5 h-3.5" /> Leave Tracker
-            </a>
+            </Link>
             <ExportPanel uploadedMonths={uploadedMonths} thresholds={thresholds} />
             <button onClick={() => setAppState('upload')}
               className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">

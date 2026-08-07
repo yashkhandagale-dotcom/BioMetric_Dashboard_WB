@@ -12,6 +12,7 @@ export interface CurrentEmployee {
   office: string;
   reporting_lead_id: string | null;
   reporting_manager_id: string | null;
+  must_change_password: boolean;
 }
 
 // Sprint A — role-aware auth.
@@ -48,7 +49,7 @@ export async function getCurrentEmployee(): Promise<CurrentEmployee | null> {
   const { data: employee, error } = await supabase
     .from('employees')
     .select(
-      'id, full_name, employee_code, email, role, department, office, reporting_lead_id, reporting_manager_id'
+      'id, full_name, employee_code, email, role, department, office, reporting_lead_id, reporting_manager_id, must_change_password'
     )
     .eq('auth_user_id', user.id)
     .maybeSingle();

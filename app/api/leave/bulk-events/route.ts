@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createLeaveClient, createLeaveServiceClient } from '@/lib/leaveSupabase/server';
 
-const EVENT_TYPES = ['wfh', 'business_travel', 'office_shutdown'] as const;
-type EventType = (typeof EVENT_TYPES)[number];
+// The original three signals are no longer the only allowed values (see
+// migration 0011) — kept here only as a reference comment for what the
+// UI still suggests by default: wfh, business_travel, office_shutdown.
+const MAX_EVENT_TYPE_LENGTH = 40;
 
 function expandDateRange(start: string, end: string): string[] {
   const dates: string[] = [];
@@ -48,8 +50,12 @@ export async function POST(req: NextRequest) {
     note?: string;
   } = body;
 
-  if (!event_type || !EVENT_TYPES.includes(event_type as EventType)) {
-    return NextResponse.json({ error: `event_type must be one of ${EVENT_TYPES.join(', ')}` }, { status: 400 });
+  if (!event_type || !event_type.trim()) {
+    return NextResponse.json({ error: 'event_type is required' }, { status: 400 });
+  }
+  const trimmedEventType = event_type.trim();
+  if (trimmedEventType.length > MAX_EVENT_TYPE_LENGTH) {
+    return NextResponse.json({ error: `event_type must be ${MAX_EVENT_TYPE_LENGTH} characters or fewer` }, { status: 400 });
   }
   if (!start_date || !end_date) {
     return NextResponse.json({ error: 'start_date and end_date are required' }, { status: 400 });
@@ -88,7 +94,7 @@ export async function POST(req: NextRequest) {
   const rows = Array.from(targetIds).flatMap((employeeId) =>
     dates.map((eventDate) => ({
       employee_id: employeeId,
-      event_type,
+      event_type: trimmedEventType,
       event_date: eventDate,
       note: note || null,
       created_by: hrEmployee?.id ?? null,

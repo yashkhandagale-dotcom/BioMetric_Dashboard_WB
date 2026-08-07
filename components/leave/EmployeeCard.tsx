@@ -1,6 +1,7 @@
 'use client';
 
 import AdjustBalanceButton from '@/app/leave/admin/AdjustBalanceButton';
+import EmployeeLoginButton from './EmployeeLoginButton';
 import ViolationBadge from './ViolationBadge';
 
 // One flattened shape the grid renders from — employees table fields +
@@ -14,7 +15,10 @@ export type EmployeeWithBalances = {
   office: string;
   role: string;
   employmentStatus: string;
+  noticePeriodDays?: number | null;
   dateOfJoining: string;
+  hasLogin?: boolean;
+  email?: string | null;
   // Derived from the department's manager, not stored per-employee — see
   // supabase-leave/schema.sql's 006_department_managers.sql.
   effectiveManagerName?: string | null;
@@ -60,10 +64,13 @@ export default function EmployeeCard({
         <ViolationBadge count={violationCount} />
       </div>
 
-      <div className="flex items-center gap-2 text-xs">
+      <div className="flex items-center gap-2 text-xs flex-wrap">
         <span className={`border rounded-full px-2 py-0.5 capitalize ${statusStyle}`}>
           {employee.employmentStatus.replace('_', ' ')}
         </span>
+        {employee.employmentStatus === 'notice_period' && employee.noticePeriodDays != null && (
+          <span className="text-[var(--text-muted)]">{employee.noticePeriodDays}-day notice</span>
+        )}
         <span className="text-[var(--text-muted)]">DOJ {employee.dateOfJoining}</span>
       </div>
 
@@ -90,9 +97,15 @@ export default function EmployeeCard({
           fyStartYear={fyStartYear}
           currentRole={employee.role}
           currentStatus={employee.employmentStatus}
+          currentNoticePeriodDays={employee.noticePeriodDays ?? undefined}
           currentLeadId={employee.reportingLeadId}
           currentManagerId={employee.reportingManagerId}
           currentManagedDepartments={employee.managedDepartments ?? []}
+        />
+        <EmployeeLoginButton
+          employeeId={employee.id}
+          employeeName={employee.name}
+          hasLogin={!!employee.hasLogin}
         />
       </div>
     </div>

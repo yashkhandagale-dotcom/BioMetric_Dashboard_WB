@@ -21,11 +21,13 @@ export async function GET(req: NextRequest) {
     }
 
     const role = req.nextUrl.searchParams.get('role'); // 'lead' | 'manager' | null (= all)
+    const withoutLogin = req.nextUrl.searchParams.get('without_login') === '1';
     let query = sessionClient
       .from('employees')
-      .select('id, full_name, employee_code, role, department, office')
+      .select('id, full_name, employee_code, role, department, office, email, auth_user_id')
       .order('full_name');
     if (role) query = query.eq('role', role);
+    if (withoutLogin) query = query.is('auth_user_id', null);
 
     const { data: employees, error } = await query;
     if (error) {

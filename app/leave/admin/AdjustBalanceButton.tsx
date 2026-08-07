@@ -46,6 +46,7 @@ export default function AdjustBalanceButton({
   fyStartYear,
   currentRole,
   currentStatus,
+  currentNoticePeriodDays,
   currentLeadId,
   currentManagerId,
   currentManagedDepartments,
@@ -55,6 +56,7 @@ export default function AdjustBalanceButton({
   fyStartYear: number;
   currentRole?: string;
   currentStatus?: string;
+  currentNoticePeriodDays?: number;
   currentLeadId?: string | null;
   currentManagerId?: string | null;
   currentManagedDepartments?: string[];
@@ -73,6 +75,7 @@ export default function AdjustBalanceButton({
   // ── Details tab state ───────────────────────────────────────────────────
   const [role, setRole] = useState(currentRole ?? 'employee');
   const [status, setStatus] = useState(currentStatus ?? 'active');
+  const [noticePeriodDays, setNoticePeriodDays] = useState(String(currentNoticePeriodDays ?? 30));
   const [leadId, setLeadId] = useState(currentLeadId ?? '');
   const [managerId, setManagerId] = useState(currentManagerId ?? '');
   const [managedDepartments, setManagedDepartments] = useState<string[]>(currentManagedDepartments ?? []);
@@ -173,6 +176,14 @@ export default function AdjustBalanceButton({
       role,
       employment_status: status,
     };
+    if (status === 'notice_period') {
+      const days = parseInt(noticePeriodDays, 10);
+      if (!noticePeriodDays || Number.isNaN(days) || days <= 0) {
+        setError('Enter a valid number of notice period days.');
+        return;
+      }
+      payload.notice_period_days = days;
+    }
     if (role === 'employee') {
       payload.reporting_lead_id = leadId || null;
     } else if (role === 'manager') {
@@ -322,6 +333,21 @@ export default function AdjustBalanceButton({
                     ))}
                   </select>
                 </div>
+                {status === 'notice_period' && (
+                  <div>
+                    <label className="block text-xs text-[var(--text-muted)] mb-1">Notice period (days)</label>
+                    <input
+                      type="number"
+                      min={1}
+                      value={noticePeriodDays}
+                      onChange={(e) => setNoticePeriodDays(e.target.value)}
+                      className="w-full bg-[var(--bg-elevated)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)]"
+                    />
+                    <p className="text-[var(--text-muted)] text-[11px] mt-1">
+                      Drives the leave policy engine&apos;s notice-shortfall LWP conversion for this person.
+                    </p>
+                  </div>
+                )}
                 <div>
                   <label className="block text-xs text-[var(--text-muted)] mb-1">Role</label>
                   <select
