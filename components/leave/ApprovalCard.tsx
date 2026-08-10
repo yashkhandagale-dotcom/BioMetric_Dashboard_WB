@@ -40,6 +40,30 @@ export default function ApprovalCard({ request }: { request: PendingApprovalRequ
   const [comment, setComment] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [reminderSent, setReminderSent] = useState(false);
+
+  async function handleRemind() {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch('/api/leave/remind', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ leave_request_id: request.id }),
+      });
+      const text = await res.text();
+      const body = text ? JSON.parse(text) : {};
+      if (!res.ok) {
+        setError(body.error || 'Could not send a reminder.');
+        return;
+      }
+      setReminderSent(true);
+    } catch {
+      setError('Could not reach the server — check your connection and retry.');
+    } finally {
+      setLoading(false);
+    }
+  }
 
   async function handleApprove() {
     setLoading(true);
@@ -182,6 +206,15 @@ export default function ApprovalCard({ request }: { request: PendingApprovalRequ
             className="border border-red-500/40 text-red-600 dark:text-red-400 hover:bg-red-900/20 text-sm font-medium px-4 py-2 rounded-lg transition-colors"
           >
             Reject
+          </button>
+          <button
+            type="button"
+            onClick={handleRemind}
+            disabled={loading || reminderSent}
+            title="Notifies both the employee and the approver that this request is still pending"
+            className="border border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--text-primary)] disabled:opacity-50 text-sm font-medium px-4 py-2 rounded-lg transition-colors ml-auto"
+          >
+            {reminderSent ? 'Reminder sent' : 'Send Reminder'}
           </button>
         </div>
       )}

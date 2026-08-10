@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 
 const CODES = [
   { code: 'SL', label: 'Sick Leave' },
@@ -61,6 +62,7 @@ export default function AdjustBalanceButton({
   currentManagerId?: string | null;
   currentManagedDepartments?: string[];
 }) {
+  const router = useRouter();
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState<'balance' | 'details'>('balance');
   const [error, setError] = useState<string | null>(null);
@@ -152,7 +154,21 @@ export default function AdjustBalanceButton({
         setSaving(false);
         return;
       }
-      window.location.reload();
+      // Was window.location.reload() — a full hard reload, which is why
+      // the popup used to visibly flash/close abruptly and (separately)
+      // why the theme briefly reverted to the dark default: LeaveThemeSync
+      // only re-applies the saved theme from the DB after the new page's
+      // JS mounts, so a hard reload always repaints once with
+      // ThemeProvider's defaultTheme="dark" before that fetch resolves.
+      // router.refresh() re-runs the server component in place without
+      // unmounting the page (or its already-applied theme), so the grid's
+      // numbers update with no flash and no popup-closing race.
+      setSaving(false);
+      setSuccess('Saved.');
+      router.refresh();
+      // Brief pause so the "Saved." confirmation is actually readable
+      // before the modal closes, instead of vanishing mid-reload.
+      setTimeout(close, 900);
     } catch {
       setError('Could not reach the server — check your connection and try again.');
       setSaving(false);
@@ -205,7 +221,16 @@ export default function AdjustBalanceButton({
         setError(data.error || `Failed (${res.status}).`);
         return;
       }
+      // Previously stopped here: the popup stayed open with just a
+      // "Saved." message, and the grid behind it kept showing the old
+      // role/status/reporting-hierarchy values until a manual page
+      // reload (which is also what dragged in the dark-theme-on-reload
+      // flash — see the balance-tab fix above). router.refresh() pulls
+      // the updated employee row server-side in place, then the modal
+      // closes on its own once the confirmation has had a moment to show.
       setSuccess('Saved.');
+      router.refresh();
+      setTimeout(close, 900);
     } catch {
       setSaving(false);
       setError('Could not reach the server — check your connection and try again.');

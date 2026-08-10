@@ -58,6 +58,25 @@ export default function AbsenteesPanel({
   const [drawerEmployeeId, setDrawerEmployeeId] = useState<string | null>(null);
   const [drawerDate, setDrawerDate] = useState<string>('');
   const [refreshSignal, setRefreshSignal] = useState(0);
+  const [remindedKeys, setRemindedKeys] = useState<Set<string>>(new Set());
+  const [remindingKey, setRemindingKey] = useState<string | null>(null);
+
+  async function sendReminder(employeeId: string, forDate: string) {
+    const key = `${employeeId}-${forDate}`;
+    setRemindingKey(key);
+    try {
+      const res = await fetch('/api/leave/remind', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ employee_id: employeeId, date: forDate }),
+      });
+      if (res.ok) {
+        setRemindedKeys((prev) => new Set(prev).add(key));
+      }
+    } finally {
+      setRemindingKey(null);
+    }
+  }
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -178,16 +197,27 @@ export default function AbsenteesPanel({
                     </span>
                   </td>
                   <td className="px-4 py-2">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setDrawerEmployeeId(r.employeeId);
-                        setDrawerDate(r.date);
-                      }}
-                      className="text-xs bg-[var(--accent)] hover:bg-[var(--accent)]/90 text-white font-medium px-2.5 py-1.5 rounded-lg transition-colors"
-                    >
-                      Record Leave
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setDrawerEmployeeId(r.employeeId);
+                          setDrawerDate(r.date);
+                        }}
+                        className="text-xs bg-[var(--accent)] hover:bg-[var(--accent)]/90 text-white font-medium px-2.5 py-1.5 rounded-lg transition-colors"
+                      >
+                        Record Leave
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => sendReminder(r.employeeId, r.date)}
+                        disabled={remindingKey === `${r.employeeId}-${r.date}` || remindedKeys.has(`${r.employeeId}-${r.date}`)}
+                        title="No leave application is on file for this date — nudge the employee and their approver"
+                        className="text-xs border border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--text-primary)] disabled:opacity-50 font-medium px-2.5 py-1.5 rounded-lg transition-colors"
+                      >
+                        {remindedKeys.has(`${r.employeeId}-${r.date}`) ? 'Reminded' : 'Send Reminder'}
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}

@@ -3,6 +3,14 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import EmployeeCard, { EmployeeWithBalances } from './EmployeeCard';
 
+// All employees currently render at once — fine for a handful of
+// people, but it means every biometric-CSV onboarding just makes this
+// page take longer to paint. Load a fixed page size up front and grow
+// it a page at a time instead, same "Load more" pattern used for long
+// lists elsewhere rather than infinite-scroll (keeps position/scrollbar
+// predictable when filters change).
+const PAGE_SIZE = 30;
+
 const STATUS_OPTIONS = [
   { value: 'probation', label: 'Probation' },
   { value: 'active', label: 'Active' },
@@ -27,6 +35,7 @@ export default function EmployeeGrid({
   const [department, setDepartment] = useState('');
   const [office, setOffice] = useState('');
   const [status, setStatus] = useState('');
+  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
 
   // D4: real per-employee violation counts for ViolationBadge.
   const [violationCounts, setViolationCounts] = useState<Record<string, number>>({});
@@ -75,6 +84,16 @@ export default function EmployeeGrid({
   }, [employees, search, department, office, status]);
 
   const hasActiveFilters = !!(search || department || office || status);
+
+  // Reset back to one page whenever the filtered set changes — otherwise
+  // "Load more" from a previous, larger filter would silently carry over
+  // and dump everything on screen the moment a filter narrows the list.
+  useEffect(() => {
+    setVisibleCount(PAGE_SIZE);
+  }, [search, department, office, status]);
+
+  const visible = filtered.slice(0, visibleCount);
+  const remaining = filtered.length - visible.length;
 
   return (
     <div className="space-y-4">
@@ -145,16 +164,29 @@ export default function EmployeeGrid({
           )}
         </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {filtered.map((e) => (
-            <EmployeeCard
-              key={e.id}
-              employee={e}
-              fyStartYear={fyStartYear}
-              violationCount={violationCounts[e.id]}
-            />
-          ))}
-        </div>
+        <>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {visible.map((e) => (
+              <EmployeeCard
+                key={e.id}
+                employee={e}
+                fyStartYear={fyStartYear}
+                violationCount={violationCounts[e.id]}
+              />
+            ))}
+          </div>
+          {remaining > 0 && (
+            <div className="flex justify-center pt-2">
+              <button
+                type="button"
+                onClick={() => setVisibleCount((c) => c + PAGE_SIZE)}
+                className="text-sm font-medium text-[var(--text-primary)] border border-[var(--border)] hover:border-[var(--accent)] hover:text-[var(--accent)] rounded-lg px-4 py-2 transition-colors"
+              >
+                Load {Math.min(PAGE_SIZE, remaining)} more ({remaining} left)
+              </button>
+            </div>
+          )}
+        </>
       )}
     </div>
   );

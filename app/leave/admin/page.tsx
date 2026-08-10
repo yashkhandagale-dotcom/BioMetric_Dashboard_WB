@@ -1,4 +1,3 @@
-import Link from 'next/link';
 import { createLeaveClient } from '@/lib/leaveSupabase/server';
 import { getFYStartYear, formatFYLabel } from '@/lib/leaveSupabase/fyHelpers';
 import { getEmployeeBalancesByFY } from '@/lib/leaveSupabase/getEmployeeBalances';
@@ -36,7 +35,6 @@ export default async function LeaveAdminHome() {
     { data: employees, error: employeesError },
     { rows: balances, error: balancesError },
     { data: deptManagers, error: deptManagersError },
-    { count: pendingApprovalsCount },
   ] = await Promise.all([
     supabase
       .from('employees')
@@ -46,7 +44,6 @@ export default async function LeaveAdminHome() {
       .order('full_name'),
     getEmployeeBalancesByFY(supabase, fyStartYear),
     supabase.from('department_managers').select('department, manager_id'),
-    supabase.from('leave_requests').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
   ]);
 
   const balancesById = new Map(balances.map((b) => [b.employeeId, b]));
@@ -101,61 +98,20 @@ export default async function LeaveAdminHome() {
 
   return (
     <div className="min-h-screen bg-[var(--bg-surface)] text-[var(--text-primary)] p-8 space-y-6">
+      {/* Section-to-section links (Pending Approvals, Analytics, Leave
+          Tracker, Violations, Organization, Create Login, Change
+          Password) now live in the persistent left sidebar
+          (LeaveAdminSidebar, mounted in app/leave/admin/layout.tsx) —
+          this header keeps only this page's own title and the two
+          actions that are modals, not destinations (Bulk Events,
+          Policy Info), so they don't get lost in a nav rail. */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <Link href="/" className="text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)]">← Back to Dashboard</Link>
-          <h1 className="text-xl font-semibold mt-1">Leave Balances — {formatFYLabel(fyStartYear)}</h1>
+          <h1 className="text-xl font-semibold">Leave Balances — {formatFYLabel(fyStartYear)}</h1>
           <p className="text-[var(--text-muted)] text-xs mt-1">Signed in as {user?.email}</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          <Link
-            href="/leave/approvals"
-            className="relative bg-amber-600/20 border border-amber-500/30 text-amber-600 dark:text-amber-400 text-sm font-medium px-4 py-2 rounded-lg hover:bg-amber-600/30 transition-colors"
-          >
-            Pending Approvals
-            {!!pendingApprovalsCount && (
-              <span className="ml-1.5 inline-flex items-center justify-center bg-amber-500 text-white text-[10px] font-bold rounded-full min-w-[1.1rem] h-[1.1rem] px-1">
-                {pendingApprovalsCount}
-              </span>
-            )}
-          </Link>
-          <Link
-            href="/leave/admin/analytics"
-            className="bg-[var(--accent)] hover:bg-[var(--accent)]/90 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
-          >
-            Leave Analytics
-          </Link>
-          <Link
-            href="/leave/admin/history"
-            className="border border-[var(--border)] hover:border-[var(--border)] text-[var(--text-primary)] text-sm font-medium px-4 py-2 rounded-lg transition-colors"
-          >
-            Leave Tracker
-          </Link>
-          <Link
-            href="/leave/admin/violations"
-            className="border border-red-500/40 hover:border-red-400 text-red-700 dark:text-red-300 hover:text-red-700 dark:hover:text-red-200 text-sm font-medium px-4 py-2 rounded-lg transition-colors"
-          >
-            Violations
-          </Link>
           <BulkEventsButton />
-          <Link
-            href="/leave/admin/organization"
-            className="border border-[var(--border)] hover:border-[var(--border)] text-[var(--text-primary)] text-sm font-medium px-4 py-2 rounded-lg transition-colors"
-          >
-            Organization
-          </Link>
-          <Link
-            href="/leave/admin/bulk-logins"
-            className="border border-[var(--border)] hover:border-[var(--border)] text-[var(--text-primary)] text-sm font-medium px-4 py-2 rounded-lg transition-colors"
-          >
-            Create Login
-          </Link>
-          <Link
-            href="/leave/change-password"
-            className="text-[var(--text-muted)] hover:text-[var(--text-primary)] text-sm font-medium px-3 py-2 rounded-lg transition-colors"
-          >
-            Change Password
-          </Link>
           <PolicyInfoButton />
         </div>
       </div>

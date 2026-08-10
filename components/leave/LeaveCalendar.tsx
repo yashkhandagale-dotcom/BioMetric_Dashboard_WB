@@ -81,18 +81,29 @@ export default function LeaveCalendar({
               key={date}
               type="button"
               onClick={() => onDayClick(date)}
-              className={`group border-b border-r border-[var(--border)] bg-[var(--bg-surface)] p-3 text-left transition-colors ${
-                inMonth ? 'text-[var(--text-primary)]' : 'bg-[var(--bg-surface)]/75 text-[var(--text-muted)]'
-              } hover:bg-[var(--bg-elevated)]`}
+              className={`group border-b border-r border-[var(--border)] p-3 text-left transition-colors ${
+                inMonth
+                  ? 'bg-[var(--bg-surface)] text-[var(--text-primary)] hover:bg-[var(--bg-elevated)]'
+                  : 'bg-[var(--bg-elevated)]/30 text-[var(--text-muted)]/60 hover:bg-[var(--bg-elevated)]/50'
+              }`}
             >
               <div className="flex items-start justify-between gap-2">
                 <span
                   className={`inline-flex h-9 w-9 items-center justify-center rounded-2xl font-semibold ${
-                    isToday ? 'bg-[var(--accent)] text-white shadow-sm' : 'bg-[var(--bg-elevated)] text-[var(--text-primary)]'
+                    isToday
+                      ? 'bg-[var(--accent)] text-white shadow-sm ring-2 ring-[var(--accent)]/40 ring-offset-2 ring-offset-[var(--bg-surface)]'
+                      : inMonth
+                      ? 'bg-[var(--bg-elevated)] text-[var(--text-primary)]'
+                      : 'bg-transparent text-[var(--text-muted)]/50'
                   }`}
                 >
                   {Number(date.slice(8, 10))}
                 </span>
+                {isToday && (
+                  <span className="rounded-full bg-[var(--accent)]/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--accent)]">
+                    Today
+                  </span>
+                )}
                 {holidayNames && holidayNames.length > 0 && (
                   <span
                     title={holidayNames.join(', ')}

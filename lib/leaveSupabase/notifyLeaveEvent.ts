@@ -1,4 +1,5 @@
 ﻿import type { SupabaseClient } from '@supabase/supabase-js';
+import { getEffectiveApproverId } from './organization';
 
 // =====================================================================
 // notifyLeaveEvent — real implementation, replacing the no-op stub that
@@ -35,7 +36,8 @@ export type LeaveNotificationType =
   | 'leave_submitted'
   | 'leave_approved'
   | 'leave_rejected'
-  | 'leave_cancelled';
+  | 'leave_cancelled'
+  | 'leave_reminder';
 
 export interface LeaveEvent {
   type: 'submitted' | 'approved' | 'rejected' | 'cancelled';
@@ -64,6 +66,15 @@ type EmployeeRow = {
   reporting_lead_id: string | null;
 };
 
+// NOTE: employees.reporting_manager_id is a manager's own reporting
+// chain (who a manager-role row reports to), NOT "who is this regular
+// employee's manager" — see organization.ts's getEffectiveApproverId for
+// the full explanation. Every recipient-resolution below routes through
+// that helper (department_managers, falling back to reporting_lead_id)
+// instead of reading employee.reporting_manager_id directly, which used
+// to mean a manager never got notified when their team applied for
+// leave (the field is null for everyone but manager-role employees).
+
 function dateRangeLabel(start?: string, end?: string): string {
   if (!start) return '';
   return start === end || !end ? start : `${start} to ${end}`;
@@ -71,14 +82,14 @@ function dateRangeLabel(start?: string, end?: string): string {
 
 async function insertNotifications(
   service: SupabaseClient,
-  rows: { recipient_employee_id: string; type: LeaveNotificationType; title: string; body: string; leave_request_id: string }[]
+  rows: { recipient_employee_id: string; type: LeaveNotificationType; title: string; body: string; leave_request_id: string | null }[]
 ): Promise<void> {
   if (rows.length === 0) return;
   // De-dupe recipients (e.g. an HR employee who is also the acting
   // manager shouldn't get two rows for the same event).
   const seen = new Set<string>();
   const deduped = rows.filter((r) => {
-    const key = `${r.recipient_employee_id}__${r.type}__${r.leave_request_id}`;
+    const key = `${r.recipient_employee_id}__${r.type}__${r.leave_request_id ?? 'none'}`;
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
@@ -106,17 +117,21 @@ export async function notifyLeaveEvent(service: SupabaseClient, event: LeaveEven
   const rows: { recipient_employee_id: string; type: LeaveNotificationType; title: string; body: string; leave_request_id: string }[] = [];
 
   if (event.type === 'submitted') {
-    if (employee.reporting_manager_id) {
+    const { approverId } = await getEffectiveApproverId(service, {
+      department: employee.department,
+      reporting_lead_id: employee.reporting_lead_id,
+    });
+    if (approverId) {
       const flag = event.violationNote ? ` — policy flag: ${event.violationNote}` : '';
       rows.push({
-        recipient_employee_id: employee.reporting_manager_id,
+        recipient_employee_id: approverId,
         type: 'leave_submitted',
         title: `${employee.full_name} applied for leave`,
         body: `${employee.full_name} requested leave${range ? ` for ${range}` : ''}.${flag}`,
         leave_request_id: event.requestId,
       });
     }
-    // EMAIL: send to manager's email here once a provider is wired up.
+    // EMAIL: send to the approver's email here once a provider is wired up.
     await insertNotifications(service, rows);
     return;
   }
@@ -141,17 +156,26 @@ export async function notifyLeaveEvent(service: SupabaseClient, event: LeaveEven
   const isWideBroadcast =
     !event.isHalfDay && (event.leaveTypeCode === 'PL' || event.leaveTypeCode === 'CL');
 
+  const { approverId } = await getEffectiveApproverId(service, {
+    department: employee.department,
+    reporting_lead_id: employee.reporting_lead_id,
+  });
+
   const recipientIds = new Set<string>();
   recipientIds.add(employee.id);
-  if (employee.reporting_manager_id) recipientIds.add(employee.reporting_manager_id);
+  if (approverId) recipientIds.add(approverId);
   if (employee.reporting_lead_id) recipientIds.add(employee.reporting_lead_id);
   for (const hr of hrEmployees ?? []) recipientIds.add(hr.id);
 
-  if (isWideBroadcast) {
+  if (isWideBroadcast && employee.department) {
+    // "Whole team" = every other employee/lead in the same department
+    // (the department's manager is the shared approver — mirrors
+    // getManagedEmployeeIds's own definition of a manager's team).
     const { data: team } = await service
       .from('employees')
       .select('id')
-      .eq('reporting_manager_id', employee.reporting_manager_id ?? '__none__');
+      .eq('department', employee.department)
+      .in('role', ['employee', 'lead']);
     for (const t of team ?? []) recipientIds.add(t.id);
   }
 
@@ -171,4 +195,104 @@ export async function notifyLeaveEvent(service: SupabaseClient, event: LeaveEven
 
   // EMAIL: send to each recipient's email here once a provider is wired up.
   await insertNotifications(service, rows);
+}
+
+// =====================================================================
+// sendLeaveReminder — "Send Reminder" action from the Pending Approvals
+// queue and from the Leave Tracker's Absentees/Half Day tabs.
+//
+// Two shapes:
+//   - pending_request: a request is sitting unapproved. Reminds BOTH the
+//     employee (their request is still waiting) and the effective
+//     approver (manager, or lead when the department has no manager).
+//   - missing_application: a day was flagged as an unresolved absence
+//     or possible half-day with no leave request filed at all. Reminds
+//     the employee to apply, and lets the effective approver know
+//     nothing has been filed yet for that date.
+// =====================================================================
+export type LeaveReminderInput =
+  | { mode: 'pending_request'; requestId: string }
+  | { mode: 'missing_application'; employeeId: string; date: string };
+
+export async function sendLeaveReminder(
+  service: SupabaseClient,
+  input: LeaveReminderInput
+): Promise<{ ok: boolean; error?: string }> {
+  if (input.mode === 'pending_request') {
+    const { data: request } = await service
+      .from('leave_requests')
+      .select('id, employee_id, start_date, end_date, status')
+      .eq('id', input.requestId)
+      .maybeSingle();
+    if (!request) return { ok: false, error: 'Leave request not found.' };
+    if (request.status !== 'pending') return { ok: false, error: 'This request is no longer pending.' };
+
+    const { data: employee } = await service
+      .from('employees')
+      .select('id, full_name, department, reporting_lead_id')
+      .eq('id', request.employee_id)
+      .single<EmployeeRow>();
+    if (!employee) return { ok: false, error: 'Employee not found.' };
+
+    const { approverId } = await getEffectiveApproverId(service, {
+      department: employee.department,
+      reporting_lead_id: employee.reporting_lead_id,
+    });
+    const range = dateRangeLabel(request.start_date, request.end_date);
+
+    const rows: { recipient_employee_id: string; type: LeaveNotificationType; title: string; body: string; leave_request_id: string | null }[] = [
+      {
+        recipient_employee_id: employee.id,
+        type: 'leave_reminder',
+        title: 'Reminder: your leave request is still pending',
+        body: `Your leave request${range ? ` for ${range}` : ''} is still awaiting approval.`,
+        leave_request_id: request.id,
+      },
+    ];
+    if (approverId) {
+      rows.push({
+        recipient_employee_id: approverId,
+        type: 'leave_reminder',
+        title: `Reminder: ${employee.full_name}'s leave request is waiting on you`,
+        body: `${employee.full_name}'s leave request${range ? ` for ${range}` : ''} is still pending your approval.`,
+        leave_request_id: request.id,
+      });
+    }
+    await insertNotifications(service, rows);
+    return { ok: true };
+  }
+
+  // missing_application
+  const { data: employee } = await service
+    .from('employees')
+    .select('id, full_name, department, reporting_lead_id')
+    .eq('id', input.employeeId)
+    .single<EmployeeRow>();
+  if (!employee) return { ok: false, error: 'Employee not found.' };
+
+  const { approverId } = await getEffectiveApproverId(service, {
+    department: employee.department,
+    reporting_lead_id: employee.reporting_lead_id,
+  });
+
+  const rows: { recipient_employee_id: string; type: LeaveNotificationType; title: string; body: string; leave_request_id: string | null }[] = [
+    {
+      recipient_employee_id: employee.id,
+      type: 'leave_reminder',
+      title: 'Reminder: apply for your leave',
+      body: `You were marked absent/unresolved on ${input.date} with no leave application on file. Please apply for leave or contact HR if this is a mistake.`,
+      leave_request_id: null,
+    },
+  ];
+  if (approverId) {
+    rows.push({
+      recipient_employee_id: approverId,
+      type: 'leave_reminder',
+      title: `Reminder: ${employee.full_name} has an unrecorded absence`,
+      body: `${employee.full_name} was absent on ${input.date} with no leave application filed yet.`,
+      leave_request_id: null,
+    });
+  }
+  await insertNotifications(service, rows);
+  return { ok: true };
 }

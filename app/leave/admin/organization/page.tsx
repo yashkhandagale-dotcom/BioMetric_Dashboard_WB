@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 
 type DepartmentRow = { department: string; managerId: string | null; managerName: string | null };
@@ -90,6 +90,7 @@ export default function OrganizationManagementPage() {
   const [savingKey, setSavingKey] = useState<string | null>(null);
   const [toast, setToast] = useState<{ kind: 'success' | 'error'; text: string } | null>(null);
   const [tab, setTab] = useState<OrgTab>('chart');
+  const [orgSearch, setOrgSearch] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -132,8 +133,7 @@ export default function OrganizationManagementPage() {
     load();
   }, [load]);
 
-  async function post(body: Record<string, unknown>, key: string) {
-    setSavingKey(key);
+  async function post(body: Record<string, unknown>, key: string) {    setSavingKey(key);
     setToast(null);
     try {
       const res = await fetch('/api/leave/organization', {
@@ -155,6 +155,41 @@ export default function OrganizationManagementPage() {
       setSavingKey(null);
     }
   }
+
+  // Search box shown next to the tab bar — filters whichever tab (or, on
+  // the chart, prunes the tree) is currently active by name/code/
+  // department, so a large org isn't a scroll-and-squint exercise
+  // ("difficult to manage all over there").
+  const q = orgSearch.trim().toLowerCase();
+  const filteredDepartments = useMemo(
+    () => departments.filter((d) => !q || d.department.toLowerCase().includes(q) || (d.managerName ?? '').toLowerCase().includes(q)),
+    [departments, q]
+  );
+  const filteredManagers = useMemo(
+    () =>
+      managers.filter(
+        (m) => !q || m.fullName.toLowerCase().includes(q) || m.employeeCode.toLowerCase().includes(q) || m.managedDepartments.some((d) => d.toLowerCase().includes(q))
+      ),
+    [managers, q]
+  );
+  const filteredLeads = useMemo(
+    () => leads.filter((t) => !q || t.fullName.toLowerCase().includes(q) || t.employeeCode.toLowerCase().includes(q)),
+    [leads, q]
+  );
+
+  function pruneTree(nodes: OrgTreeNode[]): OrgTreeNode[] {
+    if (!q) return nodes;
+    return nodes
+      .map((n) => {
+        const children = pruneTree(n.children);
+        const selfMatch =
+          n.fullName.toLowerCase().includes(q) || n.employeeCode.toLowerCase().includes(q) || (n.department ?? '').toLowerCase().includes(q);
+        if (selfMatch || children.length > 0) return { ...n, children };
+        return null;
+      })
+      .filter((n): n is OrgTreeNode => n !== null);
+  }
+  const filteredOrgTree = useMemo(() => pruneTree(orgTree), [orgTree, q]);
 
   return (
     <div className="min-h-screen bg-[var(--bg-surface)] text-[var(--text-primary)] p-8 space-y-6">
@@ -187,7 +222,8 @@ export default function OrganizationManagementPage() {
         <p className="text-[var(--text-muted)] text-sm">Loading…</p>
       ) : (
         <>
-          <div className="flex items-center gap-1 border-b border-[var(--border)]">
+          <div className="flex items-center justify-between gap-3 border-b border-[var(--border)] flex-wrap">
+            <div className="flex items-center gap-1">
             {(
               [
                 { key: 'chart', label: 'Org Chart', badge: orgTreeUnassignedCount > 0 ? orgTreeUnassignedCount : undefined },
@@ -214,6 +250,14 @@ export default function OrganizationManagementPage() {
                 )}
               </button>
             ))}
+            </div>
+            <input
+              type="text"
+              value={orgSearch}
+              onChange={(e) => setOrgSearch(e.target.value)}
+              placeholder="Search by name, code, or department…"
+              className="mb-2 w-full sm:w-64 bg-[var(--bg-elevated)] border border-[var(--border)] rounded-lg px-3 py-1.5 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-emerald-500"
+            />
           </div>
 
           {/* ── Org Chart: read-only nested view of who reports to whom ── */}
@@ -232,10 +276,14 @@ export default function OrganizationManagementPage() {
               change who reports to whom.
             </p>
             <div className="max-h-[28rem] overflow-y-auto pr-1">
-              {orgTree.map((n) => (
+              {filteredOrgTree.map((n) => (
                 <OrgTreeRow key={n.id} node={n} depth={0} />
               ))}
-              {orgTree.length === 0 && <p className="text-[var(--text-muted)] text-sm py-4 text-center">No employees yet.</p>}
+              {filteredOrgTree.length === 0 && (
+                <p className="text-[var(--text-muted)] text-sm py-4 text-center">
+                  {orgTree.length === 0 ? 'No employees yet.' : 'No match for that search.'}
+                </p>
+              )}
             </div>
           </section>
           )}
@@ -255,7 +303,7 @@ export default function OrganizationManagementPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {departments.map((d) => (
+                  {filteredDepartments.map((d) => (
                     <tr key={d.department} className="border-b border-[var(--border)] last:border-0">
                       <td className="px-3 py-2 text-[var(--text-primary)]">{d.department}</td>
                       <td className="px-3 py-2 text-[var(--text-muted)]">{d.managerName ?? <span className="italic text-[var(--text-muted)]">unassigned</span>}</td>
@@ -328,7 +376,7 @@ export default function OrganizationManagementPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {managers.map((m) => (
+                  {filteredManagers.map((m) => (
                     <tr key={m.id} className="border-b border-[var(--border)] last:border-0">
                       <td className="px-3 py-2 text-[var(--text-primary)]">{m.fullName} <span className="text-[var(--text-muted)]">· {m.employeeCode}</span></td>
                       <td className="px-3 py-2 text-[var(--text-muted)]">
@@ -383,7 +431,7 @@ export default function OrganizationManagementPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {leads.map((t) => (
+                  {filteredLeads.map((t) => (
                     <tr key={t.id} className="border-b border-[var(--border)] last:border-0">
                       <td className="px-3 py-2 text-[var(--text-primary)]">{t.fullName} <span className="text-[var(--text-muted)]">· {t.employeeCode}</span></td>
                       <td className="px-3 py-2 text-[var(--text-muted)]">{t.managedEmployeeCount}</td>

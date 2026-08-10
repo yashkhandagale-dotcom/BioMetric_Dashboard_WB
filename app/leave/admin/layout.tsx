@@ -1,5 +1,7 @@
 import { redirect } from 'next/navigation';
 import { getCurrentEmployee, homeRouteForRole } from '@/lib/leaveSupabase/getCurrentEmployee';
+import { createLeaveClient } from '@/lib/leaveSupabase/server';
+import LeaveAdminSidebar from '@/components/leave/LeaveAdminSidebar';
 
 // Protects everything under app/leave/admin/**. Deliberately a layout,
 // not middleware.ts — this only runs for this route subtree, so it can
@@ -32,5 +34,20 @@ export default async function LeaveAdminLayout({
     redirect(homeRouteForRole(employee.role));
   }
 
-  return <>{children}</>;
+  // Sidebar's pending-approvals badge — same count app/leave/admin/page.tsx
+  // already computes for its own "Pending Approvals" button, just lifted
+  // here so it's visible from every /leave/admin/** page, not just the
+  // balances home page.
+  const supabase = await createLeaveClient();
+  const { count: pendingApprovalsCount } = await supabase
+    .from('leave_requests')
+    .select('id', { count: 'exact', head: true })
+    .eq('status', 'pending');
+
+  return (
+    <div className="flex min-h-screen">
+      <LeaveAdminSidebar pendingApprovalsCount={pendingApprovalsCount ?? 0} />
+      <div className="flex-1 min-w-0">{children}</div>
+    </div>
+  );
 }
