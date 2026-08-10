@@ -7,9 +7,8 @@ import { sendLeaveReminder } from '@/lib/leaveSupabase/notifyLeaveEvent';
 // employee + their effective approver about a request still sitting
 // pending) and from the Leave Tracker's Absentees/Half Day tabs (nudges
 // the employee to file an application at all, plus their approver).
-// Same authorization shape as approve/reject: the acting employee must
-// be the effective approver (manager, or lead when there's no manager)
-// for the target employee, or HR/HR-super-admin.
+// HR-only (hr / hr_super_admin). Managers and leads approve/reject
+// directly instead — reminding is an HR Admin action, not a manager one.
 export async function POST(req: NextRequest) {
   const sessionClient = await createLeaveClient();
   const { data: { user } } = await sessionClient.auth.getUser();
@@ -26,8 +25,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'No employee record linked to this account' }, { status: 403 });
   }
   const isHr = actingEmployee.role === 'hr' || actingEmployee.role === 'hr_super_admin';
-  if (!isHr && !['manager', 'lead'].includes(actingEmployee.role)) {
-    return NextResponse.json({ error: 'Only a manager, lead, or HR can send reminders' }, { status: 403 });
+  if (!isHr) {
+    return NextResponse.json({ error: 'Only HR can send reminders' }, { status: 403 });
   }
 
   const body = await req.json().catch(() => ({}));

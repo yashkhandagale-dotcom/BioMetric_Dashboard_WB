@@ -34,7 +34,20 @@ function formatDateRange(start: string, end: string) {
 // with source: 'manager_approval' / 'manager_reject') and then
 // router.refresh() so the queue re-fetches server-side and the acted-on
 // card disappears.
-export default function ApprovalCard({ request }: { request: PendingApprovalRequest }) {
+//
+// Button set depends on the acting role: hr_super_admin (HR Admin) is
+// remind-only (can't approve/reject — matches the API's own 403 for that
+// role), everyone else who lands on this page (manager/lead/hr) approves
+// or rejects directly and doesn't get a remind action.
+export default function ApprovalCard({
+  request,
+  canApprove,
+  canRemind,
+}: {
+  request: PendingApprovalRequest;
+  canApprove: boolean;
+  canRemind: boolean;
+}) {
   const router = useRouter();
   const [rejecting, setRejecting] = useState(false);
   const [comment, setComment] = useState('');
@@ -191,31 +204,37 @@ export default function ApprovalCard({ request }: { request: PendingApprovalRequ
         </div>
       ) : (
         <div className="flex gap-2">
-          <button
-            type="button"
-            onClick={handleApprove}
-            disabled={loading}
-            className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
-          >
-            {loading ? 'Approving…' : 'Approve'}
-          </button>
-          <button
-            type="button"
-            onClick={() => setRejecting(true)}
-            disabled={loading}
-            className="border border-red-500/40 text-red-600 dark:text-red-400 hover:bg-red-900/20 text-sm font-medium px-4 py-2 rounded-lg transition-colors"
-          >
-            Reject
-          </button>
-          <button
-            type="button"
-            onClick={handleRemind}
-            disabled={loading || reminderSent}
-            title="Notifies both the employee and the approver that this request is still pending"
-            className="border border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--text-primary)] disabled:opacity-50 text-sm font-medium px-4 py-2 rounded-lg transition-colors ml-auto"
-          >
-            {reminderSent ? 'Reminder sent' : 'Send Reminder'}
-          </button>
+          {canApprove && (
+            <>
+              <button
+                type="button"
+                onClick={handleApprove}
+                disabled={loading}
+                className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+              >
+                {loading ? 'Approving…' : 'Approve'}
+              </button>
+              <button
+                type="button"
+                onClick={() => setRejecting(true)}
+                disabled={loading}
+                className="border border-red-500/40 text-red-600 dark:text-red-400 hover:bg-red-900/20 text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+              >
+                Reject
+              </button>
+            </>
+          )}
+          {canRemind && (
+            <button
+              type="button"
+              onClick={handleRemind}
+              disabled={loading || reminderSent}
+              title="Notifies both the employee and the approver that this request is still pending"
+              className="border border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--text-primary)] disabled:opacity-50 text-sm font-medium px-4 py-2 rounded-lg transition-colors ml-auto"
+            >
+              {reminderSent ? 'Reminder sent' : 'Send Reminder'}
+            </button>
+          )}
         </div>
       )}
     </div>

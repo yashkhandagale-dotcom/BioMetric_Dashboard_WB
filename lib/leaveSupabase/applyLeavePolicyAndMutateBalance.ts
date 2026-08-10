@@ -3,6 +3,7 @@ import { createLeaveServiceClient } from './server';
 import { TrackerLeaveTypeCode } from './leaveTypeMap';
 import { checkCombiningLeaves, getAutoLwpConversionReason, EmployeeForConversionCheck } from '../leavePolicy';
 import { notifyLeaveEvent as notifyLeaveEventReal } from './notifyLeaveEvent';
+import { getEmployeeBalancesByFY } from './getEmployeeBalances';
 
 // =====================================================================
 // applyLeavePolicyAndMutateBalance
@@ -205,6 +206,133 @@ async function debitWithLwpFallback(
     finalLeaveType: lwpType as LeaveTypeRow,
     note: `Insufficient ${currentLeaveType.code} balance — recorded as LWP instead.`,
   };
+}
+
+// ---------------------------------------------------------------------
+// previewLeavePolicy — dry run of the exact checks createAndMaybeApprove
+// runs (SL certificate note, PL notice-tier shortfall, combining-leaves
+// adjacency, probation/notice-period auto-LWP, and — new here — a
+// balance-sufficiency check that createAndMaybeApprove itself doesn't
+// need, since self_apply doesn't debit until manager_approval anyway).
+// Writes nothing. Built so the apply form can show the same warnings the
+// employee would get back after submitting, while they're still filling
+// the form — same fairness the manager/HR side already gets from seeing
+// currentBalance on the approvals queue (ApprovalCard.tsx).
+// ---------------------------------------------------------------------
+export interface PreviewLeavePolicyParams {
+  employeeId: string;
+  leaveTypeCode: TrackerLeaveTypeCode;
+  startDate: string;
+  endDate?: string | null;
+  isHalfDay: boolean;
+}
+
+export interface PreviewLeavePolicyResult {
+  totalDays: number;
+  notes: string[];
+  // True if, as things stand right now, this request would be recorded
+  // as LWP instead of the selected type (probation/notice-period, or
+  // balance shortfall) — same trigger as convertedToLwp on the real
+  // submit response, just computed ahead of time.
+  wouldBeLwp: boolean;
+  currentBalance: number | null;
+  error?: string;
+}
+
+export async function previewLeavePolicy(
+  params: PreviewLeavePolicyParams
+): Promise<PreviewLeavePolicyResult> {
+  const service = createLeaveServiceClient();
+  const { employeeId, leaveTypeCode, isHalfDay, startDate } = params;
+  const effectiveEndDate = isHalfDay ? startDate : (params.endDate || startDate);
+
+  if (new Date(`${effectiveEndDate}T00:00:00Z`) < new Date(`${startDate}T00:00:00Z`)) {
+    return { totalDays: 0, notes: [], wouldBeLwp: false, currentBalance: null, error: 'End date cannot be before start date.' };
+  }
+
+  const totalDays = isHalfDay ? 0.5 : daysBetweenInclusive(startDate, effectiveEndDate);
+
+  const { data: employee, error: empError } = await service
+    .from('employees')
+    .select('id, office, date_of_joining, employment_status, date_of_exit, notice_period_days')
+    .eq('id', employeeId)
+    .single();
+  if (empError || !employee) {
+    return { totalDays, notes: [], wouldBeLwp: false, currentBalance: null, error: 'Could not load employee record.' };
+  }
+
+  const { data: leaveType, error: ltError } = await service
+    .from('leave_types')
+    .select('id, code, requires_certificate_after_days')
+    .eq('code', leaveTypeCode)
+    .single();
+  if (ltError || !leaveType) {
+    return { totalDays, notes: [], wouldBeLwp: false, currentBalance: null, error: 'Unknown leave type.' };
+  }
+
+  const notes: string[] = [];
+
+  if (
+    leaveType.code === 'SL' && !isHalfDay &&
+    leaveType.requires_certificate_after_days != null &&
+    totalDays > leaveType.requires_certificate_after_days
+  ) {
+    notes.push(
+      `A medical certificate is required for Sick Leave beyond ${leaveType.requires_certificate_after_days} consecutive days.`
+    );
+  }
+
+  if (leaveType.code === 'PL') {
+    const { data: shortfall } = await service.rpc('fn_check_planned_leave_notice', {
+      p_applied_on: new Date().toISOString().slice(0, 10),
+      p_start_date: startDate,
+      p_leave_length_days: totalDays,
+    });
+    if (typeof shortfall === 'number' && shortfall > 0) {
+      notes.push(
+        `Planned Leave needs ${totalDays <= 2 ? '2 weeks' : totalDays <= 7 ? '4 weeks' : '8 weeks'} notice for a request this length — ` +
+        `on today's date that's short by the equivalent of ${shortfall} day(s), which will be recorded as Leave Without Pay unless you push the start date out.`
+      );
+    }
+  }
+
+  const combiningNote = await checkCombiningLeaves(
+    service, employeeId, employee.office, leaveType.code, startDate, effectiveEndDate
+  );
+  if (combiningNote) notes.push(combiningNote);
+
+  let wouldBeLwp = false;
+  if (leaveType.code !== 'LWP') {
+    const autoLwpReason = getAutoLwpConversionReason(employee as EmployeeForConversionCheck, startDate);
+    if (autoLwpReason) {
+      notes.push(`${autoLwpReason} — this will be recorded as Leave Without Pay, not ${leaveType.code}.`);
+      wouldBeLwp = true;
+    }
+  }
+
+  // Balance-sufficiency: self_apply doesn't debit until manager_approval,
+  // so today an employee only finds out they were short on the day it
+  // gets approved. Surfacing it here at apply time is the "fair to the
+  // applicant" part — they get to choose the honest type up front instead
+  // of a request silently flipping to LWP behind their back later.
+  let currentBalance: number | null = null;
+  if (!wouldBeLwp && leaveType.code !== 'LWP') {
+    const fyStartYear = fyStartYearForDate(startDate);
+    const { rows: balanceRows } = await getEmployeeBalancesByFY(service, fyStartYear, employeeId);
+    const row = balanceRows?.[0];
+    if (row) {
+      currentBalance = row[leaveType.code as 'SL' | 'CL' | 'PL'] ?? null;
+      if (currentBalance !== null && currentBalance < totalDays) {
+        notes.push(
+          `You have ${currentBalance} day(s) of ${leaveType.code} remaining — this request needs ${totalDays}. ` +
+          `The shortfall (${(totalDays - currentBalance).toFixed(2)} day(s)) will be recorded as Leave Without Pay once approved.`
+        );
+        wouldBeLwp = true;
+      }
+    }
+  }
+
+  return { totalDays, notes, wouldBeLwp, currentBalance };
 }
 
 // ---------------------------------------------------------------------

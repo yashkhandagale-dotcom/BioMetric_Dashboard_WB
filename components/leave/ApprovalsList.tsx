@@ -8,7 +8,19 @@ import ApprovalCard, { PendingApprovalRequest } from './ApprovalCard';
 // queue is already short (direct department only) so the filter bar just
 // won't show anything worth filtering, but stays available for
 // consistency.
-export default function ApprovalsList({ requests, isHr }: { requests: PendingApprovalRequest[]; isHr: boolean }) {
+export default function ApprovalsList({
+  requests,
+  isHr,
+  canApprove,
+  canRemind,
+}: {
+  requests: PendingApprovalRequest[];
+  isHr: boolean;
+  // hr_super_admin (HR Admin) is remind-only; manager/lead/hr approve
+  // directly and don't see a remind button — see ApprovalCard.
+  canApprove: boolean;
+  canRemind: boolean;
+}) {
   const [search, setSearch] = useState('');
   const [department, setDepartment] = useState('');
 
@@ -53,7 +65,9 @@ export default function ApprovalsList({ requests, isHr }: { requests: PendingApp
           {requests.length === 0 ? 'No pending requests right now.' : 'No requests match your filters.'}
         </div>
       ) : (
-        filtered.map((r) => <ApprovalCard key={r.id} request={r} />)
+        filtered.map((r) => (
+          <ApprovalCard key={r.id} request={r} canApprove={canApprove} canRemind={canRemind} />
+        ))
       )}
     </div>
   );

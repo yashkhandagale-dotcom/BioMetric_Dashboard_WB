@@ -43,10 +43,16 @@ type NavGroup = { label: string; items: NavItem[] };
 function navGroups(role: LeaveRole, pendingApprovalsCount: number): NavGroup[] {
   const isApprover = role === 'manager' || role === 'lead';
   const isHr = role === 'hr' || role === 'hr_super_admin';
+  // hr_super_admin (HR Admin) is org-wide / remind-only and has no
+  // personal leave balance of their own to track here — everyone else
+  // (including plain hr, who can still apply for their own leave) gets
+  // the Personal group.
+  const showPersonal = role !== 'hr_super_admin';
 
-  const groups: NavGroup[] = [
-    { label: 'Personal', items: [{ href: '/leave/me', label: 'My Leave', icon: Wallet, exact: true }] },
-  ];
+  const groups: NavGroup[] = [];
+  if (showPersonal) {
+    groups.push({ label: 'Personal', items: [{ href: '/leave/me', label: 'My Leave', icon: Wallet, exact: true }] });
+  }
 
   if (isApprover) {
     groups.push({
@@ -168,9 +174,13 @@ export default function LeaveShell({
   );
 
   return (
-    <div className="min-h-screen bg-[var(--bg-surface)] text-[var(--text-primary)] md:flex">
-      {/* ---------- Desktop sidebar (always visible, never a per-page thing) ---------- */}
-      <aside className="hidden md:flex w-64 shrink-0 flex-col border-r border-[var(--border)] bg-[var(--bg-elevated)]/40">
+    <div className="h-screen bg-[var(--bg-surface)] text-[var(--text-primary)] md:flex md:overflow-hidden">
+      {/* ---------- Desktop sidebar (always visible, never a per-page thing) ----------
+          h-screen + sticky here (instead of the old min-h-screen wrapper, which let
+          this whole aside grow with page content) is what pins the header and the
+          user-menu/theme-toggle footer in place — only the <nav> list in between
+          scrolls, so switching light/dark never requires scrolling the page. */}
+      <aside className="hidden md:sticky md:top-0 md:flex h-screen w-64 shrink-0 flex-col border-r border-[var(--border)] bg-[var(--bg-elevated)]/40">
         <div className="px-4 pt-5 pb-4">
           <div className="flex items-center gap-2.5">
             <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[var(--accent)] text-sm font-bold text-white">
@@ -325,8 +335,11 @@ export default function LeaveShell({
         </div>
       </div>
 
-      {/* ---------- Page content — every page renders inside this, same padding, same max width ---------- */}
-      <main className="flex-1 min-w-0">
+      {/* ---------- Page content — every page renders inside this, same padding, same max width ----------
+          min-h-0 is required alongside flex-1 here, or this flex child refuses to
+          shrink below its content height and md:overflow-hidden on the wrapper has
+          nothing to clip — the page (not this pane) would end up scrolling instead. */}
+      <main className="flex-1 min-w-0 md:h-screen md:min-h-0 md:overflow-y-auto">
         <div className="mx-auto max-w-[1400px] px-4 sm:px-6 lg:px-10 py-6 sm:py-8">{children}</div>
       </main>
     </div>

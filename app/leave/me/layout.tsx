@@ -8,8 +8,11 @@ import LeaveShell from '@/components/leave/LeaveShell';
 // own history, personal calendar.
 //
 // Every role is allowed in here, including lead/manager/hr — everyone is
-// also "an employee" with their own leave to apply for and track. The
-// only requirement is a linked employees row at all.
+// also "an employee" with their own leave to apply for and track — except
+// hr_super_admin (HR Admin), who is org-wide/remind-only and has no
+// personal leave of their own tracked here; the tab is hidden for them in
+// LeaveShell, and this guard backs that up so the route itself 403s
+// instead of just being unlinked.
 //
 // Renders the same LeaveShell every other /leave/** subtree renders, so
 // "My Leave" always sits inside the same persistent sidebar/tab strip as
@@ -29,6 +32,10 @@ export default async function LeaveMeLayout({
 
   if (employee.must_change_password) {
     redirect('/leave/change-password');
+  }
+
+  if (employee.role === 'hr_super_admin') {
+    redirect('/leave/admin');
   }
 
   const supabase = await createLeaveClient();

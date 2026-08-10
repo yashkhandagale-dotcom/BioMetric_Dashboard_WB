@@ -36,8 +36,14 @@ export default async function LeaveApprovalsHome() {
     redirect('/leave/login');
   }
   const isHr = employee.role === 'hr' || employee.role === 'hr_super_admin';
+  const isHrSuperAdmin = employee.role === 'hr_super_admin';
   const isLead = employee.role === 'lead';
   const isManager = employee.role === 'manager';
+  // HR Admin (hr_super_admin) is remind-only — can't approve/reject.
+  // Everyone else who reaches this queue (manager/lead/hr) approves
+  // directly and doesn't get a separate remind action.
+  const canApprove = !isHrSuperAdmin;
+  const canRemind = isHr;
   if (!isManager && !isLead && !isHr) {
     redirect('/leave/me');
   }
@@ -143,7 +149,7 @@ export default async function LeaveApprovalsHome() {
         </div>
       )}
 
-      <ApprovalsList requests={requests} isHr={isHr} />
+      <ApprovalsList requests={requests} isHr={isHr} canApprove={canApprove} canRemind={canRemind} />
     </div>
   );
 }
