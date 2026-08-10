@@ -103,6 +103,39 @@ export async function getManagedEmployeeIds(
   return { employeeIds: (empRows ?? []).map((e) => e.id), departments, error: null };
 }
 
+// Resolves the ONE person who should approve/be notified about a given
+// employee's leave, per the routing rule: a department's manager
+// (department_managers) is the approver whenever one is assigned; a lead
+// (employees.reporting_lead_id) only steps in when the employee's
+// department currently has no manager. A lead is therefore optional per
+// team — not every team needs one — while a manager, when present,
+// always takes precedence over a lead for approval purposes.
+//
+// This is the single source of truth for "who approves this employee's
+// leave" — app/api/leave/approvals/[id]/approve|reject and
+// notifyLeaveEvent.ts both call this instead of reading
+// employees.reporting_manager_id directly, which is NOT an employee's
+// manager (see getManagedEmployeeIds's comment above) and was the root
+// cause of managers/leads being unable to approve requests that the
+// approvals queue (correctly, via department_managers) showed them.
+export async function getEffectiveApproverId(
+  supabase: SupabaseClient,
+  employeeRow: { department: string | null; reporting_lead_id?: string | null }
+): Promise<{ approverId: string | null; via: 'manager' | 'lead' | null }> {
+  if (employeeRow.department) {
+    const { data } = await supabase
+      .from('department_managers')
+      .select('manager_id')
+      .eq('department', employeeRow.department)
+      .maybeSingle();
+    if (data?.manager_id) return { approverId: data.manager_id, via: 'manager' };
+  }
+  if (employeeRow.reporting_lead_id) {
+    return { approverId: employeeRow.reporting_lead_id, via: 'lead' };
+  }
+  return { approverId: null, via: null };
+}
+
 export type LeadSummary = {
   id: string;
   employeeCode: string;
