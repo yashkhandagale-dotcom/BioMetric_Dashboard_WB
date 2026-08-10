@@ -141,6 +141,8 @@ export type LeadSummary = {
   employeeCode: string;
   fullName: string;
   managedEmployeeCount: number;
+  reportingManagerId: string | null;
+  reportingManagerName: string | null;
 };
 
 export type ReportingHierarchy = {
@@ -159,7 +161,15 @@ export async function getReportingHierarchy(
     { data: reportingTargets, error: targetsError },
   ] = await Promise.all([
     supabase.from('employees').select('id, employee_code, full_name, reporting_manager_id').eq('role', 'manager'),
-    supabase.from('employees').select('id, employee_code, full_name').eq('role', 'lead'),
+    // Leads now carry reporting_manager_id too — see the type comment
+    // above and app/api/leave/employees/[id]/profile/route.ts's PATCH
+    // handler, which used to unconditionally clear this on every save
+    // for role='lead' regardless of what was sent, silently discarding
+    // whatever this page's Leads tab had just set. getOrgTree already
+    // read this field for any non-employee role, so leads were always
+    // *able* to nest under a manager in the tree — nothing here was
+    // ever writing (durably) or reading it back for display.
+    supabase.from('employees').select('id, employee_code, full_name, reporting_manager_id').eq('role', 'lead'),
     supabase.from('department_managers').select('department, manager_id'),
     supabase.from('employees').select('id, reporting_lead_id').eq('role', 'employee'),
     // reporting_manager_id can point at any employee now (not just
@@ -202,6 +212,8 @@ export async function getReportingHierarchy(
     employeeCode: t.employee_code,
     fullName: t.full_name,
     managedEmployeeCount: leadCounts.get(t.id) ?? 0,
+    reportingManagerId: t.reporting_manager_id,
+    reportingManagerName: t.reporting_manager_id ? namesById.get(t.reporting_manager_id) ?? null : null,
   }));
 
   return { hierarchy: { managers, leads }, error: null };

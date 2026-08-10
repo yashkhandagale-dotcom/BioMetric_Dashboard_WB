@@ -166,3 +166,88 @@ export function useGranularityOverride() {
   const [override, setOverride] = useState<TrendGranularity | null>(null);
   return { override, setOverride } as const;
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Entity/ranking chart layout — for per-employee (or any per-entity) bar
+// charts and lists whose row COUNT, not date range, is what can blow up
+// (department drill-downs, the attendance heatmap's employee axis, etc).
+// These previously sized their container as `rows.length * rowHeight` with
+// no ceiling — fine for a 20-person department, unreadable and slow once an
+// org/drilldown has hundreds of rows.
+//
+// Same two-mechanism approach as the trend-chart layout above, adapted for
+// entities instead of dates:
+//   1. Below ENTITY_DEFAULT_VISIBLE, show everything — no controls needed.
+//   2. Past it, default to the top N (whatever order the caller already
+//      sorted by — worst/best/A-Z), with a "Show all" expand. Once
+//      expanded (or once a search narrows the set), the container's natural
+//      height is used but the outer wrapper caps out at
+//      ENTITY_MAX_WRAPPER_HEIGHT with internal scroll — bars stay a normal
+//      thickness instead of being squeezed to fit, and the page itself
+//      never grows to thousands of pixels tall.
+// ═══════════════════════════════════════════════════════════════════════════
+
+const ENTITY_DEFAULT_VISIBLE = 15;
+const ENTITY_ROW_HEIGHT = 36; // px per row — matches the bar height already used by employee-level drilldowns
+const ENTITY_MIN_HEIGHT = 200;
+export const ENTITY_MAX_WRAPPER_HEIGHT = 640; // cap on the scrollable wrapper, not on the chart itself
+
+export interface EntityChartLayout<T> {
+  /** Rows to actually render this pass (already filtered + capped as needed). */
+  visibleRows: T[];
+  /** How many rows matched the current search but aren't shown (0 once expanded). */
+  hiddenCount: number;
+  /** Total rows before search filtering (for "N employees" labels). */
+  totalCount: number;
+  /** Total rows after search filtering. */
+  matchedCount: number;
+  isExpanded: boolean;
+  toggleExpanded: () => void;
+  query: string;
+  setQuery: (q: string) => void;
+  /** Full height the chart/list needs for `visibleRows.length` rows — pass to ResponsiveContainer/list height. */
+  contentHeight: number;
+  /** Cap for the *wrapping* scrollable div — always ENTITY_MAX_WRAPPER_HEIGHT, exported for convenience. */
+  maxWrapperHeight: number;
+  /** True once contentHeight exceeds maxWrapperHeight, i.e. the wrapper will actually scroll. */
+  willScroll: boolean;
+}
+
+/**
+ * `rows` should already be sorted the way the chart wants (worst-first,
+ * A-Z, etc.) — this hook only decides how many to show and whether a
+ * search query is active, it never re-sorts.
+ */
+export function useEntityChartLayout<T>(
+  rows: T[],
+  opts: { getLabel: (row: T) => string; defaultVisible?: number; rowHeight?: number }
+): EntityChartLayout<T> {
+  const { getLabel, defaultVisible = ENTITY_DEFAULT_VISIBLE, rowHeight = ENTITY_ROW_HEIGHT } = opts;
+  const [isExpanded, setIsExpanded] = useState(false);
+  const [query, setQuery] = useState('');
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return rows;
+    return rows.filter((r) => getLabel(r).toLowerCase().includes(q));
+  }, [rows, query, getLabel]);
+
+  const isSearching = query.trim().length > 0;
+  const visibleRows = isExpanded || isSearching ? filtered : filtered.slice(0, defaultVisible);
+  const hiddenCount = Math.max(0, filtered.length - visibleRows.length);
+  const contentHeight = Math.max(ENTITY_MIN_HEIGHT, visibleRows.length * rowHeight);
+
+  return {
+    visibleRows,
+    hiddenCount,
+    totalCount: rows.length,
+    matchedCount: filtered.length,
+    isExpanded,
+    toggleExpanded: () => setIsExpanded((e) => !e),
+    query,
+    setQuery,
+    contentHeight,
+    maxWrapperHeight: ENTITY_MAX_WRAPPER_HEIGHT,
+    willScroll: contentHeight > ENTITY_MAX_WRAPPER_HEIGHT,
+  };
+}

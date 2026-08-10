@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { createLeaveClient, createLeaveServiceClient } from '@/lib/leaveSupabase/server';
 import { getFYStartYear, formatFYLabel } from '@/lib/leaveSupabase/fyHelpers';
 import { getEmployeeBalancesByFY } from '@/lib/leaveSupabase/getEmployeeBalances';
@@ -89,6 +90,9 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     // employee/lead: effective manager is derived from department ->
     // department_managers.manager_id (never employees.reporting_manager_id
     // — see supabase-leave/schema.sql's 006_department_managers.sql).
+    // This is a separate, informational "who effectively approves this
+    // person" label — independent of the literal reporting_manager_id
+    // graph edge below, which is what the Org Chart tree actually walks.
     // manager: shows the department(s) they manage plus who THEY report to.
     let effectiveManagerName: string | null = null;
     let leadName: string | null = null;
@@ -118,6 +122,18 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
           .eq('id', employee.reporting_lead_id)
           .maybeSingle();
         leadName = tl?.full_name ?? null;
+      }
+      // Leads can now have a real reporting_manager_id (see the PATCH
+      // handler below) — resolve its display name the same way the
+      // manager branch does, so the Overview tab shows "Reports to" for
+      // a lead too instead of only ever showing it for managers.
+      if (employee.role === 'lead' && employee.reporting_manager_id) {
+        const { data: mgr } = await supabase
+          .from('employees')
+          .select('full_name')
+          .eq('id', employee.reporting_manager_id)
+          .maybeSingle();
+        reportingManagerName = mgr?.full_name ?? null;
       }
     } else if (employee.role === 'manager') {
       const { data: depts } = await supabase
@@ -194,6 +210,63 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
 const ROLES = ['employee', 'lead', 'manager', 'hr', 'hr_super_admin'];
 const STATUSES = ['probation', 'active', 'notice_period', 'exited'];
 
+// Shared by the lead + manager branches below: validates a proposed
+// reporting_manager_id (self-report check + full circular-chain walk) and
+// returns either the value to write or an error response. Previously this
+// logic only existed inline in the manager branch — leads were routed
+// around it entirely by having their reporting_manager_id hard-cleared
+// instead. Kept local to this file rather than shared with
+// app/api/leave/organization/route.ts's near-identical copy, same reason
+// that route's own comment gives: different endpoints, low risk of drift
+// for ~20 lines, not worth a shared module for.
+async function resolveReportingManagerId(
+  supabase: SupabaseClient,
+  selfId: string,
+  reportingManagerId: string | null
+): Promise<{ value: string | null } | { errorResponse: NextResponse }> {
+  if (!reportingManagerId) return { value: null };
+
+  if (reportingManagerId === selfId) {
+    return { errorResponse: NextResponse.json({ error: 'Cannot report to themself.' }, { status: 400 }) };
+  }
+
+  const { data: mgr, error: mgrErr } = await supabase
+    .from('employees')
+    .select('id')
+    .eq('id', reportingManagerId)
+    .maybeSingle();
+  if (mgrErr) return { errorResponse: NextResponse.json({ error: mgrErr.message }, { status: 400 }) };
+  if (!mgr) {
+    return { errorResponse: NextResponse.json({ error: 'Selected reporting-to employee was not found.' }, { status: 400 }) };
+  }
+
+  // Circular-hierarchy guard: walk the proposed manager's existing
+  // reporting_manager_id chain upward. If `selfId` appears anywhere in
+  // that chain, this assignment would close a loop (e.g. A → B → C → A).
+  let cursor: string | null = reportingManagerId;
+  const seen = new Set<string>();
+  while (cursor) {
+    if (cursor === selfId) {
+      return {
+        errorResponse: NextResponse.json(
+          { error: 'This assignment would create a circular reporting chain (this employee already appears above the selected manager).' },
+          { status: 400 }
+        ),
+      };
+    }
+    if (seen.has(cursor)) break; // pre-existing bad data — don't infinite-loop, just stop
+    seen.add(cursor);
+    const { data: next }: { data: { reporting_manager_id: string | null } | null } = await supabase
+      .from('employees')
+      .select('reporting_manager_id')
+      .eq('id', cursor)
+      .maybeSingle();
+    cursor = next?.reporting_manager_id ?? null;
+  }
+
+  return { value: reportingManagerId };
+}
+
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
 
@@ -247,93 +320,68 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   // ── Hierarchy fields, gated by the RESOLVED role ──────────────────────
   // employee: department (owned by CSV sync, not editable here) +
   //   reporting_lead_id (from any lead, company-wide — not
-  //   department-filtered, by design).
-  // lead: no fields of their own here. No lead of their own,
-  //   no manager field (their manager is derived from their department
-  //   via department_managers).
+  //   department-filtered, by design). No reporting_manager_id of their
+  //   own — employees climb the chain via their lead, not directly.
+  // lead: no reporting_lead_id of their own (a lead doesn't have a lead).
+  //   DOES have reporting_manager_id — who this lead reports to, using
+  //   the exact same validation as a manager gets. This field used to be
+  //   unconditionally nulled out here on every save regardless of what
+  //   was sent, which silently discarded whatever the Organization
+  //   Management page's Leads tab had just set the moment anyone opened
+  //   this employee's Adjust panel and saved anything at all — even an
+  //   unrelated field like employment_status. getOrgTree already reads
+  //   reporting_manager_id for any non-employee role, so leads were
+  //   always *able* to nest under a manager in the tree; this was the
+  //   only place actively fighting that.
   // manager: no reporting_lead_id. Instead reporting_manager_id
   //   (must be another employee with role=manager) and
   //   managed_departments (this manager's departments — can be several).
   // hr / hr_super_admin: none of the above apply; all cleared.
-  if (resolvedRole === 'employee' || resolvedRole === 'lead') {
-    // Not applicable to these roles — always cleared, regardless of what
-    // was sent, so a stale value from before a role change can't linger.
+  if (resolvedRole === 'employee') {
     update.reporting_manager_id = null;
 
-    if (resolvedRole === 'employee') {
-      if (reporting_lead_id !== undefined) {
-        if (reporting_lead_id === id) {
-          return NextResponse.json({ error: 'An employee cannot report to themself.' }, { status: 400 });
-        }
-        if (reporting_lead_id) {
-          const { data: tl, error: tlErr } = await supabase
-            .from('employees')
-            .select('id, role')
-            .eq('id', reporting_lead_id)
-            .maybeSingle();
-          if (tlErr) return NextResponse.json({ error: tlErr.message }, { status: 400 });
-          if (!tl || tl.role !== 'lead') {
-            return NextResponse.json({ error: 'Reporting Lead must be an employee with role = lead.' }, { status: 400 });
-          }
-        }
-        update.reporting_lead_id = reporting_lead_id || null;
+    if (reporting_lead_id !== undefined) {
+      if (reporting_lead_id === id) {
+        return NextResponse.json({ error: 'An employee cannot report to themself.' }, { status: 400 });
       }
-    } else {
-      // lead: doesn't have one of their own
-      update.reporting_lead_id = null;
+      if (reporting_lead_id) {
+        const { data: tl, error: tlErr } = await supabase
+          .from('employees')
+          .select('id, role')
+          .eq('id', reporting_lead_id)
+          .maybeSingle();
+        if (tlErr) return NextResponse.json({ error: tlErr.message }, { status: 400 });
+        if (!tl || tl.role !== 'lead') {
+          return NextResponse.json({ error: 'Reporting Lead must be an employee with role = lead.' }, { status: 400 });
+        }
+      }
+      update.reporting_lead_id = reporting_lead_id || null;
+    }
+  } else if (resolvedRole === 'lead') {
+    // A lead doesn't have a lead of their own.
+    update.reporting_lead_id = null;
+
+    if (reporting_manager_id !== undefined) {
+      const resolved = await resolveReportingManagerId(supabase, id, reporting_manager_id || null);
+      if ('errorResponse' in resolved) return resolved.errorResponse;
+      update.reporting_manager_id = resolved.value;
     }
   } else if (resolvedRole === 'manager') {
     update.reporting_lead_id = null;
 
     if (reporting_manager_id !== undefined) {
-      if (reporting_manager_id === id) {
-        return NextResponse.json({ error: 'A manager cannot report to themself.' }, { status: 400 });
-      }
-      if (reporting_manager_id) {
-        // Deliberately NOT restricted to role='manager'. Earlier this
-        // required the reporting-to employee to also be role='manager',
-        // which meant modeling a CEO/CTO at the top of the chain forced
-        // inventing an extra 'manager'-role row for them even though
-        // they might be hr_super_admin or any other role — adding roles
-        // just to satisfy this check rather than reflecting anything
-        // real. Any existing employee can be a reporting target now;
-        // the only real rules are "not yourself" and "no cycle", both
-        // still enforced below.
-        const { data: mgr, error: mgrErr } = await supabase
-          .from('employees')
-          .select('id')
-          .eq('id', reporting_manager_id)
-          .maybeSingle();
-        if (mgrErr) return NextResponse.json({ error: mgrErr.message }, { status: 400 });
-        if (!mgr) {
-          return NextResponse.json({ error: 'Selected reporting-to employee was not found.' }, { status: 400 });
-        }
-        // Circular-hierarchy guard: walk the proposed manager's existing
-        // reporting_manager_id chain upward. If `id` (the employee being
-        // edited) appears anywhere in that chain, setting reporting_manager_id
-        // = reporting_manager_id here would close a loop (e.g. A → B → C → A).
-        // The immediate self-report check above only catches a 1-hop cycle;
-        // this catches any length.
-        let cursor: string | null = reporting_manager_id;
-        const seen = new Set<string>();
-        while (cursor) {
-          if (cursor === id) {
-            return NextResponse.json(
-              { error: 'This assignment would create a circular reporting chain (this employee already appears above the selected manager).' },
-              { status: 400 }
-            );
-          }
-          if (seen.has(cursor)) break; // pre-existing bad data — don't infinite-loop, just stop
-          seen.add(cursor);
-          const { data: next } = await supabase
-            .from('employees')
-            .select('reporting_manager_id')
-            .eq('id', cursor)
-            .maybeSingle();
-          cursor = next?.reporting_manager_id ?? null;
-        }
-      }
-      update.reporting_manager_id = reporting_manager_id || null;
+      // Deliberately NOT restricted to role='manager'. Earlier this
+      // required the reporting-to employee to also be role='manager',
+      // which meant modeling a CEO/CTO at the top of the chain forced
+      // inventing an extra 'manager'-role row for them even though
+      // they might be hr_super_admin or any other role — adding roles
+      // just to satisfy this check rather than reflecting anything
+      // real. Any existing employee can be a reporting target now;
+      // the only real rules are "not yourself" and "no cycle", both
+      // enforced inside resolveReportingManagerId above.
+      const resolved = await resolveReportingManagerId(supabase, id, reporting_manager_id || null);
+      if ('errorResponse' in resolved) return resolved.errorResponse;
+      update.reporting_manager_id = resolved.value;
     }
   } else {
     // hr / hr_super_admin

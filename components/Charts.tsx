@@ -10,8 +10,8 @@ import {
   ArrowUpDown,
   SortAsc,
   SortDesc,
-  ChevronDown,
-  ChevronUp
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 import { DailyTrend, DeptAttendance, HoursDistribution, AttendanceRecord, DayDeptSnapshot, Holiday, OfficeAttendance, LeaveRecord } from '@/lib/types';
 import { durationToMinutes, minutesToHHMM } from '@/lib/parseCSV';
@@ -19,9 +19,57 @@ import { isPresent, isAbsent, isWeeklyOff, SHIFT_MINUTES, computeLateMinutes, co
 import { isHoliday } from '@/lib/holidays';
 import { leaveLabelFor, UNMARKED_LEAVE_LABEL } from '@/lib/leaveLabels';
 import InfoTooltip from './InfoTooltip';
-import { useTrendChartLayout, useGranularityOverride, TrendGranularity } from '@/lib/chartLayout';
+import { useTrendChartLayout, useGranularityOverride, TrendGranularity, useEntityChartLayout } from '@/lib/chartLayout';
 import { useThemeColors } from '@/lib/useThemeColors';
 import { effectiveMinutes } from '@/lib/hoursCalc';
+import ChartFilterBar from './ChartFilterBar';
+
+// Small prev/next day control embedded in the header of the "today" charts
+// (DayDeptAttendanceChart/DayDeptLateChart/DayDeptProductivityChart) — lets
+// a user step through individual days without leaving Single Day view or
+// going back up to the main date picker. Purely presentational; the actual
+// date state lives in DashboardClient and is passed down.
+function DayNav({
+  date, onPrevDay, onNextDay, canGoPrev, canGoNext,
+}: {
+  date?: string;
+  onPrevDay?: () => void;
+  onNextDay?: () => void;
+  canGoPrev?: boolean;
+  canGoNext?: boolean;
+}) {
+  if (!date || (!onPrevDay && !onNextDay)) return null;
+  const label = new Date(date + 'T00:00:00').toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+  return (
+    <div className="flex items-center gap-0.5 ml-auto flex-shrink-0">
+      <button
+        onClick={onPrevDay}
+        disabled={!canGoPrev}
+        title="Previous day"
+        className="p-1 rounded-md text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-elevated)] disabled:opacity-30 disabled:pointer-events-none transition-colors"
+      >
+        <ChevronLeft className="w-3.5 h-3.5" />
+      </button>
+      <span className="text-[var(--text-muted)] text-[11px] font-medium w-14 text-center">{label}</span>
+      <button
+        onClick={onNextDay}
+        disabled={!canGoNext}
+        title="Next day"
+        className="p-1 rounded-md text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-elevated)] disabled:opacity-30 disabled:pointer-events-none transition-colors"
+      >
+        <ChevronRight className="w-3.5 h-3.5" />
+      </button>
+    </div>
+  );
+}
+
+type DayNavProps = {
+  date?: string;
+  onPrevDay?: () => void;
+  onNextDay?: () => void;
+  canGoPrev?: boolean;
+  canGoNext?: boolean;
+};
 
 function rateColor(rate: number): string {
   if (rate >= 80) return '#34d399';
@@ -492,6 +540,13 @@ export function DeptAttendanceChart({ data, allRecords, selectedDepts, highlight
     if (onDeptClick && selectedDepts?.length === 1) onDeptClick(selectedDepts[0]);
   }
 
+  // Employee-level drilldowns can easily exceed a few hundred rows for a
+  // large department — cap the default view to the top 15 (already sorted
+  // by sortMode above), let a search narrow it, and let "Show all" expand
+  // into a height-capped, internally-scrolling view instead of the page
+  // growing to `rows * 36px` tall.
+  const drillLayout = useEntityChartLayout(drillData, { getLabel: (r) => r.name });
+
   if (drillDept) {
     return (
       <div className="bg-[var(--bg-elevated)] rounded-xl border border-[var(--border)] p-4">
@@ -504,37 +559,51 @@ export function DeptAttendanceChart({ data, allRecords, selectedDepts, highlight
         <div className="mb-3">
           <SortToggle mode={sortMode} onChange={setSortMode} />
         </div>
-        <p className="text-[var(--text-muted)] text-xs mb-4">{drillData.length} employees</p>
-        <ResponsiveContainer width="100%" height={Math.max(280, drillData.length * 36)}>
-          <BarChart data={drillData} layout="vertical" margin={{ top: 4, right: 55, left: 4, bottom: 4 }} barCategoryGap="20%">
-            <CartesianGrid strokeDasharray="3 3" stroke={__tc.border} horizontal={false} />
-            <XAxis type="number" tick={{ fontSize: 10, fill: __tc.mutedText }} allowDecimals={false} />
-            <YAxis type="category" dataKey="name" width={135} tick={{ fontSize: 10, fill: __tc.mutedText }}
-              tickFormatter={(v: string) => v.length > 19 ? v.slice(0, 18) + '…' : v} />
-            <Tooltip content={({ active, payload, label }: any) => {
-              if (!active || !payload?.length) return null;
-              const present = payload.find((p: any) => p.dataKey === 'present')?.value ?? 0;
-              const absent = payload.find((p: any) => p.dataKey === 'absent')?.value ?? 0;
-              const total = present + absent;
-              const rate = total > 0 ? ((present / total) * 100).toFixed(1) : '0';
-              return (
-                <div className="bg-[var(--bg-elevated)] border border-[var(--border)] rounded-lg px-3 py-2 text-xs shadow-xl">
-                  <p className="text-[var(--text-muted)] font-semibold mb-1.5">{label}</p>
-                  <p className="text-emerald-400">Present: <strong>{present}d</strong></p>
-                  <p className="text-red-400">On Leave: <strong>{absent}d</strong></p>
-                  <p className="text-[var(--text-muted)] mt-1 pt-1 border-t border-[var(--border)]">Rate: <strong style={{ color: rateColor(parseFloat(rate)) }}>{rate}%</strong></p>
-                </div>
-              );
-            }} cursor={{ fill: 'rgba(255,255,255,0.04)' }} />
-            <Legend wrapperStyle={{ fontSize: 11, paddingTop: 8 }} formatter={(v: string) => <span style={{ color: __tc.mutedText }}>{v}</span>} />
-            <Bar dataKey="present" name="Present" stackId="a" fill="#34d399">
-              <LabelList dataKey="present" position="insideRight" style={{ fontSize: 9, fill: '#064e3b' }} formatter={(v: any) => v > 0 ? v : ''} />
-            </Bar>
-            <Bar dataKey="absent" name="On Leave" stackId="a" fill="#f87171" radius={[0, 3, 3, 0]}>
-              <LabelList dataKey="absent" position="right" style={{ fontSize: 9, fill: __tc.mutedText }} formatter={(v: any) => v > 0 ? v : ''} />
-            </Bar>
-          </BarChart>
-        </ResponsiveContainer>
+        <ChartFilterBar
+          query={drillLayout.query}
+          onQueryChange={drillLayout.setQuery}
+          totalCount={drillLayout.totalCount}
+          matchedCount={drillLayout.matchedCount}
+          hiddenCount={drillLayout.hiddenCount}
+          isExpanded={drillLayout.isExpanded}
+          onToggleExpanded={drillLayout.toggleExpanded}
+        />
+        {drillLayout.visibleRows.length === 0
+          ? <div className="h-32 flex items-center justify-center text-[var(--text-muted)] text-sm">No employees match &quot;{drillLayout.query}&quot;</div>
+          : (
+            <div style={{ maxHeight: drillLayout.maxWrapperHeight, overflowY: drillLayout.willScroll ? 'auto' : 'visible' }}>
+              <ResponsiveContainer width="100%" height={drillLayout.contentHeight}>
+                <BarChart data={drillLayout.visibleRows} layout="vertical" margin={{ top: 4, right: 55, left: 4, bottom: 4 }} barCategoryGap="20%">
+                  <CartesianGrid strokeDasharray="3 3" stroke={__tc.border} horizontal={false} />
+                  <XAxis type="number" tick={{ fontSize: 10, fill: __tc.mutedText }} allowDecimals={false} />
+                  <YAxis type="category" dataKey="name" width={135} tick={{ fontSize: 10, fill: __tc.mutedText }}
+                    tickFormatter={(v: string) => v.length > 19 ? v.slice(0, 18) + '…' : v} />
+                  <Tooltip content={({ active, payload, label }: any) => {
+                    if (!active || !payload?.length) return null;
+                    const present = payload.find((p: any) => p.dataKey === 'present')?.value ?? 0;
+                    const absent = payload.find((p: any) => p.dataKey === 'absent')?.value ?? 0;
+                    const total = present + absent;
+                    const rate = total > 0 ? ((present / total) * 100).toFixed(1) : '0';
+                    return (
+                      <div className="bg-[var(--bg-elevated)] border border-[var(--border)] rounded-lg px-3 py-2 text-xs shadow-xl">
+                        <p className="text-[var(--text-muted)] font-semibold mb-1.5">{label}</p>
+                        <p className="text-emerald-400">Present: <strong>{present}d</strong></p>
+                        <p className="text-red-400">On Leave: <strong>{absent}d</strong></p>
+                        <p className="text-[var(--text-muted)] mt-1 pt-1 border-t border-[var(--border)]">Rate: <strong style={{ color: rateColor(parseFloat(rate)) }}>{rate}%</strong></p>
+                      </div>
+                    );
+                  }} cursor={{ fill: 'rgba(255,255,255,0.04)' }} />
+                  <Legend wrapperStyle={{ fontSize: 11, paddingTop: 8 }} formatter={(v: string) => <span style={{ color: __tc.mutedText }}>{v}</span>} />
+                  <Bar dataKey="present" name="Present" stackId="a" fill="#34d399">
+                    <LabelList dataKey="present" position="insideRight" style={{ fontSize: 9, fill: '#064e3b' }} formatter={(v: any) => v > 0 ? v : ''} />
+                  </Bar>
+                  <Bar dataKey="absent" name="On Leave" stackId="a" fill="#f87171" radius={[0, 3, 3, 0]}>
+                    <LabelList dataKey="absent" position="right" style={{ fontSize: 9, fill: __tc.mutedText }} formatter={(v: any) => v > 0 ? v : ''} />
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          )}
       </div>
     );
   }
@@ -755,6 +824,11 @@ export function DeptProductivityChart({
     return rows.sort((a, b) => b.daysLost - a.daysLost || a.name.localeCompare(b.name)); // 'worst' and default
   }, [drillDept, safeRecords, sortMode, shiftStartMinutes, shiftEndMinutes]);
 
+  // Same unbounded-height issue as DeptAttendanceChart's drilldown — cap to
+  // the top 15 by default (already sorted by sortMode), searchable, with a
+  // "Show all" expand into a height-capped scrollable view.
+  const drillLayout = useEntityChartLayout(drillData, { getLabel: (r) => r.name });
+
   if (drillDept) {
     return (
       <div className="bg-[var(--bg-elevated)] rounded-xl border border-[var(--border)] p-4 min-h-[280px]">
@@ -770,34 +844,47 @@ export function DeptProductivityChart({
         <div className="mb-3">
           <SortToggle mode={sortMode} onChange={setSortMode} />
         </div>
-        <p className="text-[var(--text-muted)] text-xs mb-4">{drillData.length} employees · based on hours short of 8h effective work</p>
+        <p className="text-[var(--text-muted)] text-xs mb-1">based on hours short of 8h effective work</p>
+        <ChartFilterBar
+          query={drillLayout.query}
+          onQueryChange={drillLayout.setQuery}
+          totalCount={drillLayout.totalCount}
+          matchedCount={drillLayout.matchedCount}
+          hiddenCount={drillLayout.hiddenCount}
+          isExpanded={drillLayout.isExpanded}
+          onToggleExpanded={drillLayout.toggleExpanded}
+        />
         {drillData.length === 0
           ? <div className="h-48 flex items-center justify-center text-[var(--text-muted)] text-sm">No present-day records found for this department</div>
+          : drillLayout.visibleRows.length === 0
+          ? <div className="h-32 flex items-center justify-center text-[var(--text-muted)] text-sm">No employees match &quot;{drillLayout.query}&quot;</div>
           : (
-            <ResponsiveContainer width="100%" height={Math.max(280, drillData.length * 36)}>
-              <BarChart data={drillData} layout="vertical" margin={{ top: 4, right: 65, left: 4, bottom: 4 }} barCategoryGap="20%">
-                <CartesianGrid strokeDasharray="3 3" stroke={__tc.border} horizontal={false} />
-                <XAxis type="number" tick={{ fontSize: 10, fill: __tc.mutedText }} unit="d" />
-                <YAxis type="category" dataKey="name" width={135} tick={{ fontSize: 10, fill: __tc.mutedText }}
-                  tickFormatter={(v: string) => v.length > 19 ? v.slice(0, 18) + '…' : v} />
-                <Tooltip content={({ active, payload, label }: any) => {
-                  if (!active || !payload?.length) return null;
-                  const e = drillData.find(d => d.name === label);
-                  return (
-                    <div className="bg-[var(--bg-elevated)] border border-[var(--border)] rounded-lg px-3 py-2 text-xs shadow-xl">
-                      <p className="text-[var(--text-muted)] font-semibold mb-1.5">{label}</p>
-                      <p className="text-amber-400">Days Lost: <strong>{payload[0]?.value}d</strong></p>
-                      <p className="text-[var(--text-muted)]">Present Days: <strong>{e?.presentDays}</strong></p>
-                      <p className="text-blue-400">Avg Effective Hrs: <strong>{e?.avgEffectiveHours}h</strong></p>
-                    </div>
-                  );
-                }} cursor={{ fill: 'rgba(255,255,255,0.04)' }} />
-                <Bar dataKey="daysLost" radius={[0, 4, 4, 0]}>
-                  {drillData.map((e, i) => <Cell key={i} fill={lostColor(e.daysLost)} />)}
-                  <LabelList dataKey="daysLost" position="right" style={{ fontSize: 10, fill: __tc.mutedText }} formatter={(v: any) => `${v}d`} />
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
+            <div style={{ maxHeight: drillLayout.maxWrapperHeight, overflowY: drillLayout.willScroll ? 'auto' : 'visible' }}>
+              <ResponsiveContainer width="100%" height={drillLayout.contentHeight}>
+                <BarChart data={drillLayout.visibleRows} layout="vertical" margin={{ top: 4, right: 65, left: 4, bottom: 4 }} barCategoryGap="20%">
+                  <CartesianGrid strokeDasharray="3 3" stroke={__tc.border} horizontal={false} />
+                  <XAxis type="number" tick={{ fontSize: 10, fill: __tc.mutedText }} unit="d" />
+                  <YAxis type="category" dataKey="name" width={135} tick={{ fontSize: 10, fill: __tc.mutedText }}
+                    tickFormatter={(v: string) => v.length > 19 ? v.slice(0, 18) + '…' : v} />
+                  <Tooltip content={({ active, payload, label }: any) => {
+                    if (!active || !payload?.length) return null;
+                    const e = drillData.find(d => d.name === label);
+                    return (
+                      <div className="bg-[var(--bg-elevated)] border border-[var(--border)] rounded-lg px-3 py-2 text-xs shadow-xl">
+                        <p className="text-[var(--text-muted)] font-semibold mb-1.5">{label}</p>
+                        <p className="text-amber-400">Days Lost: <strong>{payload[0]?.value}d</strong></p>
+                        <p className="text-[var(--text-muted)]">Present Days: <strong>{e?.presentDays}</strong></p>
+                        <p className="text-blue-400">Avg Effective Hrs: <strong>{e?.avgEffectiveHours}h</strong></p>
+                      </div>
+                    );
+                  }} cursor={{ fill: 'rgba(255,255,255,0.04)' }} />
+                  <Bar dataKey="daysLost" radius={[0, 4, 4, 0]}>
+                    {drillLayout.visibleRows.map((e, i) => <Cell key={i} fill={lostColor(e.daysLost)} />)}
+                    <LabelList dataKey="daysLost" position="right" style={{ fontSize: 10, fill: __tc.mutedText }} formatter={(v: any) => `${v}d`} />
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
           )}
       </div>
     );
@@ -1104,7 +1191,7 @@ export function AttendanceHeatmap({
   leaveMap?: Map<string, LeaveRecord>;
 }) {
   const [tooltip, setTooltip] = useState<{ r: AttendanceRecord; x: number; y: number } | null>(null);
-  const [expandedHeatmap, setExpandedHeatmap] = useState(false);
+  const [heatmapSort, setHeatmapSort] = useState<'absences' | 'az'>('absences');
 
   const { employees, dates, cellMap } = useMemo(() => {
     const empSet = new Map<string, string>();
@@ -1159,6 +1246,29 @@ export function AttendanceHeatmap({
   const monthLabel = (key: string) =>
     new Date(`${key}-01T00:00:00`).toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
 
+  // Rank employees for the default (unsearched) view — most absences first
+  // is far more useful than insertion order once a company has hundreds of
+  // employees and only the top 15 show by default. A-Z is offered as the
+  // alternative for "I'm looking for someone specific" without typing.
+  const sortedEmployees = useMemo(() => {
+    const withAbsences = employees.map(emp => {
+      let absences = 0;
+      for (const date of visibleDates) {
+        const r = cellMap.get(`${emp.code}_${date}`);
+        const leave = r ? leaveMap?.get(leaveKey(r.employeeCode, r.date)) : undefined;
+        const status = r ? getCellStatus(r, graceMinutes, shiftStartMinutes, shiftEndMinutes, leave) : 'absent';
+        if (status === 'absent') absences++;
+      }
+      return { ...emp, absences };
+    });
+    return heatmapSort === 'az'
+      ? withAbsences.sort((a, b) => a.name.localeCompare(b.name))
+      : withAbsences.sort((a, b) => b.absences - a.absences || a.name.localeCompare(b.name));
+  }, [employees, visibleDates, cellMap, leaveMap, graceMinutes, shiftStartMinutes, shiftEndMinutes, heatmapSort]);
+
+  // Row height 22px = the w-5 h-5 (20px) cell row + its mb-0.5 (2px) gap.
+  const heatmapLayout = useEntityChartLayout(sortedEmployees, { getLabel: (e) => e.name, rowHeight: 22 });
+
   return (
     <div className="bg-[var(--bg-elevated)] rounded-xl border border-[var(--border)] p-4">
       <div className="flex items-start justify-between mb-3 gap-3 flex-wrap">
@@ -1171,6 +1281,20 @@ export function AttendanceHeatmap({
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => setHeatmapSort('absences')}
+              className={`px-2 py-1 rounded text-[10px] font-medium transition-colors ${heatmapSort === 'absences' ? 'bg-blue-600 text-white' : 'bg-[var(--bg-elevated)] text-[var(--text-muted)] hover:text-[var(--text-primary)]'}`}
+            >
+              Most Absent
+            </button>
+            <button
+              onClick={() => setHeatmapSort('az')}
+              className={`px-2 py-1 rounded text-[10px] font-medium transition-colors ${heatmapSort === 'az' ? 'bg-blue-600 text-white' : 'bg-[var(--bg-elevated)] text-[var(--text-muted)] hover:text-[var(--text-primary)]'}`}
+            >
+              A → Z
+            </button>
+          </div>
           {isMultiMonth && (
             <select
               value={selectedMonth ?? ''}
@@ -1183,64 +1307,58 @@ export function AttendanceHeatmap({
               ))}
             </select>
           )}
-          <InfoTooltip title="Attendance Heatmap" description="Each cell = one employee on one day. Colors show attendance status. Click any cell to see details. When your selected range spans more than one month, use the month dropdown to switch between them." />
+          <InfoTooltip title="Attendance Heatmap" description="Each cell = one employee on one day. Colors show attendance status. Click any cell to see details. When your selected range spans more than one month, use the month dropdown to switch between them. Sort/search the employee list on the left when there are more than 15." />
         </div>
       </div>
 
-      <div className="overflow-x-auto">
-        <div style={{ minWidth: visibleDates.length * 22 + 160 }}>
-          <div className="flex gap-0.5 mb-1 ml-[152px]">
-            {visibleDates.map(d => (
-              <div key={d} className="w-5 text-[8px] text-[var(--text-muted)] text-center flex-shrink-0">{d.slice(8)}</div>
-            ))}
-          </div>
-          {(expandedHeatmap ? employees : employees.slice(0, 15)).map(emp => (
-            <div key={emp.code} className="flex items-center gap-0.5 mb-0.5">
-              <div className="w-36 text-[10px] text-[var(--text-muted)] truncate flex-shrink-0 text-right pr-2" title={emp.name}>
-                {emp.name.length > 16 ? emp.name.slice(0, 15) + '…' : emp.name}
+      <ChartFilterBar
+        query={heatmapLayout.query}
+        onQueryChange={heatmapLayout.setQuery}
+        totalCount={heatmapLayout.totalCount}
+        matchedCount={heatmapLayout.matchedCount}
+        hiddenCount={heatmapLayout.hiddenCount}
+        isExpanded={heatmapLayout.isExpanded}
+        onToggleExpanded={heatmapLayout.toggleExpanded}
+      />
+
+      {heatmapLayout.visibleRows.length === 0
+        ? <div className="h-32 flex items-center justify-center text-[var(--text-muted)] text-sm">No employees match &quot;{heatmapLayout.query}&quot;</div>
+        : (
+          <div className="overflow-x-auto">
+            <div
+              style={{ minWidth: visibleDates.length * 22 + 160, maxHeight: heatmapLayout.maxWrapperHeight, overflowY: heatmapLayout.willScroll ? 'auto' : 'visible' }}
+            >
+              <div className="flex gap-0.5 mb-1 ml-[152px] sticky top-0 bg-[var(--bg-elevated)] z-10">
+                {visibleDates.map(d => (
+                  <div key={d} className="w-5 text-[8px] text-[var(--text-muted)] text-center flex-shrink-0">{d.slice(8)}</div>
+                ))}
               </div>
-              {visibleDates.map(date => {
-                const r = cellMap.get(`${emp.code}_${date}`);
-                const leave = r ? leaveMap?.get(leaveKey(r.employeeCode, r.date)) : undefined;
-                const status = r ? getCellStatus(r, graceMinutes, shiftStartMinutes, shiftEndMinutes, leave) : 'absent';
-                const color = STATUS_COLORS_CELL[status] || '#334155';
-                return (
-                  <div
-                    key={date}
-                    className="w-5 h-5 rounded-sm cursor-pointer hover:ring-1 hover:ring-white/40 flex-shrink-0 transition-all"
-                    style={{ backgroundColor: color + '90' }}
-                    onMouseEnter={(e) => r && setTooltip({ r, x: e.clientX, y: e.clientY })}
-                    onMouseLeave={() => setTooltip(null)}
-                    onClick={() => r && onCellClick?.(emp.code, date)}
-                  />
-                );
-              })}
+              {heatmapLayout.visibleRows.map(emp => (
+                <div key={emp.code} className="flex items-center gap-0.5 mb-0.5">
+                  <div className="w-36 text-[10px] text-[var(--text-muted)] truncate flex-shrink-0 text-right pr-2" title={`${emp.name} · ${emp.absences} absent day${emp.absences === 1 ? '' : 's'}`}>
+                    {emp.name.length > 16 ? emp.name.slice(0, 15) + '…' : emp.name}
+                  </div>
+                  {visibleDates.map(date => {
+                    const r = cellMap.get(`${emp.code}_${date}`);
+                    const leave = r ? leaveMap?.get(leaveKey(r.employeeCode, r.date)) : undefined;
+                    const status = r ? getCellStatus(r, graceMinutes, shiftStartMinutes, shiftEndMinutes, leave) : 'absent';
+                    const color = STATUS_COLORS_CELL[status] || '#334155';
+                    return (
+                      <div
+                        key={date}
+                        className="w-5 h-5 rounded-sm cursor-pointer hover:ring-1 hover:ring-white/40 flex-shrink-0 transition-all"
+                        style={{ backgroundColor: color + '90' }}
+                        onMouseEnter={(e) => r && setTooltip({ r, x: e.clientX, y: e.clientY })}
+                        onMouseLeave={() => setTooltip(null)}
+                        onClick={() => r && onCellClick?.(emp.code, date)}
+                      />
+                    );
+                  })}
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
-      </div>
-
-      {/* Expand/Collapse Button */}
-{employees.length > 10 && (
-  <div className="flex justify-center mt-3">
-    <button
-      onClick={() => setExpandedHeatmap(!expandedHeatmap)}
-      className="flex items-center gap-2 text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 text-sm font-medium transition-colors"
-    >
-      {expandedHeatmap ? (
-        <>
-          <ChevronUp className="w-4 h-4" />
-          Collapse Heatmap
-        </>
-      ) : (
-        <>
-          <ChevronDown className="w-4 h-4" />
-          Show Full Heatmap ({employees.length})
-        </>
-      )}
-    </button>
-  </div>
-)}
+          </div>
+        )}
 
       <div className="flex flex-wrap gap-3 mt-3">
         {Object.entries({ present: 'Present', late: 'Late', earlyexit: 'Early Exit', on_leave: 'On Leave', absent: UNMARKED_LEAVE_LABEL, shortday: 'Short Day', weeklyoff: 'Weekly Off', holiday: 'Holiday' }).map(([k, label]) => (
@@ -1304,6 +1422,7 @@ function EmployeeAttendanceRow({
 // ── Attendance Today ──────────────────────────────────────────────────────────
 export function DayDeptAttendanceChart({
   data, onDeptClick, allRecords, graceMinutes = 10, shiftStartMinutes, shiftEndMinutes, leaveMap,
+  date, onPrevDay, onNextDay, canGoPrev, canGoNext,
 }: {
   data: DayDeptSnapshot[];
   onDeptClick?: (dept: string) => void;
@@ -1312,7 +1431,7 @@ export function DayDeptAttendanceChart({
   shiftStartMinutes?: number;
   shiftEndMinutes?: number;
   leaveMap?: Map<string, LeaveRecord>;
-}) {
+} & DayNavProps) {
   const __tc = useThemeColors();
   const [drillDept, setDrillDept] = useState<string | null>(null);
 
@@ -1334,7 +1453,10 @@ export function DayDeptAttendanceChart({
             </button>
           )}
           <h3 className="text-[var(--text-primary)] font-semibold text-sm">{activeDept} — Attendance</h3>
-          <span className="text-[var(--text-muted)] text-xs ml-auto">{present.length} present · {absent.length} on leave</span>
+          <div className="ml-auto flex items-center gap-2">
+            <span className="text-[var(--text-muted)] text-xs">{present.length} present · {absent.length} on leave</span>
+            <DayNav date={date} onPrevDay={onPrevDay} onNextDay={onNextDay} canGoPrev={canGoPrev} canGoNext={canGoNext} />
+          </div>
         </div>
         <div className="space-y-1 max-h-[240px] overflow-y-auto">
           {present.map(r => (
@@ -1370,6 +1492,7 @@ export function DayDeptAttendanceChart({
           <h3 className="text-[var(--text-primary)] font-semibold text-sm">Dept Attendance Today</h3>
           <p className="text-[var(--text-muted)] text-xs mt-0.5 mb-3">Click a bar to see all employees in that team</p>
         </div>
+        <DayNav date={date} onPrevDay={onPrevDay} onNextDay={onNextDay} canGoPrev={canGoPrev} canGoNext={canGoNext} />
         <InfoTooltip title="Dept Attendance Today" description="Present count per department today. Click any bar to see the full employee list with punch times." />
       </div>
       {sorted.length === 0
@@ -1413,6 +1536,7 @@ export function DayDeptAttendanceChart({
 // ── Late Arrivals Today ───────────────────────────────────────────────────────
 export function DayDeptLateChart({
   data, onDeptClick, allRecords, graceMinutes = 10, shiftStartMinutes, shiftEndMinutes,
+  date, onPrevDay, onNextDay, canGoPrev, canGoNext,
 }: {
   data: DayDeptSnapshot[];
   onDeptClick?: (dept: string) => void;
@@ -1420,7 +1544,7 @@ export function DayDeptLateChart({
   graceMinutes?: number;
   shiftStartMinutes?: number;
   shiftEndMinutes?: number;
-}) {
+} & DayNavProps) {
   const __tc = useThemeColors();
   const [drillDept, setDrillDept] = useState<string | null>(null);
 
@@ -1440,7 +1564,10 @@ export function DayDeptLateChart({
             </button>
           )}
           <h3 className="text-[var(--text-primary)] font-semibold text-sm">{activeDept} — Late Arrivals</h3>
-          <span className="text-[var(--text-muted)] text-xs ml-auto">{lateRecords.length} late</span>
+          <div className="ml-auto flex items-center gap-2">
+            <span className="text-[var(--text-muted)] text-xs">{lateRecords.length} late</span>
+            <DayNav date={date} onPrevDay={onPrevDay} onNextDay={onNextDay} canGoPrev={canGoPrev} canGoNext={canGoNext} />
+          </div>
         </div>
         {lateRecords.length === 0
           ? <div className="h-40 flex items-center justify-center text-[var(--text-muted)] text-sm">No late arrivals in this team today 🎉</div>
@@ -1469,6 +1596,7 @@ export function DayDeptLateChart({
           <h3 className="text-[var(--text-primary)] font-semibold text-sm">Dept Late Arrivals Today</h3>
           <p className="text-[var(--text-muted)] text-xs mt-0.5 mb-3">Click a bar to see late employees in that team</p>
         </div>
+        <DayNav date={date} onPrevDay={onPrevDay} onNextDay={onNextDay} canGoPrev={canGoPrev} canGoNext={canGoNext} />
         <InfoTooltip title="Dept Late Arrivals Today" description="Count of employees per department who punched in after shift start + grace period today." />
       </div>
       {sorted.length === 0
@@ -1507,13 +1635,14 @@ export function DayDeptLateChart({
 // ── Productivity Lost Today ───────────────────────────────────────────────────
 export function DayDeptProductivityChart({
   data, onDeptClick, allRecords, shiftStartMinutes, shiftEndMinutes,
+  date, onPrevDay, onNextDay, canGoPrev, canGoNext,
 }: {
   data: DayDeptSnapshot[];
   onDeptClick?: (dept: string) => void;
   allRecords?: AttendanceRecord[];
   shiftStartMinutes?: number;
   shiftEndMinutes?: number;
-}) {
+} & DayNavProps) {
   const __tc = useThemeColors();
   const [drillDept, setDrillDept] = useState<string | null>(null);
 
@@ -1535,9 +1664,12 @@ export function DayDeptProductivityChart({
             </button>
           )}
           <h3 className="text-[var(--text-primary)] font-semibold text-sm">{activeDept} — Productivity Lost</h3>
-          <span className="text-[var(--text-muted)] text-xs ml-auto">
-            {(empData.reduce((s, e) => s + e.lostM, 0) / 60).toFixed(1)}h total lost
-          </span>
+          <div className="ml-auto flex items-center gap-2">
+            <span className="text-[var(--text-muted)] text-xs">
+              {(empData.reduce((s, e) => s + e.lostM, 0) / 60).toFixed(1)}h total lost
+            </span>
+            <DayNav date={date} onPrevDay={onPrevDay} onNextDay={onNextDay} canGoPrev={canGoPrev} canGoNext={canGoNext} />
+          </div>
         </div>
         {empData.length === 0
           ? <div className="h-40 flex items-center justify-center text-[var(--text-muted)] text-sm">No productivity loss in this team today 🎉</div>
@@ -1571,6 +1703,7 @@ export function DayDeptProductivityChart({
           <h3 className="text-[var(--text-primary)] font-semibold text-sm">Dept Productivity Lost Today</h3>
           <p className="text-[var(--text-muted)] text-xs mt-0.5 mb-3">Hours short of 8h effective work · click to see employees</p>
         </div>
+        <DayNav date={date} onPrevDay={onPrevDay} onNextDay={onNextDay} canGoPrev={canGoPrev} canGoNext={canGoNext} />
         <InfoTooltip title="Dept Productivity Lost Today" description="Total hours each department fell short of 8h effective work today. Coming late but staying to compensate = no loss." formula="Σ max(0, 8h − (duration − 1h lunch))" />
       </div>
       {sorted.length === 0
