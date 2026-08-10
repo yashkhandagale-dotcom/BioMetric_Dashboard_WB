@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import Link from 'next/link';
+import LeavePageHeader from '@/components/leave/LeavePageHeader';
 
 type DepartmentRow = { department: string; managerId: string | null; managerName: string | null };
 type ManagerRow = {
@@ -192,16 +192,11 @@ export default function OrganizationManagementPage() {
   const filteredOrgTree = useMemo(() => pruneTree(orgTree), [orgTree, q]);
 
   return (
-    <div className="min-h-screen bg-[var(--bg-surface)] text-[var(--text-primary)] p-8 space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <Link href="/leave/admin" className="text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)]">← Back to Leave Management</Link>
-          <h1 className="text-xl font-semibold mt-1">Organization Management</h1>
-          <p className="text-[var(--text-muted)] text-xs mt-1">
-            Department managers, lead assignment, and the manager reporting hierarchy.
-          </p>
-        </div>
-      </div>
+    <div className="space-y-6">
+      <LeavePageHeader
+        title="Organization Management"
+        description="Department managers, lead assignment, and the manager reporting hierarchy."
+      />
 
       {error && (
         <div className="bg-red-900/30 border border-red-500/30 text-red-700 dark:text-red-300 text-xs rounded-lg px-3 py-2">{error}</div>

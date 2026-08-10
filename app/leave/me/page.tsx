@@ -87,27 +87,25 @@ export default async function LeaveMeHome() {
     }));
 
   return (
-    <div className="min-h-screen bg-[var(--bg-surface)] text-[var(--text-primary)] px-6 py-10">
-      <div className="max-w-6xl mx-auto">
-        <MeNavbar
-          employeeName={`${employee.full_name} · ${employee.employee_code} · ${employee.department}`}
-          role={employee.role}
-        />
+    <div className="max-w-6xl space-y-5">
+      <MeNavbar
+        employeeName={`${employee.full_name} · ${employee.employee_code} · ${employee.department}`}
+        role={employee.role}
+      />
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 mb-5">
-          <div className="lg:col-span-2">
-            <PersonalAttendanceReport />
-          </div>
-          <div>
-            <h2 className="text-sm font-semibold text-[var(--text-primary)] mb-3">Leave Balances</h2>
-            <LeaveBalanceCards balances={balances} />
-          </div>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 mb-5">
+        <div className="lg:col-span-2">
+          <PersonalAttendanceReport />
         </div>
-
         <div>
-          <h2 className="text-sm font-semibold text-[var(--text-primary)] mb-3">My Leave History</h2>
-          <LeaveHistoryTable rows={history} />
+          <h2 className="text-sm font-semibold text-[var(--text-primary)] mb-3">Leave Balances</h2>
+          <LeaveBalanceCards balances={balances} />
         </div>
+      </div>
+
+      <div>
+        <h2 className="text-sm font-semibold text-[var(--text-primary)] mb-3">My Leave History</h2>
+        <LeaveHistoryTable rows={history} />
       </div>
     </div>
   );

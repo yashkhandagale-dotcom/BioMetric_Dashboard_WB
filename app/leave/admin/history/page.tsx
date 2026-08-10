@@ -1,6 +1,5 @@
 'use client';
 
-import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import LeaveHistoryTable, { LeaveHistoryRow } from '@/components/leave/LeaveHistoryTable';
 import AbsenteesPanel from '@/components/leave/AbsenteesPanel';
@@ -10,6 +9,7 @@ import LeaveCalendar from '@/components/leave/LeaveCalendar';
 import CalendarDayDrawer from '@/components/leave/CalendarDayDrawer';
 import { exportRowsAsCSV } from '@/lib/exportData';
 import AttendanceTableSkeleton from '@/components/leave/AttendanceTableSkeleton';
+import LeavePageHeader from '@/components/leave/LeavePageHeader';
 import type { AbsenteeCandidate, HalfDayCandidate } from '@/lib/attendanceExceptions';
 import { currentMonthKey, mergeCalendarDay, monthBounds } from '@/lib/leaveCalendar';
 import type { CalendarDayEntry } from '@/lib/leaveCalendar';
@@ -244,27 +244,26 @@ export default function LeaveTrackerPage() {
   ];
 
   return (
-    <div className="min-h-screen bg-[var(--bg-surface)] text-[var(--text-primary)] p-8 space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <Link href="/leave/admin" className="text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)]">← Back to balances</Link>
-          <h1 className="text-xl font-semibold mt-1">Leave Tracker</h1>
-        </div>
-        <div className="text-right">
-          <button
-            type="button"
-            onClick={() => setRecordLeaveOpen(true)}
-            className="bg-[var(--accent)] hover:bg-[var(--accent)]/90 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
-          >
-            + Record Leave
-          </button>
-          {!(view === 'table' && tab === 'history') && (
-            <p className="text-[11px] text-[var(--text-muted)] mt-1 max-w-[220px]">
-              For any employee. To act on a row already listed below, use that row&apos;s own action instead.
-            </p>
-          )}
-        </div>
-      </div>
+    <div className="space-y-6">
+      <LeavePageHeader
+        title="Leave Tracker"
+        actions={
+          <div className="text-right">
+            <button
+              type="button"
+              onClick={() => setRecordLeaveOpen(true)}
+              className="bg-[var(--accent)] hover:bg-[var(--accent)]/90 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+            >
+              + Record Leave
+            </button>
+            {!(view === 'table' && tab === 'history') && (
+              <p className="text-[11px] text-[var(--text-muted)] mt-1 max-w-[220px]">
+                For any employee. To act on a row already listed below, use that row&apos;s own action instead.
+              </p>
+            )}
+          </div>
+        }
+      />
 
       {employeesError && (
         <div className="bg-red-900/30 border border-red-500/30 text-red-700 dark:text-red-300 text-xs rounded-lg px-3 py-2">

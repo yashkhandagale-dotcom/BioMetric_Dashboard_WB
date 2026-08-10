@@ -1,7 +1,8 @@
 import { redirect } from 'next/navigation';
 import { getCurrentEmployee, homeRouteForRole } from '@/lib/leaveSupabase/getCurrentEmployee';
 import { createLeaveClient } from '@/lib/leaveSupabase/server';
-import LeaveAdminSidebar from '@/components/leave/LeaveAdminSidebar';
+import { getPendingApprovalsCount } from '@/lib/leaveSupabase/getPendingApprovalsCount';
+import LeaveShell from '@/components/leave/LeaveShell';
 
 // Protects everything under app/leave/admin/**. Deliberately a layout,
 // not middleware.ts — this only runs for this route subtree, so it can
@@ -15,6 +16,13 @@ import LeaveAdminSidebar from '@/components/leave/LeaveAdminSidebar';
 // since they *are* authenticated, just not authorized for this subtree.
 // A session with no employees row at all (not yet linked, or a stray
 // Supabase Auth account) still goes to /leave/login.
+//
+// Navigation chrome (sidebar / mobile tab strip / theme toggle / user
+// menu) now comes from LeaveShell, the same shell every other /leave/**
+// subtree renders — this used to be the one section with a persistent
+// nav rail (the old LeaveAdminSidebar) while every other section had
+// none at all, which was the single biggest source of pages looking
+// like they were built by different developers.
 export default async function LeaveAdminLayout({
   children,
 }: {
@@ -34,20 +42,16 @@ export default async function LeaveAdminLayout({
     redirect(homeRouteForRole(employee.role));
   }
 
-  // Sidebar's pending-approvals badge — same count app/leave/admin/page.tsx
-  // already computes for its own "Pending Approvals" button, just lifted
-  // here so it's visible from every /leave/admin/** page, not just the
-  // balances home page.
+  // Pending-approvals badge shown on the shell's "Approvals" tab — same
+  // count app/leave/admin/page.tsx already used to compute for its own
+  // header button, lifted here so it's visible from every /leave/admin/**
+  // page, not just the balances home page.
   const supabase = await createLeaveClient();
-  const { count: pendingApprovalsCount } = await supabase
-    .from('leave_requests')
-    .select('id', { count: 'exact', head: true })
-    .eq('status', 'pending');
+  const pendingApprovalsCount = await getPendingApprovalsCount(supabase, employee);
 
   return (
-    <div className="flex min-h-screen">
-      <LeaveAdminSidebar pendingApprovalsCount={pendingApprovalsCount ?? 0} />
-      <div className="flex-1 min-w-0">{children}</div>
-    </div>
+    <LeaveShell employeeName={employee.full_name} role={employee.role} pendingApprovalsCount={pendingApprovalsCount}>
+      {children}
+    </LeaveShell>
   );
 }

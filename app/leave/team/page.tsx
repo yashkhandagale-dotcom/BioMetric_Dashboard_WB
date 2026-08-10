@@ -4,7 +4,7 @@ import { getEmployeeBalancesByFY } from '@/lib/leaveSupabase/getEmployeeBalances
 import { getManagedEmployeeIds } from '@/lib/leaveSupabase/organization';
 import { selectAllRows } from '@/lib/attendanceExceptions';
 import LeaveHistoryTable, { LeaveHistoryRow } from '@/components/leave/LeaveHistoryTable';
-import Link from 'next/link';
+import LeavePageHeader from '@/components/leave/LeavePageHeader';
 
 type HistoryRow = {
   id: string;
@@ -113,39 +113,19 @@ export default async function LeaveTeamHome() {
     }));
 
   return (
-    <div className="min-h-screen bg-[var(--bg-surface)] text-[var(--text-primary)] px-4 sm:px-6 py-10">
-      <div className="max-w-5xl mx-auto">
-        <div className="flex flex-wrap items-start justify-between gap-3 mb-1">
-          <div>
-            <p className="text-[var(--text-muted)] text-xs mb-1">Leave Tracker · Read-only</p>
-            <h1 className="text-xl font-semibold">My Team</h1>
-          </div>
-          <div className="flex items-center gap-2">
-            <Link
-              href="/leave/approvals"
-              className="flex items-center gap-1.5 bg-amber-600/20 border border-amber-500/30 text-amber-500 dark:text-amber-400 px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-amber-600/30 transition-colors"
-            >
-              Pending Approvals
-            </Link>
-            <Link
-              href="/leave/me"
-              className="text-[var(--text-muted)] hover:text-[var(--text-primary)] px-3 py-1.5 rounded-lg text-xs transition-colors"
-            >
-              My Leave
-            </Link>
-          </div>
+    <div className="max-w-5xl space-y-6">
+      <LeavePageHeader
+        title="My Team"
+        description="Balances and leave history for your team. View only — record leave and edits stay with HR."
+      />
+
+      {reportsError && (
+        <div className="bg-red-900/30 border border-red-500/30 text-red-700 dark:text-red-300 text-sm rounded-xl px-4 py-3 mb-4">
+          Could not load your team: {reportsError.message}
         </div>
-        <p className="text-[var(--text-muted)] text-xs mb-6">
-          Balances and leave history for your team. View only — record leave and edits stay with HR.
-        </p>
+      )}
 
-        {reportsError && (
-          <div className="bg-red-900/30 border border-red-500/30 text-red-700 dark:text-red-300 text-sm rounded-xl px-4 py-3 mb-4">
-            Could not load your team: {reportsError.message}
-          </div>
-        )}
-
-        <div className="bg-[var(--bg-elevated)]/40 border border-[var(--border)] rounded-xl p-4 mb-6">
+      <div className="bg-[var(--bg-elevated)]/40 border border-[var(--border)] rounded-xl p-4 mb-6">
           <h2 className="text-sm font-semibold mb-3">Roster &amp; Balances</h2>
           {!reports || reports.length === 0 ? (
             <p className="text-[var(--text-muted)] text-sm">No team members found for you yet.</p>
@@ -182,12 +162,11 @@ export default async function LeaveTeamHome() {
               </table>
             </div>
           )}
-        </div>
+      </div>
 
-        <div>
-          <h2 className="text-sm font-semibold mb-3">Team Leave History</h2>
-          <LeaveHistoryTable rows={history} />
-        </div>
+      <div>
+        <h2 className="text-sm font-semibold mb-3">Team Leave History</h2>
+        <LeaveHistoryTable rows={history} />
       </div>
     </div>
   );

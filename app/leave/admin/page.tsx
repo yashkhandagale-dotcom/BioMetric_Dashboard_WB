@@ -5,6 +5,7 @@ import EmployeeGrid from '@/components/leave/EmployeeGrid';
 import type { EmployeeWithBalances } from '@/components/leave/EmployeeCard';
 import PolicyInfoButton from '@/components/leave/PolicyInfoButton';
 import BulkEventsButton from '@/components/leave/BulkEventsButton';
+import LeavePageHeader from '@/components/leave/LeavePageHeader';
 
 // This page used to show a plain balances-only table (Code/Name/Dept/
 // Office/SL/CL/PL/LWP + an Adjust button) and link out to a separate
@@ -97,24 +98,23 @@ export default async function LeaveAdminHome() {
   });
 
   return (
-    <div className="min-h-screen bg-[var(--bg-surface)] text-[var(--text-primary)] p-8 space-y-6">
-      {/* Section-to-section links (Pending Approvals, Analytics, Leave
+    <div className="space-y-6">
+      {/* Section-to-section navigation (Approvals, Analytics, Leave
           Tracker, Violations, Organization, Create Login, Change
-          Password) now live in the persistent left sidebar
-          (LeaveAdminSidebar, mounted in app/leave/admin/layout.tsx) —
-          this header keeps only this page's own title and the two
+          Password) lives in the persistent LeaveShell sidebar/tab strip
+          — this header keeps only this page's own title and the two
           actions that are modals, not destinations (Bulk Events,
           Policy Info), so they don't get lost in a nav rail. */}
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div>
-          <h1 className="text-xl font-semibold">Leave Balances — {formatFYLabel(fyStartYear)}</h1>
-          <p className="text-[var(--text-muted)] text-xs mt-1">Signed in as {user?.email}</p>
-        </div>
-        <div className="flex items-center gap-2 flex-wrap">
-          <BulkEventsButton />
-          <PolicyInfoButton />
-        </div>
-      </div>
+      <LeavePageHeader
+        title={`Leave Balances — ${formatFYLabel(fyStartYear)}`}
+        description={`Signed in as ${user?.email}`}
+        actions={
+          <>
+            <BulkEventsButton />
+            <PolicyInfoButton />
+          </>
+        }
+      />
 
       {(employeesError || balancesError || deptManagersError) && (
         <div className="bg-red-900/30 border border-red-500/30 text-red-700 dark:text-red-300 text-xs rounded-lg px-3 py-2">

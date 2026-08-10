@@ -1,9 +1,9 @@
 'use client';
 
 import { useState } from 'react';
-import Link from 'next/link';
 import CreateLoginForm from './CreateLoginForm';
 import BulkLoginsForm from './BulkLoginsForm';
+import LeavePageHeader from '@/components/leave/LeavePageHeader';
 
 // Was a CSV-only bulk import page. That tool was only ever meant for the
 // one-time initial migration (see BulkLoginsForm.tsx's own header
@@ -16,19 +16,13 @@ export default function LoginsPageClient() {
   const [showBulk, setShowBulk] = useState(false);
 
   return (
-    <div className="min-h-screen bg-[var(--bg-surface)] text-[var(--text-primary)] p-8">
-      <div className="max-w-3xl mx-auto space-y-6">
-        <div>
-          <Link href="/leave/admin" className="text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)]">
-            ← Back to Employees
-          </Link>
-          <h1 className="text-xl font-semibold mt-1">Create Login</h1>
-          <p className="text-[var(--text-muted)] text-xs mt-1">
-            Set a new employee up with a login. They can sign in immediately with the password you set here, and
-            change it themselves afterward from their account.
-          </p>
-        </div>
+    <div className="max-w-3xl space-y-6">
+      <LeavePageHeader
+        title="Create Login"
+        description="Set a new employee up with a login. They can sign in immediately with the password you set here, and change it themselves afterward from their account."
+      />
 
+      <div className="space-y-6">
         <CreateLoginForm />
 
         <div className="pt-2">

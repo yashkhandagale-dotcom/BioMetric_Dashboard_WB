@@ -1,18 +1,19 @@
 import { redirect } from 'next/navigation';
 import { getCurrentEmployee, homeRouteForRole } from '@/lib/leaveSupabase/getCurrentEmployee';
+import { createLeaveClient } from '@/lib/leaveSupabase/server';
+import { getPendingApprovalsCount } from '@/lib/leaveSupabase/getPendingApprovalsCount';
+import LeaveShell from '@/components/leave/LeaveShell';
 
-// Protects app/leave/approvals/** — the pending-approval queue (plan
-// section 2/5a). Manager is the primary audience; HR / hr_super_admin
-// can also reach it since the plan gives HR override approval anywhere
-// (section 2's "Can approve: can override anywhere").
+// Protects app/leave/approvals/** — the pending-approval queue. Manager
+// is the primary audience; HR / hr_super_admin can also reach it since
+// HR has approve-anywhere override authority. Lead is treated as a
+// mini-manager — approves their own direct reports the same way a
+// manager does. Plain employee is bounced home.
 //
-// Revised decision (single-login pivot, superseding the original
-// "confirmed assumption #1: manager is the sole approver, lead is
-// notified only"): lead is now treated as a mini-manager — approves
-// their own direct reports the same way a manager does — rather than
-// being a pure read-only role. See app/leave/approvals/page.tsx for the
-// matching query-scoping change (reporting_lead_id vs
-// reporting_manager_id). Plain employee is still bounced home.
+// Same LeaveShell as every other /leave/** subtree, so the "Approvals"
+// tab (with its own live pending-count badge) is always visible and
+// always highlighted correctly, whether you're on this page or came
+// from My Team / My Leave / any admin page.
 export default async function LeaveApprovalsLayout({
   children,
 }: {
@@ -32,5 +33,12 @@ export default async function LeaveApprovalsLayout({
     redirect(homeRouteForRole(employee.role));
   }
 
-  return <>{children}</>;
+  const supabase = await createLeaveClient();
+  const pendingApprovalsCount = await getPendingApprovalsCount(supabase, employee);
+
+  return (
+    <LeaveShell employeeName={employee.full_name} role={employee.role} pendingApprovalsCount={pendingApprovalsCount}>
+      {children}
+    </LeaveShell>
+  );
 }

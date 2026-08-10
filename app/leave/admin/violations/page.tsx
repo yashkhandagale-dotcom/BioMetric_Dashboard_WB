@@ -1,9 +1,9 @@
 'use client';
 
-import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import AdjustBalanceButton from '@/app/leave/admin/AdjustBalanceButton';
 import { getFYStartYear } from '@/lib/leaveSupabase/fyHelpers';
+import LeavePageHeader from '@/components/leave/LeavePageHeader';
 
 type ViolationType =
   | 'lwp_conversion'
@@ -106,13 +106,8 @@ export default function ViolationsPage() {
   }));
 
   return (
-    <div className="min-h-screen bg-[var(--bg-surface)] text-[var(--text-primary)] p-8 space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-xl font-semibold">Violations</h1>
-        <Link href="/leave/admin" className="text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)]">
-          ← Back to balances
-        </Link>
-      </div>
+    <div className="space-y-6">
+      <LeavePageHeader title="Violations" />
 
       {error && (
         <div className="bg-red-900/30 border border-red-500/30 text-red-700 dark:text-red-300 text-xs rounded-lg px-3 py-2">

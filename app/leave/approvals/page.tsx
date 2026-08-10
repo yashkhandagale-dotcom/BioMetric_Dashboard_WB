@@ -5,7 +5,7 @@ import { getEmployeeBalanceBreakdown } from '@/lib/leaveSupabase/getEmployeeBala
 import { getManagedEmployeeIds } from '@/lib/leaveSupabase/organization';
 import { PendingApprovalRequest } from '@/components/leave/ApprovalCard';
 import ApprovalsList from '@/components/leave/ApprovalsList';
-import Link from 'next/link';
+import LeavePageHeader from '@/components/leave/LeavePageHeader';
 
 type PendingRow = {
   id: string;
@@ -122,53 +122,28 @@ export default async function LeaveApprovalsHome() {
   });
 
   return (
-    <div className="min-h-screen bg-[var(--bg-surface)] text-[var(--text-primary)] px-6 py-10">
-      <div className="max-w-3xl mx-auto">
-        <div className="flex flex-wrap items-start justify-between gap-3 mb-1">
-          <div>
-            <Link href={isHr ? '/leave/admin' : '/leave/me'} className="text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)]">
-              ← {isHr ? 'Back to Leave Management' : 'Back to My Leave'}
-            </Link>
-            <p className="text-[var(--text-muted)] text-xs mt-1 mb-1">Leave Tracker</p>
-            <h1 className="text-xl font-semibold flex items-center gap-2">
-              Pending Approvals
-              {requests.length > 0 && (
-                <span className="inline-flex items-center justify-center bg-amber-500 text-white text-xs font-bold rounded-full min-w-[1.4rem] h-[1.4rem] px-1.5">
-                  {requests.length}
-                </span>
-              )}
-            </h1>
-          </div>
-          {!isHr && (
-            <div className="flex items-center gap-2">
-              <Link
-                href="/leave/team"
-                className="flex items-center gap-1.5 bg-emerald-600/20 border border-emerald-500/30 text-emerald-400 px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-emerald-600/30 transition-colors"
-                title="Read-only leave records for your team"
-              >
-                Leave Tracker (Team)
-              </Link>
-              <Link
-                href="/leave/me"
-                className="text-[var(--text-muted)] hover:text-[var(--text-primary)] px-3 py-1.5 rounded-lg text-xs transition-colors"
-              >
-                My Leave
-              </Link>
-            </div>
-          )}
+    <div className="max-w-3xl space-y-6">
+      <LeavePageHeader
+        title={
+          <span className="flex items-center gap-2">
+            Pending Approvals
+            {requests.length > 0 && (
+              <span className="inline-flex items-center justify-center bg-amber-500 text-white text-xs font-bold rounded-full min-w-[1.4rem] h-[1.4rem] px-1.5">
+                {requests.length}
+              </span>
+            )}
+          </span>
+        }
+        description={isHr ? 'All pending requests org-wide.' : 'Your direct reports\u2019 pending requests.'}
+      />
+
+      {error && (
+        <div className="bg-red-900/30 border border-red-500/30 text-red-700 dark:text-red-300 text-sm rounded-xl px-4 py-3 mb-4">
+          Could not load pending requests: {error.message}
         </div>
-        <p className="text-[var(--text-muted)] text-xs mb-6">
-          {isHr ? 'All pending requests org-wide.' : 'Your direct reports\u2019 pending requests.'}
-        </p>
+      )}
 
-        {error && (
-          <div className="bg-red-900/30 border border-red-500/30 text-red-700 dark:text-red-300 text-sm rounded-xl px-4 py-3 mb-4">
-            Could not load pending requests: {error.message}
-          </div>
-        )}
-
-        <ApprovalsList requests={requests} isHr={isHr} />
-      </div>
+      <ApprovalsList requests={requests} isHr={isHr} />
     </div>
   );
 }

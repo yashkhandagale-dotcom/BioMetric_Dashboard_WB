@@ -1,36 +1,20 @@
-import LeaveThemeSync from '@/components/leave/LeaveThemeSync';
-
-// must_change_password is enforced per-subtree (app/leave/me/layout.tsx,
-// team/layout.tsx, approvals/layout.tsx, admin/layout.tsx) rather than
-// here — this root layout wraps /leave/change-password too, and a plain
-// Next.js layout has no reliable way to read the current pathname to
-// exempt just that one route from a check made here.
-
-// Wraps every /leave/** route (admin, me, team, approvals, login) —
-// Next.js nests each subtree's own layout.tsx (auth guards) inside this
-// one. This file itself does NOT gate anything; it only mounts the theme
-// toggle once so it doesn't need to be added to every individual page.
-// Deliberately not a full nav bar (no links) — that's Sprint B/C scope
-// when the self-service/approval pages actually get built out; this is
-// theme-foundation only.
+// Wraps every /leave/** route (admin, me, team, approvals, login,
+// change-password) — Next.js nests each subtree's own layout.tsx (auth
+// guards + the shared LeaveShell nav) inside this one. This file itself
+// does NOT gate anything and does NOT render any chrome of its own.
 //
-// bg-[var(--bg-surface)] here isn't cosmetic — see globals.css's comment
-// on --background/--foreground for why: without an explicit background,
-// this strip fell through to <body>'s color, which used to be a
-// hardcoded near-black regardless of theme (fixed there too, but this is
-// the visible seam that made it obvious — a black bar above every Leave
-// Tracker page's own themed content, un-affected by the toggle).
+// It used to also mount a full-width row containing nothing but the
+// theme toggle, above every single /leave/** page (including the ones
+// that already had their own header) — that stray bar was the "the
+// dark/light toggle is taking up the whole header" issue: a full-bleed
+// strip whose only content was one small icon button. The toggle now
+// lives inside LeaveShell (sidebar footer on desktop, top bar on
+// mobile), sized like the compact icon button it always was, so this
+// layout has nothing left to render beyond the themed background.
 export default function LeaveRootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  return (
-    <>
-      <div className="flex justify-end px-4 sm:px-6 pt-3 bg-[var(--bg-surface)]">
-        <LeaveThemeSync />
-      </div>
-      {children}
-    </>
-  );
+  return <div className="bg-[var(--bg-surface)] min-h-screen">{children}</div>;
 }
