@@ -1,9 +1,12 @@
 ﻿import { NextRequest, NextResponse } from 'next/server';
 import { createLeaveClient } from '@/lib/leaveSupabase/server';
 import { applyLeavePolicyAndMutateBalance } from '@/lib/leaveSupabase/applyLeavePolicyAndMutateBalance';
+import { getEffectiveApproverId } from '@/lib/leaveSupabase/organization';
 
-// B2 — Reject. Same reporting_manager_id / HR-override authorization as
-// approve. Requires a comment (enforced both here and inside
+// B2 — Reject. Same effective-approver / HR-override authorization as
+// approve (see getEffectiveApproverId and approve/route.ts's header
+// comment for why this no longer checks reporting_manager_id directly).
+// Requires a comment (enforced both here and inside
 // rejectExistingRequest — see that function's own note on why it's
 // re-checked at the write boundary).
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -22,8 +25,8 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   if (!actingEmployee) {
     return NextResponse.json({ error: 'No employee record linked to this account' }, { status: 403 });
   }
-  if (!['manager', 'hr', 'hr_super_admin'].includes(actingEmployee.role)) {
-    return NextResponse.json({ error: 'Only a manager or HR can reject leave requests' }, { status: 403 });
+  if (!['manager', 'lead', 'hr', 'hr_super_admin'].includes(actingEmployee.role)) {
+    return NextResponse.json({ error: 'Only a manager, lead, or HR can reject leave requests' }, { status: 403 });
   }
 
   const body = await req.json().catch(() => ({}));
@@ -34,19 +37,21 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
   const { data: request } = await sessionClient
     .from('leave_requests')
-    .select('id, employee_id, employees!inner(reporting_manager_id)')
+    .select('id, employee_id, employees!inner(department, reporting_lead_id)')
     .eq('id', id)
     .maybeSingle();
   if (!request) {
     return NextResponse.json({ error: 'Leave request not found' }, { status: 404 });
   }
-  const reportingManagerId = Array.isArray(request.employees)
-    ? request.employees[0]?.reporting_manager_id
-    : (request.employees as unknown as { reporting_manager_id: string | null })?.reporting_manager_id;
+  const requestEmployee = Array.isArray(request.employees) ? request.employees[0] : request.employees;
+  const { approverId } = await getEffectiveApproverId(sessionClient, {
+    department: requestEmployee?.department ?? null,
+    reporting_lead_id: requestEmployee?.reporting_lead_id ?? null,
+  });
 
-  const isOwnManager = reportingManagerId === actingEmployee.id;
+  const isEffectiveApprover = !!approverId && approverId === actingEmployee.id;
   const isHr = actingEmployee.role === 'hr' || actingEmployee.role === 'hr_super_admin';
-  if (!isOwnManager && !isHr) {
+  if (!isEffectiveApprover && !isHr) {
     return NextResponse.json({ error: 'You can only reject requests from your own direct reports' }, { status: 403 });
   }
 

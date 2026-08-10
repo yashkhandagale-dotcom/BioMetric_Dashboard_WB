@@ -1,11 +1,17 @@
 ﻿import { NextRequest, NextResponse } from 'next/server';
 import { createLeaveClient } from '@/lib/leaveSupabase/server';
 import { applyLeavePolicyAndMutateBalance } from '@/lib/leaveSupabase/applyLeavePolicyAndMutateBalance';
+import { getEffectiveApproverId } from '@/lib/leaveSupabase/organization';
 
-// B2 — Approve. Only the request's own direct manager (or HR, who can
-// override anywhere per the plan's role table) may approve it — checked
-// here against reporting_manager_id rather than trusting the client,
-// since this is a real balance-mutating write.
+// B2 — Approve. The request's effective approver (department's manager,
+// or that employee's lead when the department has no manager assigned —
+// see getEffectiveApproverId) or HR (who can override anywhere per the
+// plan's role table) may approve it. Previously this checked
+// employees.reporting_manager_id directly, which is only ever populated
+// for manager-role employees (their own reporting chain) — never for a
+// regular employee/lead — so a manager's or lead's approve click always
+// 403'd even though the approvals queue (correctly scoped via
+// department_managers) showed them the request in the first place.
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const sessionClient = await createLeaveClient();
@@ -22,25 +28,27 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   if (!actingEmployee) {
     return NextResponse.json({ error: 'No employee record linked to this account' }, { status: 403 });
   }
-  if (!['manager', 'hr', 'hr_super_admin'].includes(actingEmployee.role)) {
-    return NextResponse.json({ error: 'Only a manager or HR can approve leave requests' }, { status: 403 });
+  if (!['manager', 'lead', 'hr', 'hr_super_admin'].includes(actingEmployee.role)) {
+    return NextResponse.json({ error: 'Only a manager, lead, or HR can approve leave requests' }, { status: 403 });
   }
 
   const { data: request } = await sessionClient
     .from('leave_requests')
-    .select('id, employee_id, employees!inner(reporting_manager_id)')
+    .select('id, employee_id, employees!inner(department, reporting_lead_id)')
     .eq('id', id)
     .maybeSingle();
   if (!request) {
     return NextResponse.json({ error: 'Leave request not found' }, { status: 404 });
   }
-  const reportingManagerId = Array.isArray(request.employees)
-    ? request.employees[0]?.reporting_manager_id
-    : (request.employees as unknown as { reporting_manager_id: string | null })?.reporting_manager_id;
+  const requestEmployee = Array.isArray(request.employees) ? request.employees[0] : request.employees;
+  const { approverId, via } = await getEffectiveApproverId(sessionClient, {
+    department: requestEmployee?.department ?? null,
+    reporting_lead_id: requestEmployee?.reporting_lead_id ?? null,
+  });
 
-  const isOwnManager = reportingManagerId === actingEmployee.id;
+  const isEffectiveApprover = !!approverId && approverId === actingEmployee.id;
   const isHr = actingEmployee.role === 'hr' || actingEmployee.role === 'hr_super_admin';
-  if (!isOwnManager && !isHr) {
+  if (!isEffectiveApprover && !isHr) {
     return NextResponse.json({ error: 'You can only approve requests from your own direct reports' }, { status: 403 });
   }
 
@@ -57,7 +65,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     source: 'manager_approval',
     existingRequestId: id,
     actingEmployeeId: actingEmployee.id,
-    approverRole: isHr && !isOwnManager ? 'hr' : 'manager',
+    approverRole: isHr && !isEffectiveApprover ? 'hr' : via === 'lead' ? 'lead' : 'manager',
   });
 
   if (result.violation) {
