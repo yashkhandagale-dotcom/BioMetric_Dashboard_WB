@@ -20,15 +20,19 @@
 // entry, is what fixes the "theme flips every time I switch tabs" bug —
 // it used to be read inside LeaveShell itself, which DOES remount on
 // every such switch. See LeaveThemeInit.tsx for the full explanation.
+import './globals.css';
 import LeaveThemeInit from '@/components/leave/LeaveThemeInit';
+import ThemeProvider from '@/components/ThemeProvider';
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
       <head />
       <body className="bg-[var(--bg-surface)] min-h-screen">
-        <LeaveThemeInit />
-        {children}
+        <ThemeProvider>
+          <LeaveThemeInit />
+          {children}
+        </ThemeProvider>
       </body>
     </html>
   );
