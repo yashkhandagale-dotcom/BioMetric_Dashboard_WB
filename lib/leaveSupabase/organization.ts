@@ -285,14 +285,16 @@ export async function getOrgTree(
   let unassignedCount = 0;
   for (const r of rows ?? []) {
     const node = nodesById.get(r.id)!;
-    // For employees prefer `reporting_lead_id`; if absent, fall back to the
-    // department's assigned manager (if any) so they appear under that
-    // manager in the chart. For non-employee roles use `reporting_manager_id`.
+    // Build a manager-centric hierarchy: managers form the reporting
+    // chain (via reporting_manager_id) and all other people (leads,
+    // employees, etc.) attach directly to their department's assigned
+    // manager when available. This avoids showing leads as intermediate
+    // nodes in the tree — the chart will be manager-based as requested.
     let parentId: string | null | undefined;
-    if (r.role === 'employee') {
-      parentId = r.reporting_lead_id ?? deptManagerByDept.get(r.department ?? '') ?? null;
-    } else {
+    if (r.role === 'manager') {
       parentId = r.reporting_manager_id;
+    } else {
+      parentId = deptManagerByDept.get(r.department ?? '') ?? null;
     }
     const parent = parentId ? nodesById.get(parentId) : undefined;
     if (parent) {
