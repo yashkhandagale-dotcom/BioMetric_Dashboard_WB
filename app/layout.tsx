@@ -29,7 +29,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   const _themeInitScript = `(function(){try{var t=localStorage.getItem('theme');if(!t)return;document.documentElement.classList.toggle('dark',t==='dark');document.documentElement.style.colorScheme = t==='dark'? 'dark':'light';}catch(e){}})();`;
 
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <head>
         <Script id="theme-init" strategy="beforeInteractive" dangerouslySetInnerHTML={{ __html: _themeInitScript }} />
       </head>

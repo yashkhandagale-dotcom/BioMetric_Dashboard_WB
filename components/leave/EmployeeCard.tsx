@@ -68,8 +68,10 @@ export default function EmployeeCard({
         <span className={`border rounded-full px-2 py-0.5 capitalize ${statusStyle}`}>
           {employee.employmentStatus.replace('_', ' ')}
         </span>
-        {employee.employmentStatus === 'notice_period' && employee.noticePeriodDays != null && (
-          <span className="text-[var(--text-muted)]">{employee.noticePeriodDays}-day notice</span>
+        {employee.employmentStatus === 'notice_period' && (
+          <span className="text-[var(--text-muted)]">
+            {employee.noticePeriodDays != null ? `${employee.noticePeriodDays}-day notice` : 'Notice period'}
+          </span>
         )}
         <span className="text-[var(--text-muted)]">DOJ {employee.dateOfJoining}</span>
       </div>
