@@ -257,6 +257,14 @@ export async function getOrgTree(
     .order('full_name');
   if (error) return { roots: [], unassignedCount: 0, error: error.message };
 
+  // Pull department -> manager assignment so we can treat a department's
+  // assigned manager as the effective parent for employees who don't
+  // have an explicit reporting_lead_id set. This ensures the org chart
+  // reflects department assignments (the "team" concept) even when the
+  // per-employee reporting fields are unset.
+  const { data: deptManagerRows } = await supabase.from('department_managers').select('department, manager_id');
+  const deptManagerByDept = new Map((deptManagerRows ?? []).map((r) => [r.department, r.manager_id] as const));
+
   const nodesById = new Map<string, OrgTreeNode>();
   for (const r of rows ?? []) {
     nodesById.set(r.id, {
@@ -277,7 +285,15 @@ export async function getOrgTree(
   let unassignedCount = 0;
   for (const r of rows ?? []) {
     const node = nodesById.get(r.id)!;
-    const parentId = r.role === 'employee' ? r.reporting_lead_id : r.reporting_manager_id;
+    // For employees prefer `reporting_lead_id`; if absent, fall back to the
+    // department's assigned manager (if any) so they appear under that
+    // manager in the chart. For non-employee roles use `reporting_manager_id`.
+    let parentId: string | null | undefined;
+    if (r.role === 'employee') {
+      parentId = r.reporting_lead_id ?? deptManagerByDept.get(r.department ?? '') ?? null;
+    } else {
+      parentId = r.reporting_manager_id;
+    }
     const parent = parentId ? nodesById.get(parentId) : undefined;
     if (parent) {
       parent.children.push(node);
