@@ -77,6 +77,18 @@ function rateColor(rate: number): string {
   return '#f87171';
 }
 
+// Wider 5-tier gradient for the monthly heatmap view (rateColor's 3 tiers
+// are fine for a single tooltip line, but a grid of colored cells benefits
+// from more visual separation between "70% attendance" and "95% attendance"
+// than 2 buckets would give).
+function monthlyAttendanceColor(pct: number): string {
+  if (pct >= 90) return '#059669';
+  if (pct >= 75) return '#34d399';
+  if (pct >= 60) return '#fbbf24';
+  if (pct >= 40) return '#f97316';
+  return '#f87171';
+}
+
 function ChartSubtitle({ selectedDepts }: { selectedDepts?: string[] }) {
   if (!selectedDepts) return null;
   const label = selectedDepts.length === 0 ? 'All Departments' : selectedDepts.join(', ');
@@ -1212,8 +1224,9 @@ export function AttendanceHeatmap({
   // Group the (already date-range-filtered) dates by calendar month. When the
   // selected range spans more than one month, rendering every date in a
   // single row gets unreadable and previously got silently truncated to the
-  // first 31 entries — so instead we split into per-month chunks and let the
-  // user pick which month to look at via a dropdown.
+  // first 31 entries — so instead we split into per-month chunks: Monthly
+  // Overview (below) summarizes all of them at once, and Daily Detail lets
+  // you pick one via dropdown to see individual days.
   const monthGroups = useMemo(() => {
     const map = new Map<string, string[]>();
     for (const d of dates) {
@@ -1236,21 +1249,72 @@ export function AttendanceHeatmap({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [monthGroups]);
 
-  if (records.length === 0) return null;
-
   const isMultiMonth = monthGroups.length > 1;
+
+  // Monthly Overview vs Daily Detail. A 12-month range showing one
+  // day-grid at a time behind a dropdown means actually noticing a
+  // consistently-low performer requires opening all 12 months one by
+  // one — so once the range spans more than one month, default to one
+  // column per month colored by that month's attendance %, and let a
+  // click on any month cell jump straight into its daily detail.
+  // Manually overridable via the toggle in the header either way.
+  const [viewMode, setViewMode] = useState<'day' | 'month'>('day');
+  useEffect(() => {
+    setViewMode(isMultiMonth ? 'month' : 'day');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isMultiMonth]);
+
+  // Per employee, per month: how many eligible (non weekly-off, non
+  // holiday) days were present vs total — weekly-offs/holidays are
+  // excluded from the denominator so a month full of holidays doesn't
+  // read as a bad attendance month.
+  const monthlyStats = useMemo(() => {
+    const map = new Map<string, { present: number; eligible: number }>();
+    for (const r of records) {
+      const monthKey = r.date.slice(0, 7);
+      const leave = leaveMap?.get(leaveKey(r.employeeCode, r.date));
+      const status = getCellStatus(r, graceMinutes, shiftStartMinutes, shiftEndMinutes, leave);
+      if (status === 'weeklyoff' || status === 'holiday') continue;
+      const key = `${r.employeeCode}_${monthKey}`;
+      const entry = map.get(key) ?? { present: 0, eligible: 0 };
+      entry.eligible += 1;
+      if (status === 'present' || status === 'late' || status === 'earlyexit' || status === 'shortday') entry.present += 1;
+      map.set(key, entry);
+    }
+    return map;
+  }, [records, leaveMap, graceMinutes, shiftStartMinutes, shiftEndMinutes]);
+
+  const monthPct = (code: string, monthKey: string): number | null => {
+    const e = monthlyStats.get(`${code}_${monthKey}`);
+    if (!e || e.eligible === 0) return null;
+    return Math.round((e.present / e.eligible) * 100);
+  };
+
   const visibleDates = isMultiMonth
     ? (monthGroups.find(([key]) => key === selectedMonth)?.[1] ?? monthGroups[monthGroups.length - 1][1])
     : dates;
 
   const monthLabel = (key: string) =>
     new Date(`${key}-01T00:00:00`).toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
+  const monthLabelShort = (key: string) =>
+    new Date(`${key}-01T00:00:00`).toLocaleDateString('en-IN', { month: 'short', year: '2-digit' });
 
-  // Rank employees for the default (unsearched) view — most absences first
-  // is far more useful than insertion order once a company has hundreds of
-  // employees and only the top 15 show by default. A-Z is offered as the
-  // alternative for "I'm looking for someone specific" without typing.
+  // Rank employees worst-first in both modes, just measured differently:
+  // Daily Detail counts raw absent days within the one visible month;
+  // Monthly Overview averages attendance % across every month in range,
+  // so a consistently weak performer surfaces without having to open
+  // each month individually to spot them.
   const sortedEmployees = useMemo(() => {
+    if (viewMode === 'month') {
+      const withAvg = employees.map(emp => {
+        const pcts = monthGroups.map(([key]) => monthPct(emp.code, key)).filter((p): p is number => p !== null);
+        const avgPct = pcts.length > 0 ? Math.round(pcts.reduce((a, b) => a + b, 0) / pcts.length) : 100;
+        return { ...emp, absences: 0, avgPct };
+      });
+      return heatmapSort === 'az'
+        ? withAvg.sort((a, b) => a.name.localeCompare(b.name))
+        : withAvg.sort((a, b) => a.avgPct - b.avgPct || a.name.localeCompare(b.name));
+    }
     const withAbsences = employees.map(emp => {
       let absences = 0;
       for (const date of visibleDates) {
@@ -1259,15 +1323,19 @@ export function AttendanceHeatmap({
         const status = r ? getCellStatus(r, graceMinutes, shiftStartMinutes, shiftEndMinutes, leave) : 'absent';
         if (status === 'absent') absences++;
       }
-      return { ...emp, absences };
+      return { ...emp, absences, avgPct: 0 };
     });
     return heatmapSort === 'az'
       ? withAbsences.sort((a, b) => a.name.localeCompare(b.name))
       : withAbsences.sort((a, b) => b.absences - a.absences || a.name.localeCompare(b.name));
-  }, [employees, visibleDates, cellMap, leaveMap, graceMinutes, shiftStartMinutes, shiftEndMinutes, heatmapSort]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [employees, visibleDates, cellMap, leaveMap, graceMinutes, shiftStartMinutes, shiftEndMinutes, heatmapSort, viewMode, monthGroups, monthlyStats]);
 
-  // Row height 22px = the w-5 h-5 (20px) cell row + its mb-0.5 (2px) gap.
-  const heatmapLayout = useEntityChartLayout(sortedEmployees, { getLabel: (e) => e.name, rowHeight: 22 });
+  // Row height differs between the two grids — Monthly Overview's cells
+  // carry a percentage label so they're taller than the plain day squares.
+  const heatmapLayout = useEntityChartLayout(sortedEmployees, { getLabel: (e) => e.name, rowHeight: viewMode === 'month' ? 32 : 22 });
+
+  if (records.length === 0) return null;
 
   return (
     <div className="bg-[var(--bg-elevated)] rounded-xl border border-[var(--border)] p-4">
@@ -1275,18 +1343,34 @@ export function AttendanceHeatmap({
         <div>
           <h3 className="text-[var(--text-primary)] font-semibold text-sm">Attendance Heatmap</h3>
           <p className="text-[var(--text-muted)] text-xs mt-0.5">
-            {employees.length} employees · {visibleDates.length} days
-            {isMultiMonth && selectedMonth ? ` in ${monthLabel(selectedMonth)}` : ''}
-            {' '}— click any cell for details
+            {viewMode === 'month'
+              ? <>{employees.length} employees · {monthGroups.length} months — colored by attendance % · click a month to see daily detail</>
+              : <>{employees.length} employees · {visibleDates.length} days{isMultiMonth && selectedMonth ? ` in ${monthLabel(selectedMonth)}` : ''} — click any cell for details</>}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          {isMultiMonth && (
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => setViewMode('month')}
+                className={`px-2 py-1 rounded text-[10px] font-medium transition-colors ${viewMode === 'month' ? 'bg-blue-600 text-white' : 'bg-[var(--bg-elevated)] text-[var(--text-muted)] hover:text-[var(--text-primary)]'}`}
+              >
+                Monthly Overview
+              </button>
+              <button
+                onClick={() => setViewMode('day')}
+                className={`px-2 py-1 rounded text-[10px] font-medium transition-colors ${viewMode === 'day' ? 'bg-blue-600 text-white' : 'bg-[var(--bg-elevated)] text-[var(--text-muted)] hover:text-[var(--text-primary)]'}`}
+              >
+                Daily Detail
+              </button>
+            </div>
+          )}
           <div className="flex items-center gap-1">
             <button
               onClick={() => setHeatmapSort('absences')}
               className={`px-2 py-1 rounded text-[10px] font-medium transition-colors ${heatmapSort === 'absences' ? 'bg-blue-600 text-white' : 'bg-[var(--bg-elevated)] text-[var(--text-muted)] hover:text-[var(--text-primary)]'}`}
             >
-              Most Absent
+              {viewMode === 'month' ? 'Lowest Attendance' : 'Most Absent'}
             </button>
             <button
               onClick={() => setHeatmapSort('az')}
@@ -1295,19 +1379,24 @@ export function AttendanceHeatmap({
               A → Z
             </button>
           </div>
-          {isMultiMonth && (
+          {viewMode === 'day' && isMultiMonth && (
             <select
               value={selectedMonth ?? ''}
               onChange={e => setSelectedMonth(e.target.value)}
               className="bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg text-xs text-[var(--text-primary)] px-2 py-1.5 focus:outline-none focus:border-blue-500"
-              title="Selected range spans multiple months — pick one to view"
+              title="Pick which month's days to view"
             >
               {monthGroups.map(([key]) => (
                 <option key={key} value={key}>{monthLabel(key)}</option>
               ))}
             </select>
           )}
-          <InfoTooltip title="Attendance Heatmap" description="Each cell = one employee on one day. Colors show attendance status. Click any cell to see details. When your selected range spans more than one month, use the month dropdown to switch between them. Sort/search the employee list on the left when there are more than 15." />
+          <InfoTooltip
+            title="Attendance Heatmap"
+            description={viewMode === 'month'
+              ? "Each cell = one employee's attendance % for that month (weekly-offs and holidays excluded from the calculation). Click a cell to jump into that month's daily detail. Sort/search the employee list when there are more than 15."
+              : "Each cell = one employee on one day. Colors show attendance status. Click any cell to see details. When your selected range spans more than one month, switch to Monthly Overview for a summary, or use the month dropdown here to pick a single month's days. Sort/search the employee list when there are more than 15."}
+          />
         </div>
       </div>
 
@@ -1323,6 +1412,41 @@ export function AttendanceHeatmap({
 
       {heatmapLayout.visibleRows.length === 0
         ? <div className="h-32 flex items-center justify-center text-[var(--text-muted)] text-sm">No employees match &quot;{heatmapLayout.query}&quot;</div>
+        : viewMode === 'month'
+        ? (
+          <div className="overflow-x-auto">
+            <div
+              style={{ minWidth: monthGroups.length * 52 + 160, maxHeight: heatmapLayout.maxWrapperHeight, overflowY: heatmapLayout.willScroll ? 'auto' : 'visible' }}
+            >
+              <div className="flex gap-1 mb-1 ml-[152px] sticky top-0 bg-[var(--bg-elevated)] z-10">
+                {monthGroups.map(([key]) => (
+                  <div key={key} className="w-12 text-[9px] text-[var(--text-muted)] text-center flex-shrink-0">{monthLabelShort(key)}</div>
+                ))}
+              </div>
+              {heatmapLayout.visibleRows.map(emp => (
+                <div key={emp.code} className="flex items-center gap-1 mb-1">
+                  <div className="w-36 text-[10px] text-[var(--text-muted)] truncate flex-shrink-0 text-right pr-2" title={`${emp.name} · ${emp.avgPct}% avg attendance across ${monthGroups.length} months`}>
+                    {emp.name.length > 16 ? emp.name.slice(0, 15) + '…' : emp.name}
+                  </div>
+                  {monthGroups.map(([key]) => {
+                    const pct = monthPct(emp.code, key);
+                    return (
+                      <button
+                        key={key}
+                        onClick={() => { setSelectedMonth(key); setViewMode('day'); }}
+                        title={`${emp.name} · ${monthLabel(key)} · ${pct === null ? 'no data' : pct + '% attendance'}`}
+                        className="w-12 h-7 rounded-sm flex-shrink-0 flex items-center justify-center text-[9px] font-medium text-white/90 hover:ring-1 hover:ring-white/40 transition-all"
+                        style={{ backgroundColor: pct === null ? '#33415560' : monthlyAttendanceColor(pct) }}
+                      >
+                        {pct === null ? '—' : `${pct}%`}
+                      </button>
+                    );
+                  })}
+                </div>
+              ))}
+            </div>
+          </div>
+        )
         : (
           <div className="overflow-x-auto">
             <div
@@ -1361,15 +1485,28 @@ export function AttendanceHeatmap({
         )}
 
       <div className="flex flex-wrap gap-3 mt-3">
-        {Object.entries({ present: 'Present', late: 'Late', earlyexit: 'Early Exit', on_leave: 'On Leave', absent: UNMARKED_LEAVE_LABEL, shortday: 'Short Day', weeklyoff: 'Weekly Off', holiday: 'Holiday' }).map(([k, label]) => (
-          <div key={k} className="flex items-center gap-1">
-            <div className="w-3 h-3 rounded-sm flex-shrink-0" style={{ backgroundColor: STATUS_COLORS_CELL[k] + '90' }} />
-            <span className="text-[var(--text-muted)] text-[10px]">{label}</span>
-          </div>
-        ))}
+        {viewMode === 'month'
+          ? [
+              { pct: 90, label: '90%+' },
+              { pct: 75, label: '75–89%' },
+              { pct: 60, label: '60–74%' },
+              { pct: 40, label: '40–59%' },
+              { pct: 0, label: '<40%' },
+            ].map(({ pct, label }) => (
+              <div key={label} className="flex items-center gap-1">
+                <div className="w-3 h-3 rounded-sm flex-shrink-0" style={{ backgroundColor: monthlyAttendanceColor(pct) }} />
+                <span className="text-[var(--text-muted)] text-[10px]">{label}</span>
+              </div>
+            ))
+          : Object.entries({ present: 'Present', late: 'Late', earlyexit: 'Early Exit', on_leave: 'On Leave', absent: UNMARKED_LEAVE_LABEL, shortday: 'Short Day', weeklyoff: 'Weekly Off', holiday: 'Holiday' }).map(([k, label]) => (
+              <div key={k} className="flex items-center gap-1">
+                <div className="w-3 h-3 rounded-sm flex-shrink-0" style={{ backgroundColor: STATUS_COLORS_CELL[k] + '90' }} />
+                <span className="text-[var(--text-muted)] text-[10px]">{label}</span>
+              </div>
+            ))}
       </div>
 
-      {tooltip && (() => {
+      {viewMode === 'day' && tooltip && (() => {
         const leave = leaveMap?.get(leaveKey(tooltip.r.employeeCode, tooltip.r.date));
         const statusLine = leave
           ? `On Leave — ${leaveLabelFor(leave.leaveType, leave.halfDayLeaveType)}`

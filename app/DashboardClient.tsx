@@ -36,7 +36,6 @@ import HolidayModal from '@/components/HolidayModal';
 import InsightsStrip from '@/components/InsightsStrip';
 import SettingsPanel from '@/components/SettingsPanel';
 import ThemeToggle from '@/components/ThemeToggle';
-import DurationControl, { DurationPreset } from '@/components/DurationControl';
 
 type AppState = 'upload' | 'mapping' | 'dashboard';
 
@@ -238,11 +237,6 @@ function HRDashboard() {
   const [allUploadedRecords, setAllUploadedRecords] = useState<AttendanceRecord[]>([]);
   const [dateFrom, setDateFrom] = useState<string | null>(null);
   const [dateTo, setDateTo] = useState<string | null>(null);
-  // Tracks which DurationControl preset (if any) produced the current
-  // dateFrom/dateTo, purely so the preset buttons can show which one is
-  // active. Editing the From/To inputs directly falls back to 'custom' —
-  // see the onChange handlers on those inputs below.
-  const [durationPreset, setDurationPreset] = useState<DurationPreset>('custom');
 
   // Shared drill state: when DeptAttendanceChart drills to a dept,
   // DeptProductivityChart follows
@@ -515,7 +509,6 @@ function HRDashboard() {
     // just been imported. Reset the range here, same as handleMonthChange.
     setDateFrom(null);
     setDateTo(null);
-    setDurationPreset('custom');
     setDeptDrillSync(null);
     setAppState('dashboard');
     setPendingBatch([]);
@@ -535,7 +528,6 @@ function HRDashboard() {
     setTableFilter('all');
     setDateFrom(null);
     setDateTo(null);
-    setDurationPreset('custom');
     setDeptDrillSync(null);
     syncURL(key, 'ALL', []);
   }
@@ -668,7 +660,6 @@ function HRDashboard() {
     if (currentDayIndex < 0) return;
     const next = allAvailableDates[currentDayIndex + delta];
     if (!next) return;
-    setDurationPreset('custom');
     setDateFrom(next);
     setDateTo(next);
   }
@@ -771,22 +762,12 @@ function HRDashboard() {
 
             {/* ── Filter Bar ─────────────────────────────────────────────── */}
             <div className="flex flex-wrap items-center gap-3">
-              {/* Duration presets — one click sets dateFrom/dateTo for every chart below.
-                  Custom stays available via the From/To inputs next to it for exact control. */}
-              {allAvailableDates.length > 0 && (
-                <DurationControl
-                  minAvailableDate={minAvailableDate}
-                  maxAvailableDate={maxAvailableDate}
-                  activePreset={durationPreset}
-                  onApplyPreset={(preset, from, to) => {
-                    setDurationPreset(preset);
-                    if (preset === 'custom') return; // leave current From/To as-is for manual editing
-                    setDateFrom(from);
-                    setDateTo(to);
-                  }}
-                />
-              )}
-              {/* Date range — restricted to the span of dates actually present in uploaded data */}
+              {/* Date range — restricted to the span of dates actually present in uploaded data.
+                  Custom only, deliberately — a preset like "This Month" would show/hide data
+                  based on today's calendar date rather than what's actually been uploaded,
+                  which is misleading (e.g. "This Month" looking empty in August when the
+                  latest uploaded data is from July). The min/max below already constrain
+                  the picker to real data, so there's no invalid range to protect against. */}
               {allAvailableDates.length > 0 && (
                 <div className="flex items-center gap-1.5 flex-wrap bg-[var(--bg-elevated)]/60 border border-[var(--border)] rounded-lg px-3 py-1.5">
                   <span className="text-[var(--text-muted)] text-xs font-medium">From</span>
@@ -801,8 +782,7 @@ function HRDashboard() {
                         showToast('error', `No data outside ${minAvailableDate} → ${maxAvailableDate}.`);
                         return;
                       }
-                      setDurationPreset('custom');
-                      setDateFrom(v);
+                                        setDateFrom(v);
                       // Auto-set To = From for single-day selection if To not set
                       if (v && !dateTo) setDateTo(v);
                       // If From > To, reset To
@@ -824,8 +804,7 @@ function HRDashboard() {
                         showToast('error', `No data outside ${minAvailableDate} → ${maxAvailableDate}.`);
                         return;
                       }
-                      setDurationPreset('custom');
-                      setDateTo(v);
+                                        setDateTo(v);
                       // Auto-set From = To for single-day selection if From not set
                       if (v && !dateFrom) setDateFrom(v);
                     }}
@@ -836,7 +815,7 @@ function HRDashboard() {
                     <span className="text-[var(--text-muted)] text-[10px] italic ml-1">(current period)</span>
                   )}
                   {(dateFrom || dateTo) && (
-                    <button onClick={() => { setDateFrom(null); setDateTo(null); setDurationPreset('custom'); }} className="text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors ml-1" title="Clear date range">
+                    <button onClick={() => { setDateFrom(null); setDateTo(null); }} className="text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors ml-1" title="Clear date range">
                       <XIcon className="w-3.5 h-3.5" />
                     </button>
                   )}
@@ -887,7 +866,7 @@ function HRDashboard() {
                     </span>
                   )}
                 </div>
-                <button onClick={() => { setDateFrom(null); setDateTo(null); setDurationPreset('custom'); }} className="text-[var(--text-muted)]/60 hover:text-[var(--text-primary)] transition-colors flex-shrink-0">
+                <button onClick={() => { setDateFrom(null); setDateTo(null); }} className="text-[var(--text-muted)]/60 hover:text-[var(--text-primary)] transition-colors flex-shrink-0">
                   <XIcon className="w-4 h-4" />
                 </button>
               </div>

@@ -179,7 +179,13 @@ const STATUS_COLOR: Record<EffectiveStatus, string> = {
   leave_sick: 'bg-pink-500',
   leave_lwp: 'bg-orange-500',
   half_day: 'bg-amber-500',
-  weeklyoff: 'bg-[var(--bg-elevated)]',
+  // weeklyoff was previously 'bg-[var(--bg-elevated)]' — literally the same
+  // color as the card it sits on, so the cell had no visible border/fill and
+  // effectively disappeared in both light and dark mode. It's meant to read
+  // as "not a workday" rather than a status, so it stays a muted neutral
+  // rather than a bright status color — just one that's actually visible
+  // against the card in both themes.
+  weeklyoff: 'bg-slate-500',
   holiday: 'bg-violet-500',
   // D7-3 (stretch): only ever populated where a caller opts in to
   // getEffectiveStatus's 4th arg — see lib/useDashboardData.ts.
