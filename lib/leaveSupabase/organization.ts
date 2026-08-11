@@ -285,39 +285,36 @@ export async function getOrgTree(
   const roots: OrgTreeNode[] = [];
   let unassignedCount = 0;
 
-  // Compute immediate parent for every node according to manager-centric rules.
-  const parentById = new Map<string, string | null>();
-  for (const r of rows ?? []) {
-    const idStr = String(r.id);
-    if (r.role === 'manager') parentById.set(idStr, r.reporting_manager_id ? String(r.reporting_manager_id) : null);
-    else parentById.set(idStr, deptManagerByDept.get(r.department ?? '') ?? null);
-  }
+  // Manager-first construction:
+  // 1) Build manager-only tree using reporting_manager_id (managers can nest under managers).
+  // 2) Attach all non-manager rows (leads/employees/hr) to their department's assigned manager when present.
+  const managerIds = new Set<string>();
+  for (const r of rows ?? []) if (r.role === 'manager') managerIds.add(String(r.id));
 
-  // Attach each node to the highest existing ancestor; detect cycles and
-  // treat cycle participants as roots so the UI shows a coherent forest.
+  // Attach managers under their reporting_manager_id if that target is also a manager.
   for (const r of rows ?? []) {
+    if (r.role !== 'manager') continue;
     const idStr = String(r.id);
     const node = nodesById.get(idStr)!;
-    let cursor = parentById.get(idStr) ?? null;
-    const seen = new Set<string>();
-    let attached = false;
-    while (cursor) {
-      if (seen.has(cursor)) break; // cycle
-      seen.add(cursor);
-      const parentNode = nodesById.get(String(cursor));
-      if (!parentNode) {
-        // parent points at missing/exited user
-        break;
-      }
-      const next = parentById.get(String(parentNode.id)) ?? null;
-      if (!next) {
-        parentNode.children.push(node);
-        attached = true;
-        break;
-      }
-      cursor = next;
+    const parentIdStr = r.reporting_manager_id ? String(r.reporting_manager_id) : null;
+    if (parentIdStr && managerIds.has(parentIdStr) && nodesById.has(parentIdStr)) {
+      const parentNode = nodesById.get(parentIdStr)!;
+      parentNode.children.push(node);
+    } else {
+      roots.push(node);
     }
-    if (!attached) {
+  }
+
+  // Now attach non-manager rows to their department's manager when possible.
+  for (const r of rows ?? []) {
+    if (r.role === 'manager') continue;
+    const idStr = String(r.id);
+    const node = nodesById.get(idStr)!;
+    const deptMgrId = deptManagerByDept.get(r.department ?? '') ?? null;
+    if (deptMgrId && nodesById.has(String(deptMgrId))) {
+      const mgrNode = nodesById.get(String(deptMgrId))!;
+      mgrNode.children.push(node);
+    } else {
       roots.push(node);
       if (r.role === 'employee') unassignedCount += 1;
     }
