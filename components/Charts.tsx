@@ -13,9 +13,9 @@ import {
   ChevronLeft,
   ChevronRight,
 } from 'lucide-react';
-import { DailyTrend, DeptAttendance, HoursDistribution, AttendanceRecord, DayDeptSnapshot, Holiday, OfficeAttendance, LeaveRecord } from '@/lib/types';
-import { durationToMinutes, minutesToHHMM } from '@/lib/parseCSV';
-import { isPresent, isAbsent, isWeeklyOff, SHIFT_MINUTES, computeLateMinutes, computeEarlyMinutes, getLateMinutes, getEarlyMinutes, computeProductivityLostMinutes, targetShiftMinutes, leaveKey } from '@/lib/useDashboardData';
+import { DailyTrend, DeptAttendance, HoursDistribution, AttendanceRecord, DayDeptSnapshot, Holiday, OfficeAttendance } from '@/lib/types';
+import { durationToMinutes, minutesToHHMM, effectiveMinutes } from '@/lib/parseCSV';
+import { isPresent, isAbsent, isWeeklyOff, SHIFT_MINUTES, computeLateMinutes, computeEarlyMinutes, getLateMinutes, getEarlyMinutes, computeProductivityLostMinutes, targetShiftMinutes } from '@/lib/useDashboardData';
 import { isHoliday } from '@/lib/holidays';
 import { leaveLabelFor, UNMARKED_LEAVE_LABEL } from '@/lib/leaveLabels';
 import InfoTooltip from './InfoTooltip';
@@ -802,10 +802,10 @@ export function DeptProductivityChart({
 
   const drillData = useMemo(() => {
     if (!drillDept || safeRecords.length === 0) return [];
-    const map = new Map<string, { name: string; code: string; lostMins: number; presentDays: number; daysWithDuration: number; effectiveHours: number }>();
+    const map = new Map<string, { name: string; code: string; lostMins: number; presentDays: number; daysWithDuration: number; effectiveMins: number }>();
     for (const r of safeRecords) {
       if (r.department !== drillDept || isWeeklyOff(r.status) || !isPresent(r.status) || r.isShortDay) continue;
-      if (!map.has(r.employeeCode)) map.set(r.employeeCode, { name: r.employeeName || r.employeeCode, code: r.employeeCode, lostMins: 0, presentDays: 0, daysWithDuration: 0, effectiveHours: 0 });
+      if (!map.has(r.employeeCode)) map.set(r.employeeCode, { name: r.employeeName || r.employeeCode, code: r.employeeCode, lostMins: 0, presentDays: 0, daysWithDuration: 0, effectiveMins: 0 });
       const e = map.get(r.employeeCode)!;
       e.presentDays++;
       e.lostMins += computeProductivityLostMinutes(r, shiftStartMinutes, shiftEndMinutes);
@@ -822,14 +822,14 @@ export function DeptProductivityChart({
       // different things.
       if (raw > 60) {
         e.daysWithDuration++;
-        e.effectiveHours += (raw - 60) / 60;
+        e.effectiveMins += effectiveMinutes(raw);
       }
     }
     const target = targetShiftMinutes(shiftStartMinutes, shiftEndMinutes);
     const rows = Array.from(map.values()).map(e => ({
       ...e,
       daysLost: +(e.lostMins / target).toFixed(2),
-      avgEffectiveHours: e.daysWithDuration > 0 ? +(e.effectiveHours / e.daysWithDuration).toFixed(2) : 0,
+      avgEffectiveMins: e.daysWithDuration > 0 ? Math.round(e.effectiveMins / e.daysWithDuration) : 0,
     }));
     if (sortMode === 'az') return rows.sort((a, b) => a.name.localeCompare(b.name));
     if (sortMode === 'best') return rows.sort((a, b) => a.daysLost - b.daysLost || a.name.localeCompare(b.name));
@@ -871,32 +871,30 @@ export function DeptProductivityChart({
           : drillLayout.visibleRows.length === 0
           ? <div className="h-32 flex items-center justify-center text-[var(--text-muted)] text-sm">No employees match &quot;{drillLayout.query}&quot;</div>
           : (
-            <div style={{ maxHeight: drillLayout.maxWrapperHeight, overflowY: drillLayout.willScroll ? 'auto' : 'visible' }}>
-              <ResponsiveContainer width="100%" height={drillLayout.contentHeight}>
-                <BarChart data={drillLayout.visibleRows} layout="vertical" margin={{ top: 4, right: 65, left: 4, bottom: 4 }} barCategoryGap="20%">
-                  <CartesianGrid strokeDasharray="3 3" stroke={__tc.border} horizontal={false} />
-                  <XAxis type="number" tick={{ fontSize: 10, fill: __tc.mutedText }} unit="d" />
-                  <YAxis type="category" dataKey="name" width={135} tick={{ fontSize: 10, fill: __tc.mutedText }}
-                    tickFormatter={(v: string) => v.length > 19 ? v.slice(0, 18) + '…' : v} />
-                  <Tooltip content={({ active, payload, label }: any) => {
-                    if (!active || !payload?.length) return null;
-                    const e = drillData.find(d => d.name === label);
-                    return (
-                      <div className="bg-[var(--bg-elevated)] border border-[var(--border)] rounded-lg px-3 py-2 text-xs shadow-xl">
-                        <p className="text-[var(--text-muted)] font-semibold mb-1.5">{label}</p>
-                        <p className="text-amber-400">Days Lost: <strong>{payload[0]?.value}d</strong></p>
-                        <p className="text-[var(--text-muted)]">Present Days: <strong>{e?.presentDays}</strong></p>
-                        <p className="text-blue-400">Avg Effective Hrs: <strong>{e?.avgEffectiveHours}h</strong></p>
-                      </div>
-                    );
-                  }} cursor={{ fill: 'rgba(255,255,255,0.04)' }} />
-                  <Bar dataKey="daysLost" radius={[0, 4, 4, 0]}>
-                    {drillLayout.visibleRows.map((e, i) => <Cell key={i} fill={lostColor(e.daysLost)} />)}
-                    <LabelList dataKey="daysLost" position="right" style={{ fontSize: 10, fill: __tc.mutedText }} formatter={(v: any) => `${v}d`} />
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
+            <ResponsiveContainer width="100%" height={Math.max(280, drillData.length * 36)}>
+              <BarChart data={drillData} layout="vertical" margin={{ top: 4, right: 65, left: 4, bottom: 4 }} barCategoryGap="20%">
+                <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" horizontal={false} />
+                <XAxis type="number" tick={{ fontSize: 10, fill: '#64748b' }} unit="d" />
+                <YAxis type="category" dataKey="name" width={135} tick={{ fontSize: 10, fill: '#94a3b8' }}
+                  tickFormatter={(v: string) => v.length > 19 ? v.slice(0, 18) + '…' : v} />
+                <Tooltip content={({ active, payload, label }: any) => {
+                  if (!active || !payload?.length) return null;
+                  const e = drillData.find(d => d.name === label);
+                  return (
+                    <div className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs shadow-xl">
+                      <p className="text-slate-300 font-semibold mb-1.5">{label}</p>
+                      <p className="text-amber-400">Days Lost: <strong>{payload[0]?.value}d</strong></p>
+                      <p className="text-slate-400">Present Days: <strong>{e?.presentDays}</strong></p>
+                      <p className="text-blue-400">Avg Working Hrs: <strong>{minutesToHHMM(e?.avgEffectiveMins ?? 0)}</strong></p>
+                    </div>
+                  );
+                }} cursor={{ fill: 'rgba(255,255,255,0.04)' }} />
+                <Bar dataKey="daysLost" radius={[0, 4, 4, 0]}>
+                  {drillData.map((e, i) => <Cell key={i} fill={lostColor(e.daysLost)} />)}
+                  <LabelList dataKey="daysLost" position="right" style={{ fontSize: 10, fill: '#94a3b8' }} formatter={(v: any) => `${v}d`} />
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
           )}
       </div>
     );
@@ -1023,7 +1021,7 @@ export function HoursDistributionChart({ data, allRecords, selectedDepts }: {
           <button onClick={() => setDrillBin(null)} className="flex items-center gap-1.5 text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 text-xs font-medium transition-colors shrink-0">
             <ArrowLeft className="w-3.5 h-3.5" /> Back
           </button>
-          <h3 className="text-[var(--text-primary)] font-semibold text-sm">Employees: {drillBin}h–{drillBin.split(':')[0]}:{ parseInt(drillBin.split(':')[1]) === 0 ? '30' : '00'} avg effective work</h3>
+          <h3 className="text-white font-semibold text-sm">Employees: {drillBin}–{drillBin.split(':')[0]}:{ parseInt(drillBin.split(':')[1]) === 0 ? '30' : '00'} avg effective work</h3>
         </div>
         <p className="text-[var(--text-muted)] text-xs mb-4">{drillEmployees.length} employees average in this range</p>
         {drillEmployees.length === 0
@@ -1036,7 +1034,7 @@ export function HoursDistributionChart({ data, allRecords, selectedDepts }: {
                     <span className="text-[var(--text-primary)] text-xs font-medium">{e.name}</span>
                     <span className="text-[var(--text-muted)] text-xs ml-2">· {e.dept}</span>
                   </div>
-                  <span className="text-blue-400 text-xs font-mono">{e.avgHours}h avg</span>
+                  <span className="text-blue-400 text-xs font-mono">{minutesToHHMM(Math.round(e.avgMins))} avg</span>
                 </div>
               ))}
             </div>
@@ -1052,7 +1050,7 @@ export function HoursDistributionChart({ data, allRecords, selectedDepts }: {
           <h3 className="text-[var(--text-primary)] font-semibold text-sm">Working Hours Distribution</h3>
           <ChartSubtitle selectedDepts={selectedDepts} />
         </div>
-        <InfoTooltip title="Hours Distribution" description="Each employee's own average effective working hours (total duration − 1h lunch, averaged across their present days in the selected period) — every employee falls into exactly one bar. Click a bar to see which employees fall in that range." formula="Effective = Duration − 60 min lunch, averaged per employee · Bin = 30 minutes" />
+        <InfoTooltip title="Hours Distribution" description="Each employee's own average working hours (total duration − 1h lunch, averaged across their present days in the selected period) — every employee falls into exactly one bar. Click a bar to see which employees fall in that range." formula="Working hours = Duration − 60 min lunch, averaged per employee · Bin = 30 minutes" />
       </div>
       {bins.length === 0
         ? <div className="h-48 flex items-center justify-center text-[var(--text-muted)] text-sm">No data</div>
@@ -1066,8 +1064,8 @@ export function HoursDistributionChart({ data, allRecords, selectedDepts }: {
               <Tooltip content={({ active, payload, label }: any) => {
                 if (!active || !payload?.length) return null;
                 return (
-                  <div className="bg-[var(--bg-elevated)] border border-[var(--border)] rounded-lg px-3 py-2 text-xs shadow-xl">
-                    <p className="text-[var(--text-muted)] font-medium">{label}h avg effective range</p>
+                  <div className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs shadow-xl">
+                    <p className="text-slate-300 font-medium">{label} avg effective range</p>
                     <p className="text-blue-400">Count: <strong>{payload[0]?.value} employees</strong></p>
                     <p className="text-[var(--text-muted)] text-[10px] mt-1">Click to see employees</p>
                   </div>
@@ -1547,10 +1545,10 @@ function EmployeeAttendanceRow({
     <div className="flex items-center justify-between py-2 px-3 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/15 transition-colors">
       <span className="text-[var(--text-primary)] text-xs font-medium truncate max-w-[140px]">{r.employeeName || r.employeeCode}</span>
       <div className="flex items-center gap-2 text-xs flex-shrink-0">
-        <span className="text-[var(--text-muted)] font-mono">{r.inTime || '—'} → {r.outTime || '—'}</span>
-        {lateM > 0 && <span className="bg-amber-500/20 text-amber-700 dark:text-amber-300 px-1.5 py-0.5 rounded text-[10px]">Late {lateM}m</span>}
-        {earlyM > 0 && <span className="bg-blue-500/20 text-blue-700 dark:text-blue-300 px-1.5 py-0.5 rounded text-[10px]">Early {earlyM}m</span>}
-        {lostM > 0 && <span className="bg-red-500/20 text-red-700 dark:text-red-300 px-1.5 py-0.5 rounded text-[10px]">−{(lostM / 60).toFixed(1)}h</span>}
+        <span className="text-slate-400 font-mono">{r.inTime || '—'} → {r.outTime || '—'}</span>
+        {lateM > 0 && <span className="bg-amber-500/20 text-amber-300 px-1.5 py-0.5 rounded text-[10px]">Late {lateM}m</span>}
+        {earlyM > 0 && <span className="bg-blue-500/20 text-blue-300 px-1.5 py-0.5 rounded text-[10px]">Early {earlyM}m</span>}
+        {lostM > 0 && <span className="bg-red-500/20 text-red-300 px-1.5 py-0.5 rounded text-[10px]">−{minutesToHHMM(lostM)}</span>}
       </div>
     </div>
   );
@@ -1800,13 +1798,10 @@ export function DayDeptProductivityChart({
               <ArrowLeft className="w-3.5 h-3.5" /> Back
             </button>
           )}
-          <h3 className="text-[var(--text-primary)] font-semibold text-sm">{activeDept} — Productivity Lost</h3>
-          <div className="ml-auto flex items-center gap-2">
-            <span className="text-[var(--text-muted)] text-xs">
-              {(empData.reduce((s, e) => s + e.lostM, 0) / 60).toFixed(1)}h total lost
-            </span>
-            <DayNav date={date} onPrevDay={onPrevDay} onNextDay={onNextDay} canGoPrev={canGoPrev} canGoNext={canGoNext} />
-          </div>
+          <h3 className="text-white font-semibold text-sm">{activeDept} — Productivity Lost</h3>
+          <span className="text-slate-500 text-xs ml-auto">
+            {minutesToHHMM(empData.reduce((s, e) => s + e.lostM, 0))} total lost
+          </span>
         </div>
         {empData.length === 0
           ? <div className="h-40 flex items-center justify-center text-[var(--text-muted)] text-sm">No productivity loss in this team today 🎉</div>
@@ -1818,8 +1813,8 @@ export function DayDeptProductivityChart({
                   <div className="flex items-center gap-2 text-xs">
                     <span className="text-[var(--text-muted)] font-mono">{r.inTime} → {r.outTime}</span>
                     {lostM > 0
-                      ? <span className={`px-1.5 py-0.5 rounded text-[10px] ${lostM > 120 ? 'bg-red-500/20 text-red-700 dark:text-red-300' : lostM > 60 ? 'bg-amber-500/20 text-amber-700 dark:text-amber-300' : 'bg-[var(--bg-elevated)]/50 text-[var(--text-muted)]'}`}>
-                          −{(lostM / 60).toFixed(1)}h lost
+                      ? <span className={`px-1.5 py-0.5 rounded text-[10px] ${lostM > 120 ? 'bg-red-500/20 text-red-300' : lostM > 60 ? 'bg-amber-500/20 text-amber-300' : 'bg-slate-600/50 text-slate-400'}`}>
+                          −{minutesToHHMM(lostM)} lost
                         </span>
                       : <span className="bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 px-1.5 py-0.5 rounded text-[10px]">Full day ✓</span>
                     }
@@ -1852,18 +1847,18 @@ export function DayDeptProductivityChart({
                 const dept = getDepartmentFromClick(entry);
                 if (dept) { setDrillDept(dept); onDeptClick?.(dept); }
               }}>
-              <CartesianGrid strokeDasharray="3 3" stroke={__tc.border} horizontal={false} />
-              <XAxis type="number" tick={{ fontSize: 10, fill: __tc.mutedText }} unit="h" tickFormatter={(v: number) => v.toFixed(1)} />
-              <YAxis type="category" dataKey="department" tick={{ fontSize: 10, fill: __tc.mutedText }} width={100} />
+              <CartesianGrid strokeDasharray="3 3" stroke="#334155" horizontal={false} />
+              <XAxis type="number" tick={{ fontSize: 10, fill: '#64748b' }} tickFormatter={(v: number) => minutesToHHMM(Math.round(v * 60))} />
+              <YAxis type="category" dataKey="department" tick={{ fontSize: 10, fill: '#94a3b8' }} width={100} />
               <Tooltip cursor={{ fill: 'rgba(255,255,255,0.04)' }} content={({ active, payload, label }: any) => {
                 if (!active || !payload?.length) return null;
                 const d: DayDeptSnapshot = payload[0]?.payload;
                 return (
-                  <div className="bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg px-3 py-2 text-xs shadow-xl">
-                    <p className="text-[var(--text-primary)] font-medium mb-1">{label}</p>
-                    <p className="text-amber-400">Hours Lost: <strong>{d.hoursLost.toFixed(1)}h</strong></p>
-                    <p className="text-[var(--text-muted)]">Late: {d.lateCount} · Early exit: {d.earlyCount}</p>
-                    <p className="text-[var(--text-muted)] text-[10px] mt-1">Click to see employees →</p>
+                  <div className="bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-xs shadow-xl">
+                    <p className="text-white font-medium mb-1">{label}</p>
+                    <p className="text-amber-400">Hours Lost: <strong>{minutesToHHMM(Math.round(d.hoursLost * 60))}</strong></p>
+                    <p className="text-slate-400">Late: {d.lateCount} · Early exit: {d.earlyCount}</p>
+                    <p className="text-slate-500 text-[10px] mt-1">Click to see employees →</p>
                   </div>
                 );
               }} />
@@ -1871,7 +1866,7 @@ export function DayDeptProductivityChart({
                 {sorted.map((entry, i) => (
                   <Cell key={i} fill={entry.hoursLost > 5 ? '#f87171' : entry.hoursLost > 2 ? '#fbbf24' : '#fb923c'} />
                 ))}
-                <LabelList dataKey="hoursLost" position="right" style={{ fontSize: 10, fill: __tc.mutedText }} formatter={(v: any) => `${Number(v).toFixed(1)}h`} />
+                <LabelList dataKey="hoursLost" position="right" style={{ fontSize: 10, fill: '#94a3b8' }} formatter={(v: any) => minutesToHHMM(Math.round(Number(v) * 60))} />
               </Bar>
             </BarChart>
           </ResponsiveContainer>

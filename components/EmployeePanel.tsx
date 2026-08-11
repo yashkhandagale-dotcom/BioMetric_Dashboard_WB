@@ -4,8 +4,7 @@ import { X, Clock, LogOut, LogIn, TrendingUp, Zap, AlertTriangle, Info, Tag, Edi
 import { EmployeeSummary, Holiday, LeaveRecord } from '@/lib/types';
 import { getLateMinutes, getEarlyMinutes } from '@/lib/useDashboardData';
 import { DEFAULT_THRESHOLDS } from '@/lib/settings';
-import { durationToMinutes } from '@/lib/parseCSV';
-import { effectiveMinutes, actualMinutes } from '@/lib/hoursCalc';
+import { durationToMinutes, effectiveMinutes, minutesToHHMM } from '@/lib/parseCSV';
 import { getHolidayName } from '@/lib/holidays';
 import {
   setEmployeeDepartment,
@@ -342,8 +341,7 @@ employee, onClose, readOnly, leaveReadOnly, holidays = [], graceMinutes = DEFAUL
                         <td className={`px-2 py-2 ${missingOut ? 'bg-orange-500/10 border border-orange-500/20 text-orange-400' : 'text-[var(--text-muted)]'}`}>
                           {missingOut ? <span title="Missing out-punch — duration may be inaccurate">⚠ —</span> : (r.outTime || '—')}
                         </td>
-                        <td className="px-2 py-2 text-[var(--text-muted)]">{actualMins > 0 ? `${(actualMins / 60).toFixed(1)}h` : '—'}</td>
-                        <td className="px-2 py-2 text-[var(--text-muted)]">{effMins !== null ? `${(effMins / 60).toFixed(1)}h` : '—'}</td>
+                        <td className="px-2 py-2 text-slate-400">{dur > 0 ? minutesToHHMM(effectiveMinutes(dur)) : '—'}</td>
                         <td className="px-2 py-2">
                           <div className="flex items-center gap-1 relative">
                             {lateMin > 0 && (

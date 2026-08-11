@@ -2,6 +2,7 @@
 import { KPIData, Thresholds, ViewMode } from '@/lib/types';
 import { DEFAULT_THRESHOLDS } from '@/lib/settings';
 import { targetShiftMinutes } from '@/lib/useDashboardData';
+import { minutesToHHMM } from '@/lib/parseCSV';
 import InfoTooltip from './InfoTooltip';
 
 interface KPICardsProps {
@@ -118,7 +119,7 @@ export default function KPICards({ kpi, thresholds = DEFAULT_THRESHOLDS, viewMod
     {
       label: 'Early Exits',
       value: `${kpi.earlyExitCount}`,
-      sub: `${kpi.productivityLostHours.toFixed(1)}h total lost today`,
+      sub: `${minutesToHHMM(Math.round(kpi.productivityLostHours * 60))} total lost today`,
       status: kpi.earlyExitCount === 0 ? 'green' : getStatus(kpi.earlyExitRate, t.earlyRateGreen, t.earlyRateAmber, true),
       filter: 'earlyexit',
       info: {
@@ -129,21 +130,21 @@ export default function KPICards({ kpi, thresholds = DEFAULT_THRESHOLDS, viewMod
       },
     },
     {
-      label: 'Avg Working Hours',
-      value: `${kpi.avgWorkingHours.toFixed(1)}h`,
-      sub: `vs ${targetHours.toFixed(1)}h effective shift target`,
+      label: 'Avg Effective Hours',
+      value: minutesToHHMM(Math.round(kpi.avgWorkingHours * 60)),
+      sub: `vs ${minutesToHHMM(targetMinutes)} effective shift target`,
       status: getStatus((kpi.avgWorkingHours / targetHours) * 100, t.avgHoursPctGreen, t.avgHoursPctAmber),
       filter: 'present',
       info: {
-        title: 'Avg Working Hours Today',
-        description: `Mean of (out-punch − in-punch) for all present employees today, compared against the ${targetHours.toFixed(1)}h effective target (shift span minus 1h lunch).`,
-        formula: 'Mean duration of present employees today',
-        example: `8h 12m avg vs ${targetHours.toFixed(1)}h target`,
+        title: 'Avg Effective Hours Today',
+        description: `Mean of (duration − 1h lunch) for all present employees today, compared against the ${minutesToHHMM(targetMinutes)} effective target (shift span minus 1h lunch).`,
+        formula: 'Mean of (duration − 60 min lunch) for present employees today',
+        example: `8:12 avg vs ${minutesToHHMM(targetMinutes)} target`,
       },
     },
     {
       label: 'Productivity Lost',
-      value: `${kpi.productivityLostHours.toFixed(1)}h`,
+      value: minutesToHHMM(Math.round(kpi.productivityLostHours * 60)),
       sub: `hours lost today to late/early`,
       status: getStatus((kpi.productivityLostHours / (kpi.presentCount * targetHours || 1)) * 100, t.productivityLostGreen, t.productivityLostAmber, true),
       filter: 'present',
@@ -185,15 +186,15 @@ export default function KPICards({ kpi, thresholds = DEFAULT_THRESHOLDS, viewMod
     // },
     {
       label: 'Avg Effective Hours',
-      value: `${kpi.avgWorkingHours.toFixed(1)}h`,
+      value: minutesToHHMM(Math.round(kpi.avgWorkingHours * 60)),
       sub: 'Mean hours per present day',
       status: getStatus((kpi.avgWorkingHours / targetHours) * 100, t.avgHoursPctGreen, t.avgHoursPctAmber),
       filter: 'present',
       info: {
         title: 'Average Effective Hours',
-        description: `Average hours worked per present employee per day. Compared against the ${targetHours.toFixed(1)}h effective shift target (shift span minus 1h lunch).`,
+        description: `Average hours worked per present employee per day. Compared against the ${minutesToHHMM(targetMinutes)} effective shift target (shift span minus 1h lunch).`,
         formula: 'Σ(duration) ÷ present days',
-        example: `>${(targetHours * 0.85).toFixed(1)}h (85% of ${targetHours.toFixed(1)}h) = green.`,
+        example: `>${minutesToHHMM(Math.round(targetMinutes * 0.85))} (85% of ${minutesToHHMM(targetMinutes)}) = green.`,
       },
     },
     {
@@ -225,12 +226,12 @@ export default function KPICards({ kpi, thresholds = DEFAULT_THRESHOLDS, viewMod
     {
       label: 'Productivity Lost',
       value: `${kpi.productivityLost.toFixed(1)}%`,
-      sub: `${kpi.productivityLostHours.toFixed(1)}h capacity lost`,
+      sub: `${minutesToHHMM(Math.round(kpi.productivityLostHours * 60))} capacity lost`,
       status: getStatus(kpi.productivityLost, t.productivityLostGreen, t.productivityLostAmber, true),
       filter: 'present',
       info: {
         title: 'Productivity Lost',
-        description: `Person-capacity lost to late/early. Denominator = present days × ${targetHours.toFixed(1)}h effective shift target.`,
+        description: `Person-capacity lost to late/early. Denominator = present days × ${minutesToHHMM(targetMinutes)} effective shift target.`,
         formula: `Σ(late+early mins) ÷ (present days × ${targetMinutes}) × 100%`,
         example: '30 min late + 15 min early = 45 min lost ÷ 540 = 8.3%.',
       },
