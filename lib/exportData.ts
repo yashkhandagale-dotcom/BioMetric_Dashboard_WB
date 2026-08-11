@@ -4,10 +4,9 @@ import { AttendanceRecord, EmployeeSummary, LeaveRecord, LeaveType, Thresholds }
 import { durationToMinutes, minutesToHHMM, effectiveMinutes } from './parseCSV';
 import { getLateMinutes, getEarlyMinutes, computeProductivityLostMinutes, targetShiftMinutes } from './useDashboardData';
 import { DEFAULT_THRESHOLDS } from './settings';
+import { effectiveMinutes, actualMinutes } from './hoursCalc';
+import { leaveLabelFor, UNMARKED_LEAVE_LABEL } from './leaveLabels';
 
-const LEAVE_LABELS: Record<LeaveType, string> = {
-  planned: 'Planned Leave', casual: 'Casual Leave', sick: 'Sick Leave', lwp: 'LWP', half_day: 'Half Day',
-};
 function buildLeaveLookup(leaveRecords: LeaveRecord[] = []): Map<string, LeaveRecord> {
   const m = new Map<string, LeaveRecord>();
   for (const l of leaveRecords) m.set(`${l.employeeCode}__${l.date}`, l);
@@ -106,8 +105,9 @@ export function exportExcel(
   // Spec v1 §3: Avg Effective Hours = Σ(duration − 60min lunch) ÷ count of
   // days with duration > 60min — was previously using raw duration with no
   // lunch subtraction, which doesn't match the dashboard's KPI card.
-  const presentWithDuration = presentRecords.filter(r => durationToMinutes(r.duration) > 60);
-  const totalMins = presentWithDuration.reduce((sum, r) => sum + (durationToMinutes(r.duration) - 60), 0);
+  // Shared with useDashboardData.ts / Charts.tsx via lib/hoursCalc.ts.
+  const presentWithDuration = presentRecords.filter(r => effectiveMinutes(durationToMinutes(r.duration)) !== null);
+  const totalMins = presentWithDuration.reduce((sum, r) => sum + (effectiveMinutes(durationToMinutes(r.duration)) ?? 0), 0);
   const avgWorkingHours = presentWithDuration.length > 0 ? totalMins / presentWithDuration.length / 60 : 0;
 
   const offices = [...new Set(records.map(r => r.officeCode))].filter(Boolean).join(', ');
@@ -128,7 +128,7 @@ export function exportExcel(
     { Metric: 'Shift Timing', Value: `${minsToTimeStr(thresholds.shiftStartMinutes)} – ${minsToTimeStr(thresholds.shiftEndMinutes)} (${target} effective mins, excl. 1h lunch, ${thresholds.graceMinutes}min grace)` },
     { Metric: 'Total Late Arrivals', Value: lateRecords.length },
     { Metric: 'Total Early Exits', Value: earlyRecords.length },
-    { Metric: 'Total Absent Days', Value: absentCount },
+    { Metric: 'Total On Leave Days', Value: absentCount },
   ];
   const ws1 = XLSX.utils.json_to_sheet(execSummaryRows);
   applyHeaderStyle(ws1);
@@ -158,7 +158,7 @@ export function exportExcel(
       Office: emp.officeCode,
       'Late Count': lateCount,
       'Early Exit Count': earlyCount,
-      'Absent Days': absentDays,
+      'On Leave Days': absentDays,
       Flags: flags.join(', '),
     });
   }
@@ -171,10 +171,28 @@ export function exportExcel(
   XLSX.utils.book_append_sheet(wb, ws2, 'Discipline Issues');
 
   // ── Sheet 3: Department Summary ───────────────────────────────────────────
-  const deptMap = new Map<string, { present: number; absent: number; lateCount: number; earlyCount: number; totalMins: number; presentCount: number; emps: Set<string> }>();
+  // Both "Avg Actual Hours/Day" (raw punch duration, lunch included) and
+  // "Avg Effective Hours/Day" (lunch subtracted) are tracked with their own
+  // count, since a day can count toward "actual" (any duration > 0) without
+  // counting toward "effective" (needs duration > 60min) — see
+  // lib/hoursCalc.ts. Previously this sheet only tracked one unlabeled
+  // "Avg Hours/Day" figure built from raw duration with no lunch
+  // subtraction, which disagreed with the Executive Summary tab (that one
+  // DID subtract lunch) by ~1 hour for the same period.
+  const deptMap = new Map<string, {
+    present: number; absent: number; lateCount: number; earlyCount: number;
+    totalActualMins: number; actualCount: number;
+    totalEffectiveMins: number; effectiveCount: number;
+    emps: Set<string>;
+  }>();
   for (const r of workRecords) {
     const d = r.department || 'Unknown';
-    if (!deptMap.has(d)) deptMap.set(d, { present: 0, absent: 0, lateCount: 0, earlyCount: 0, totalMins: 0, presentCount: 0, emps: new Set() });
+    if (!deptMap.has(d)) deptMap.set(d, {
+      present: 0, absent: 0, lateCount: 0, earlyCount: 0,
+      totalActualMins: 0, actualCount: 0,
+      totalEffectiveMins: 0, effectiveCount: 0,
+      emps: new Set(),
+    });
     const dept = deptMap.get(d)!;
     dept.emps.add(r.employeeCode);
     if (isPresent(r.status)) {
@@ -197,7 +215,7 @@ export function exportExcel(
       'Avg Hours/Day': v.presentCount > 0 ? minutesToHHMM(Math.round(v.totalMins / v.presentCount)) : '—',
       'Late Count': v.lateCount,
       'Early Exit Count': v.earlyCount,
-      'Absent Days': v.absent,
+      'On Leave Days': v.absent,
       Status: colorStatus(rate),
     };
   }).sort((a, b) => parseFloat(a['Attendance %']) - parseFloat(b['Attendance %']));
@@ -217,7 +235,7 @@ export function exportExcel(
       Department: emp.department,
       Office: emp.officeCode,
       'Present Days': emp.presentDays,
-      'Absent Days': emp.absentDays,
+      'On Leave Days': emp.absentDays,
       'Late Count': emp.lateCount,
       'Early Exit Count': emp.earlyExitCount,
       'Planned Leave': emp.plannedLeaveCount,
@@ -239,15 +257,15 @@ export function exportExcel(
   const detailRows = records.map(r => {
     const lateMin = lateMinsFor(r, thresholds);
     const earlyMin = earlyMinsFor(r, thresholds);
+    const leave = leaveLookup.get(`${r.employeeCode}__${r.date}`);
     const flags: string[] = [];
-    if (isAbsent(r.status)) flags.push('Absent');
+    if (isAbsent(r.status) && !leave) flags.push(UNMARKED_LEAVE_LABEL);
     if (lateMin > 0) flags.push('Late Arrival');
     if (earlyMin > 0) flags.push('Early Exit');
     if ((!r.outTime || r.outTime === '--' || r.outTime === '') && isPresent(r.status)) flags.push('No Out-Punch');
-    const leave = leaveLookup.get(`${r.employeeCode}__${r.date}`);
     const displayStatus = leave
-      ? (leave.leaveType === 'half_day' && leave.halfDayLeaveType ? `Half Day — ${LEAVE_LABELS[leave.halfDayLeaveType]}` : LEAVE_LABELS[leave.leaveType])
-      : r.status;
+      ? `On Leave — ${leaveLabelFor(leave.leaveType, leave.halfDayLeaveType)}`
+      : (isAbsent(r.status) ? UNMARKED_LEAVE_LABEL : r.status);
     return {
       Date: r.date,
       'Employee Code': r.employeeCode,
@@ -286,12 +304,12 @@ export function exportCSV(
   const rows = records.map(r => {
     const lateMin = lateMinsFor(r, thresholds);
     const earlyMin = earlyMinsFor(r, thresholds);
+    const leave = leaveLookup.get(`${r.employeeCode}__${r.date}`);
     const flags: string[] = [];
     if (lateMin > 0) flags.push('Late Arrival');
     if (earlyMin > 0) flags.push('Early Exit');
-    if (isAbsent(r.status)) flags.push('Absent');
+    if (isAbsent(r.status) && !leave) flags.push(UNMARKED_LEAVE_LABEL);
     if ((!r.outTime || r.outTime === '--') && isPresent(r.status)) flags.push('No Out-Punch');
-    const leave = leaveLookup.get(`${r.employeeCode}__${r.date}`);
     return {
       Date: r.date,
       'Employee Code': r.employeeCode,
@@ -300,7 +318,7 @@ export function exportCSV(
       Office: r.officeCode,
       'In Time': r.inTime,
       'Out Time': r.outTime,
-      Status: r.status,
+      Status: leave ? `On Leave — ${leaveLabelFor(leave.leaveType, leave.halfDayLeaveType)}` : (isAbsent(r.status) ? UNMARKED_LEAVE_LABEL : r.status),
       'Late By (computed)': lateMin > 0 ? minsToHHMM(lateMin) : '',
       'Early By (computed)': earlyMin > 0 ? minsToHHMM(earlyMin) : '',
       Duration: r.duration,
@@ -315,6 +333,25 @@ export function exportCSV(
   const a = document.createElement('a');
   a.href = url;
   a.download = `Attendance_Raw_${label}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+// D3-3: generic CSV export, reusing the exact same Papa.unparse + BOM +
+// Blob-download pattern as exportCSV above, for callers that already
+// have their own plain row objects (e.g. the Leave History page) rather
+// than AttendanceRecord[]. Kept separate from exportCSV rather than
+// generalizing that function's signature — exportCSV's attendance-specific
+// logic (flags, late/early computation) stays untouched, per the
+// "never rewrite existing working logic unnecessarily" constraint.
+export function exportRowsAsCSV(rows: Record<string, string | number | boolean>[], filename: string): void {
+  const csv = Papa.unparse(rows);
+  const bom = '\uFEFF';
+  const blob = new Blob([bom + csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
   a.click();
   URL.revokeObjectURL(url);
 }

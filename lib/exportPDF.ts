@@ -422,7 +422,7 @@ export async function exportPDF(
     insights.push(`${bestDept.name} led the way at ${bestDept.rate.toFixed(0)}% attendance, while ${worstDept.name} trailed at ${worstDept.rate.toFixed(0)}%.`);
   }
   if (mostAbsent && mostAbsent.absentDays > 0) {
-    insights.push(`${mostAbsent.name} had the most absences this period (${mostAbsent.absentDays} day${mostAbsent.absentDays === 1 ? '' : 's'}) — worth a check-in.`);
+    insights.push(`${mostAbsent.name} had the most days on leave this period (${mostAbsent.absentDays} day${mostAbsent.absentDays === 1 ? '' : 's'}) — worth a check-in.`);
   }
   if (mostLate && mostLate.lateCount > 0) {
     insights.push(`${mostLate.name} had the most late arrivals (${mostLate.lateCount} day${mostLate.lateCount === 1 ? '' : 's'}).`);
@@ -481,7 +481,7 @@ export async function exportPDF(
   doc.text('Present', cx, cy + 5, { align: 'center' });
 
   const legendX = 14 + 40 + r + 14;
-  [{ label: 'Present days', value: presentCount, color: GREEN }, { label: 'Absent days', value: absentCount, color: RED }]
+  [{ label: 'Present days', value: presentCount, color: GREEN }, { label: 'On Leave days', value: absentCount, color: RED }]
     .forEach((item, i) => {
       const ly = cy - 5 + i * 11;
       doc.setFillColor(...item.color);
@@ -528,7 +528,7 @@ export async function exportPDF(
       autoTable(doc, {
         startY: cy2 + 6,
         margin: { left: 14, right: 14 },
-        head: [['Employee', 'Attendance', 'Avg Hours', 'Late', 'Absent']],
+        head: [['Employee', 'Attendance', 'Avg Hours', 'Late', 'On Leave']],
         body: bottomEmployees.map((e) => [
           truncate(e.name, 20),
           `${e.attendanceRate.toFixed(0)}%`,
@@ -548,7 +548,7 @@ export async function exportPDF(
         autoTable(doc, {
           startY: startYTeam + 6,
           margin: { left: 14, right: 14 },
-          head: [['Employee', 'Avg hrs', 'Avg Late (min)', 'Missed', 'Avg Early Exit (min)', 'Latest In-Time', 'Earliest Out-Time', 'Attendance %', 'Present', 'Absent']],
+          head: [['Employee', 'Avg hrs', 'Avg Late (min)', 'Missed', 'Avg Early Exit (min)', 'Latest In-Time', 'Earliest Out-Time', 'Attendance %', 'Present', 'On Leave']],
           body: teamSummaries.map(s => {
             const n = normalizeEmployee(s);
             const recs = (s.records || []);
@@ -624,7 +624,7 @@ export async function exportPDF(
   function reasonFor(e: NormalizedEmployee): string {
     const reasons: string[] = [];
     if (e.attendanceRate < 80) reasons.push(`Low attendance (${e.attendanceRate.toFixed(0)}%)`);
-    if (e.absentDays >= 3) reasons.push(`${e.absentDays} absences`);
+    if (e.absentDays >= 3) reasons.push(`${e.absentDays} days on leave`);
     if (e.lateCount >= 5) reasons.push(`${e.lateCount} late arrivals`);
     return reasons.join(', ') || '—';
   }
@@ -658,7 +658,7 @@ export async function exportPDF(
   }
 
   let cy4 = (doc as any).lastAutoTable ? (doc as any).lastAutoTable.finalY + 12 : cy3 + 40;
-  cy4 = drawSectionHeader(doc, `Needs a Check-in (${atRisk.length})`, 14, cy4, 'Attendance under 80%, 3+ absences, or 5+ late arrivals');
+  cy4 = drawSectionHeader(doc, `Needs a Check-in (${atRisk.length})`, 14, cy4, 'Attendance under 80%, 3+ days on leave, or 5+ late arrivals');
   autoTable(doc, {
     startY: cy4 + 5,
     margin: { left: 14, right: 14 },

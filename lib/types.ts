@@ -35,10 +35,29 @@ export interface LeaveRecord {
   note?: string;
 }
 
+// D7-3 (stretch — see lib/leaveTrackerRead.ts's getWorkforceEvents and
+// app/api/dashboard/workforce-events/route.ts): WFH / Business Travel /
+// Office Shutdown markers, live-read from the Leave Tracker's
+// workforce_events table the same way LeaveRecord is. Deliberately its
+// own type rather than folded into LeaveType — these are not leave (see
+// supabase-leave/schema.sql's design invariants) and mixing them into
+// the same field would make "is this person on leave" ambiguous
+// everywhere LeaveType is already checked.
+export type WorkforceEventType = 'wfh' | 'business_travel' | 'office_shutdown';
+
+export interface WorkforceEvent {
+  employeeCode: string;
+  officeCode: string;
+  date: string; // YYYY-MM-DD
+  eventType: WorkforceEventType;
+  note?: string;
+}
+
 export type EffectiveStatus =
   | 'present' | 'absent' | 'missed_punch_out'
   | 'leave_planned' | 'leave_casual' | 'leave_sick' | 'leave_lwp'
-  | 'half_day' | 'weeklyoff' | 'holiday';
+  | 'half_day' | 'weeklyoff' | 'holiday'
+  | 'wfh' | 'business_travel' | 'office_shutdown';
 
 export interface Thresholds {
   attendanceRateGreen: number; attendanceRateAmber: number;

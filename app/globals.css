@@ -1,22 +1,69 @@
 @import "tailwindcss";
 
+/* Tailwind v4 uses prefers-color-scheme for `dark:` by default. next-themes
+   toggles a `dark`/`light` class on <html> instead, so this custom variant
+   makes `dark:` respond to that class rather than the OS setting. */
+@custom-variant dark (&:where(.dark, .dark *));
+
 :root {
+  --background: #0a0a0a;
+  --foreground: #ededed;
+}
+
+/* `--background`/`--foreground` used to only be defined once, in :root,
+   with no .light override — so <body> stayed near-black permanently
+   regardless of theme. Invisible on any page whose content div fully
+   covers the viewport (bg-[var(--bg-surface)] painted over it), but
+   app/leave/layout.tsx wraps every /leave/** page in a top strip (the
+   theme-toggle row) with no background class of its own — so it showed
+   raw <body> through it: a black bar across the top of every Leave
+   Tracker page, un-affected by the toggle. Fix: make --background/
+   --foreground theme-aware too, same as every other token below. */
+.light {
   --background: #ffffff;
-  --foreground: #171717;
+  --foreground: #0f172a;
+}
+
+/* Semantic tokens (Workstream 2, step 1 — foundation only).
+   Nothing in components/ reads these yet; that's the later migration-pass
+   subpart. These values are chosen to match the app's CURRENT hardcoded
+   slate-* look exactly, so switching a component over later is a
+   like-for-like swap, not a redesign. */
+.dark {
+  --bg-surface: #0f172a;   /* slate-900 — matches existing bg-slate-900 */
+  --bg-elevated: #1e293b;  /* slate-800 */
+  --border: #334155;       /* slate-700 */
+  --text-primary: #f8fafc; /* slate-50 / white */
+  --text-muted: #94a3b8;   /* slate-400 */
+  --accent: #fb923c;       /* warm terracotta */
+  --danger: #f87171;       /* red-400 */
+  --success: #4ade80;      /* green-400 */
+}
+
+.light {
+  --bg-surface: #ffffff;
+  --bg-elevated: #f8fafc;
+  --border: #e2e8f0;
+  --text-primary: #0f172a;
+  --text-muted: #64748b;
+  --accent: #ea580c;      /* warm terracotta */
+  --danger: #dc2626;
+  --success: #16a34a;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-bg-surface: var(--bg-surface);
+  --color-bg-elevated: var(--bg-elevated);
+  --color-border: var(--border);
+  --color-text-primary: var(--text-primary);
+  --color-text-muted: var(--text-muted);
+  --color-accent: var(--accent);
+  --color-danger: var(--danger);
+  --color-success: var(--success);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
 }
 
 body {

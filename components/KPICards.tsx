@@ -40,7 +40,7 @@ const STATUS_COLORS: Record<Status, { dot: string; text: string; bg: string; bor
   green:   { dot: 'bg-emerald-400', text: 'text-emerald-400', bg: 'bg-emerald-500/5',  border: 'border-emerald-500/20' },
   amber:   { dot: 'bg-amber-400',   text: 'text-amber-400',   bg: 'bg-amber-500/5',    border: 'border-amber-500/20' },
   red:     { dot: 'bg-red-400',     text: 'text-red-400',     bg: 'bg-red-500/5',      border: 'border-red-500/20' },
-  neutral: { dot: 'bg-slate-500',   text: 'text-slate-300',   bg: 'bg-slate-800/40',   border: 'border-slate-700' },
+  neutral: { dot: 'bg-[var(--bg-elevated)]',   text: 'text-[var(--text-muted)]',   bg: 'bg-[var(--bg-elevated)]/40',   border: 'border-[var(--border)]' },
 };
 
 interface CardDef {
@@ -91,16 +91,16 @@ export default function KPICards({ kpi, thresholds = DEFAULT_THRESHOLDS, viewMod
       },
     },
     {
-      label: 'Absent',
+      label: 'On Leave',
       value: `${kpi.absentCount}`,
-      sub: `${kpi.unexplainedAbsentCount} unexplained · ${kpi.plannedLeaveCount + kpi.casualLeaveCount + kpi.sickLeaveCount} on leave`,
+      sub: `${kpi.unexplainedAbsentCount} unmarked · ${kpi.plannedLeaveCount + kpi.casualLeaveCount + kpi.sickLeaveCount} marked`,
       status: getStatus(kpi.absenteeismRate, t.absenteeismRateGreen, t.absenteeismRateAmber, true),
       filter: 'absent',
       info: {
-        title: 'Absent Today',
-        description: 'Employees absent today. Names are clickable in the employee table below.',
-        formula: 'Count of absent employees for the selected date',
-        example: '21 absent — click the card to filter the table',
+        title: 'On Leave Today',
+        description: 'Employees not present today — shown as marked (HR has recorded a leave type for that day) or unmarked (no leave recorded yet). Names are clickable in the employee table below.',
+        formula: 'Count of employees not present for the selected date',
+        example: '21 on leave — click the card to filter the table',
       },
     },
     {
@@ -249,7 +249,7 @@ export default function KPICards({ kpi, thresholds = DEFAULT_THRESHOLDS, viewMod
             className={`rounded-xl border p-4 ${c.bg} ${c.border} transition-all relative ${onCardClick ? 'cursor-pointer hover:brightness-110' : ''}`}
           >
             <div className="flex items-center justify-between mb-2">
-              <span className="text-slate-400 text-xs font-medium uppercase tracking-wide leading-tight pr-1">{card.label}</span>
+              <span className="text-[var(--text-muted)] text-xs font-medium uppercase tracking-wide leading-tight pr-1">{card.label}</span>
               <div className="flex items-center gap-1 flex-shrink-0">
                 <InfoTooltip title={card.info.title} description={card.info.description} formula={card.info.formula} example={card.info.example} position="bottom" />
                 <span className={`inline-block w-2 h-2 rounded-full flex-shrink-0 ${c.dot}`} />
@@ -258,10 +258,10 @@ export default function KPICards({ kpi, thresholds = DEFAULT_THRESHOLDS, viewMod
             <div className="flex items-end gap-1.5 mb-1">
               <p className={`text-2xl font-bold ${c.text}`}>{card.value}</p>
               {card.badge && (
-                <span className="text-xs text-slate-500 font-medium mb-0.5">{card.badge}</span>
+                <span className="text-xs text-[var(--text-muted)] font-medium mb-0.5">{card.badge}</span>
               )}
             </div>
-            <p className="text-slate-500 text-xs leading-tight">{card.sub}</p>
+            <p className="text-[var(--text-muted)] text-xs leading-tight">{card.sub}</p>
           </div>
         );
       })}

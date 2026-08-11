@@ -13,13 +13,13 @@
 
 //   return (
 //     <></>
-//     // <div className="bg-slate-800/30 rounded-xl border border-slate-700 px-4 py-3 flex flex-wrap items-center gap-x-5 gap-y-1.5 text-xs">
-//     //   <span className="text-slate-500 font-medium uppercase tracking-wide">Absences this period:</span>
+//     // <div className="bg-[var(--bg-elevated)]/30 rounded-xl border border-[var(--border)] px-4 py-3 flex flex-wrap items-center gap-x-5 gap-y-1.5 text-xs">
+//     //   <span className="text-[var(--text-muted)] font-medium uppercase tracking-wide">Absences this period:</span>
 //     //   {items.map((it, i) => (
 //     //     <span key={it.label} className="flex items-center gap-1">
 //     //       <span className={`font-semibold ${it.color}`}>{it.value}</span>
-//     //       <span className="text-slate-400">{it.label}</span>
-//     //       {i < items.length - 1 && <span className="text-slate-700 ml-3">·</span>}
+//     //       <span className="text-[var(--text-muted)]">{it.label}</span>
+//     //       {i < items.length - 1 && <span className="text-[var(--text-muted)] ml-3">·</span>}
 //     //     </span>
 //     //   ))}
 //     // </div>

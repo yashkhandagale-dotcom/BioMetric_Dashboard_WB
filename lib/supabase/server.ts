@@ -4,6 +4,10 @@ import { cookies } from 'next/headers';
 
 // Used from Server Components, Route Handlers (app/api/*), and Server Actions.
 // Ties into the same cookie-based session as the browser client.
+//
+// Single-login pivot: cookie name is now 'sb-auth', shared with
+// lib/leaveSupabase/server.ts — see lib/supabase/client.ts's comment for
+// why (one login now authenticates both the Dashboard and Leave Tracker).
 export async function createClient() {
   const cookieStore = await cookies();
 
@@ -11,6 +15,7 @@ export async function createClient() {
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
     {
+      cookieOptions: { name: 'sb-auth' },
       cookies: {
         getAll() {
           return cookieStore.getAll();

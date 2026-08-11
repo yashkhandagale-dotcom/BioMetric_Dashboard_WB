@@ -1,11 +1,12 @@
 import { useMemo } from 'react';
 import {
   AttendanceRecord, KPIData, EmployeeSummary, DailyTrend, DeptAttendance,
-  HoursDistribution, Holiday, OfficeAttendance, LeaveRecord, Thresholds, EffectiveStatus
+  HoursDistribution, Holiday, OfficeAttendance, LeaveRecord, Thresholds, EffectiveStatus, WorkforceEvent
 } from './types';
 import { durationToMinutes, minutesToHHMM } from './parseCSV';
 import { isHoliday, getHolidayName } from './holidays';
 import { DEFAULT_THRESHOLDS } from './settings';
+import { effectiveMinutes } from './hoursCalc';
 
 // Shift: 9:30 to 18:30, 1h lunch → 8h effective work expected
 export const SHIFT_MINUTES = 8 * 60;             // 480 effective minutes
@@ -179,7 +180,8 @@ export function computeProductivityLostMinutes(
 export function getEffectiveStatus(
   r: AttendanceRecord,
   leave: LeaveRecord | undefined,
-  holidays: Holiday[]
+  holidays: Holiday[],
+  workforceEvent?: WorkforceEvent
 ): EffectiveStatus {
   if (isWeeklyOff(r.status)) return 'weeklyoff';
   if (isHoliday(r.date, holidays) && !isPresent(r.status)) return 'holiday';
@@ -189,6 +191,16 @@ export function getEffectiveStatus(
     if (leave.leaveType === 'casual') return 'leave_casual';
     if (leave.leaveType === 'sick') return 'leave_sick';
     if (leave.leaveType === 'lwp') return 'leave_lwp';
+  }
+  // D7-3 (stretch): WFH / Business Travel / Office Shutdown are workforce
+  // signals, not leave — checked after leave (an approved leave day takes
+  // precedence over a stale/overlapping workforce_events row) and only
+  // when the optional 4th arg is actually supplied, so every existing
+  // 3-arg call site keeps behaving exactly as before.
+  if (workforceEvent) {
+    if (workforceEvent.eventType === 'wfh') return 'wfh';
+    if (workforceEvent.eventType === 'business_travel') return 'business_travel';
+    if (workforceEvent.eventType === 'office_shutdown') return 'office_shutdown';
   }
   if (isPresent(r.status)) return 'present';
   return 'absent';
@@ -201,6 +213,20 @@ export function leaveKey(employeeCode: string, date: string): string {
 export function buildLeaveMap(leaveRecords: LeaveRecord[]): Map<string, LeaveRecord> {
   const m = new Map<string, LeaveRecord>();
   for (const l of leaveRecords) m.set(leaveKey(l.employeeCode, l.date), l);
+  return m;
+}
+
+// D7-3 (stretch): same key shape as leaveKey/buildLeaveMap, for
+// WorkforceEvent — kept as a separate map rather than merged into
+// leaveMap so a workforce event can never be mistaken for a leave record
+// by a caller that forgets to check which one it pulled out.
+export function workforceEventKey(employeeCode: string, date: string): string {
+  return `${employeeCode}__${date}`;
+}
+
+export function buildWorkforceEventMap(events: WorkforceEvent[]): Map<string, WorkforceEvent> {
+  const m = new Map<string, WorkforceEvent>();
+  for (const e of events) m.set(workforceEventKey(e.employeeCode, e.date), e);
   return m;
 }
 
@@ -267,12 +293,11 @@ export function computeEmployeeKPIs(
   const attendanceRate = denom > 0 ? (presentDays / denom) * 100 : 0;
   const absenteeismRate = scheduledDays > 0 ? (absentDays / scheduledDays) * 100 : 0;
 
-  // Effective hours: duration - 60min lunch
-  const presentWithDuration = presentRecords.filter((r) => durationToMinutes(r.duration) > 60);
-  const totalEffectiveMins = presentWithDuration.reduce((sum, r) => {
-    const raw = durationToMinutes(r.duration);
-    return sum + (raw - 60); // subtract lunch
-  }, 0);
+  // Effective hours: duration - 60min lunch (shared with Charts.tsx / exportData.ts — lib/hoursCalc.ts)
+  const presentWithDuration = presentRecords.filter((r) => effectiveMinutes(durationToMinutes(r.duration)) !== null);
+  const totalEffectiveMins = presentWithDuration.reduce(
+    (sum, r) => sum + (effectiveMinutes(durationToMinutes(r.duration)) ?? 0), 0
+  );
   const avgHoursPerDay = presentWithDuration.length > 0 ? totalEffectiveMins / presentWithDuration.length / 60 : 0;
 
   const lateRecords = presentRecords.filter((r) => getLateMinutes(r, grace, shiftStart) > 0);
@@ -370,9 +395,11 @@ export function useDashboardData(
     const attendanceRate = scheduledCount > 0 ? (presentCount / scheduledCount) * 100 : 0;
     const absenteeismRate = scheduledCount > 0 ? (absentCount / scheduledCount) * 100 : 0;
 
-    // Effective hours = duration - 60 min lunch
-    const presentWithDuration = presentRecords.filter((r) => durationToMinutes(r.duration) > 60);
-    const totalEffectiveMins = presentWithDuration.reduce((sum, r) => sum + (durationToMinutes(r.duration) - 60), 0);
+    // Effective hours = duration - 60 min lunch (shared with Charts.tsx / exportData.ts — lib/hoursCalc.ts)
+    const presentWithDuration = presentRecords.filter((r) => effectiveMinutes(durationToMinutes(r.duration)) !== null);
+    const totalEffectiveMins = presentWithDuration.reduce(
+      (sum, r) => sum + (effectiveMinutes(durationToMinutes(r.duration)) ?? 0), 0
+    );
     const avgWorkingHours = presentWithDuration.length > 0 ? totalEffectiveMins / presentWithDuration.length / 60 : 0;
 
     const lateRecords = presentRecords.filter((r) => getLateMinutes(r, grace, shiftStart) > 0);
@@ -457,9 +484,8 @@ export function useDashboardData(
         emp.presentDays++;
         if (isMissedPunchOut(r.status)) emp.missedPunchOutCount = (emp.missedPunchOutCount ?? 0) + 1;
         const mins = durationToMinutes(r.duration);
-        // store effective minutes (subtract lunch)
-        const effectiveMins = mins > 60 ? mins - 60 : 0;
-        emp.totalMinutes += effectiveMins;
+        // store effective minutes (subtract lunch) — shared with Charts.tsx / exportData.ts (lib/hoursCalc.ts)
+        emp.totalMinutes += effectiveMinutes(mins) ?? 0;
         if (getLateMinutes(r, grace, shiftStart) > 0) emp.lateCount++;
         if (getEarlyMinutes(r, grace, shiftEnd) > 0) emp.earlyExitCount++;
       } else if (isAbsent(r.status)) {
@@ -488,9 +514,9 @@ export function useDashboardData(
       // Working Hours Distribution chart and the Employee Comparison panel
       // (both of which already only average present days with a valid,
       // >60-minute raw duration).
-      const presentRecsWithDuration = presentRecs.filter(r => durationToMinutes(r.duration) > 60);
+      const presentRecsWithDuration = presentRecs.filter(r => effectiveMinutes(durationToMinutes(r.duration)) !== null);
       const totalEffectiveMinsForAvg = presentRecsWithDuration.reduce(
-        (sum, r) => sum + (durationToMinutes(r.duration) - 60), 0
+        (sum, r) => sum + (effectiveMinutes(durationToMinutes(r.duration)) ?? 0), 0
       );
       const avgMins = presentRecsWithDuration.length > 0
         ? Math.round(totalEffectiveMinsForAvg / presentRecsWithDuration.length) : 0;

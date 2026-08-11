@@ -16,6 +16,10 @@ interface SettingsPanelProps {
   thresholds: Thresholds;
   onSaveThresholds: (t: Thresholds) => void;
   records: AttendanceRecord[];
+  // Surfaces add-department / restore-employee write failures to the app's
+  // existing toast UI (see PROGRESS.md Sprint 2). Duplicate-department-name
+  // validation stays inline (deptError below) — that's not a write failure.
+  onToast?: (type: 'success' | 'error', message: string) => void;
 }
 
 const THRESHOLD_FIELDS: { key: keyof Thresholds; label: string; group: string }[] = [
@@ -47,7 +51,7 @@ function hhmmToMins(hhmm: string): number {
   return h * 60 + m;
 }
 
-export default function SettingsPanel({ onClose, thresholds, onSaveThresholds, records }: SettingsPanelProps) {
+export default function SettingsPanel({ onClose, thresholds, onSaveThresholds, records, onToast }: SettingsPanelProps) {
   const [tab, setTab] = useState<'mapping' | 'thresholds' | 'share' | 'backup' | 'departments' | 'employees'>('thresholds');
   const [draft, setDraft] = useState<Thresholds>(thresholds);
   const [dirty, setDirty] = useState(false);
@@ -69,9 +73,13 @@ export default function SettingsPanel({ onClose, thresholds, onSaveThresholds, r
   async function handleAddDepartment() {
     const trimmed = newDeptName.trim();
     if (!trimmed) return;
-    const ok = await addDepartment(trimmed, departments);
-    if (!ok) {
-      setDeptError(`"${trimmed}" already exists.`);
+    const result = await addDepartment(trimmed, departments);
+    if (!result.success) {
+      if (result.duplicate) {
+        setDeptError(`"${trimmed}" already exists.`);
+      } else if (result.error) {
+        onToast?.('error', result.error);
+      }
       return;
     }
     setDeptError(null);
@@ -100,23 +108,23 @@ export default function SettingsPanel({ onClose, thresholds, onSaveThresholds, r
   return (
     <>
       <div className="fixed inset-0 bg-black/40 z-40" onClick={onClose} />
-      <div className="fixed right-0 top-0 h-full w-full md:w-[480px] bg-slate-900 border-l border-slate-700 z-50 flex flex-col shadow-2xl">
-        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-800 flex-shrink-0">
+      <div className="fixed right-0 top-0 h-full w-full md:w-[480px] bg-[var(--bg-surface)] border-l border-[var(--border)] z-50 flex flex-col shadow-2xl">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border)] flex-shrink-0">
           <div className="flex items-center gap-2">
             <SettingsIcon className="w-4 h-4 text-blue-400" />
-            <h3 className="text-white font-semibold text-base">Settings</h3>
+            <h3 className="text-[var(--text-primary)] font-semibold text-base">Settings</h3>
           </div>
-          <button onClick={onClose} className="text-slate-400 hover:text-white transition-colors">
+          <button onClick={onClose} className="text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors">
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        <div className="flex border-b border-slate-800 flex-shrink-0 overflow-x-auto">
+        <div className="flex border-b border-[var(--border)] flex-shrink-0 overflow-x-auto">
           {(['thresholds', 'mapping', 'departments', 'employees', 'share', 'backup'] as const).map(t => (
             <button
               key={t}
               onClick={() => setTab(t)}
-              className={`flex-1 px-3 py-2.5 text-xs font-medium whitespace-nowrap transition-colors ${tab === t ? 'text-blue-400 border-b-2 border-blue-400' : 'text-slate-500 hover:text-slate-300'}`}
+              className={`flex-1 px-3 py-2.5 text-xs font-medium whitespace-nowrap transition-colors ${tab === t ? 'text-blue-400 border-b-2 border-blue-400' : 'text-[var(--text-muted)] hover:text-[var(--text-muted)]'}`}
             >
               {t === 'thresholds' ? 'Thresholds' : t === 'mapping' ? 'Column Mapping' : t === 'departments' ? 'Departments' : t === 'employees' ? 'Employees' : t === 'share' ? 'Shared Link' : 'Backup'}
             </button>
@@ -128,22 +136,22 @@ export default function SettingsPanel({ onClose, thresholds, onSaveThresholds, r
             <div className="space-y-5">
               {groups.map(group => (
                 <div key={group}>
-                  <h4 className="text-slate-400 text-xs font-semibold uppercase tracking-wide mb-2">{group}</h4>
+                  <h4 className="text-[var(--text-muted)] text-xs font-semibold uppercase tracking-wide mb-2">{group}</h4>
                   <div className="space-y-2">
                     {THRESHOLD_FIELDS.filter(f => f.group === group).map(f => (
-                      <div key={f.key} className="flex items-center justify-between gap-3 bg-slate-800/60 rounded-lg px-3 py-2">
-                        <label className="text-slate-300 text-xs">{f.label}</label>
+                      <div key={f.key} className="flex items-center justify-between gap-3 bg-[var(--bg-elevated)]/60 rounded-lg px-3 py-2">
+                        <label className="text-[var(--text-muted)] text-xs">{f.label}</label>
                         <input
                           type="number"
                           value={draft[f.key]}
                           onChange={(e) => update(f.key, e.target.value)}
-                          className="w-20 bg-slate-700 border border-slate-600 rounded-md px-2 py-1 text-white text-xs text-right focus:outline-none focus:border-blue-500"
+                          className="w-20 bg-[var(--bg-elevated)] border border-[var(--border)] rounded-md px-2 py-1 text-[var(--text-primary)] text-xs text-right focus:outline-none focus:border-blue-500"
                         />
                       </div>
                     ))}
                   </div>
                   {group === 'Other Thresholds' && (
-                    <p className="text-slate-500 text-[11px] mt-2">
+                    <p className="text-[var(--text-muted)] text-[11px] mt-2">
                       Short Day threshold only applies to CSVs uploaded <em>after</em> you change it — it&apos;s
                       baked into each row at import time, so already-imported months keep their original
                       classification unless you re-upload them.
@@ -154,17 +162,17 @@ export default function SettingsPanel({ onClose, thresholds, onSaveThresholds, r
 
               {/* Shift Window — time-picker instead of raw number */}
               <div>
-                <h4 className="text-slate-400 text-xs font-semibold uppercase tracking-wide mb-2">Shift Window</h4>
-                <p className="text-slate-500 text-[11px] mb-2">Used to compute Late Arrival and Early Exit rates. If your CSV already has lateBy/earlyBy columns the system prefers those; this only applies when falling back to raw punch times.</p>
+                <h4 className="text-[var(--text-muted)] text-xs font-semibold uppercase tracking-wide mb-2">Shift Window</h4>
+                <p className="text-[var(--text-muted)] text-[11px] mb-2">Used to compute Late Arrival and Early Exit rates. If your CSV already has lateBy/earlyBy columns the system prefers those; this only applies when falling back to raw punch times.</p>
                 <div className="space-y-2">
                   {(['shiftStartMinutes', 'shiftEndMinutes'] as const).map((key) => (
-                    <div key={key} className="flex items-center justify-between gap-3 bg-slate-800/60 rounded-lg px-3 py-2">
-                      <label className="text-slate-300 text-xs">{key === 'shiftStartMinutes' ? 'Shift Start' : 'Shift End'}</label>
+                    <div key={key} className="flex items-center justify-between gap-3 bg-[var(--bg-elevated)]/60 rounded-lg px-3 py-2">
+                      <label className="text-[var(--text-muted)] text-xs">{key === 'shiftStartMinutes' ? 'Shift Start' : 'Shift End'}</label>
                       <input
                         type="time"
                         value={minsToHHMM(draft[key])}
                         onChange={(e) => { setDraft(prev => ({ ...prev, [key]: hhmmToMins(e.target.value) })); setDirty(true); }}
-                        className="bg-slate-700 border border-slate-600 rounded-md px-2 py-1 text-white text-xs focus:outline-none focus:border-blue-500"
+                        className="bg-[var(--bg-elevated)] border border-[var(--border)] rounded-md px-2 py-1 text-[var(--text-primary)] text-xs focus:outline-none focus:border-blue-500"
                       />
                     </div>
                   ))}
@@ -174,7 +182,7 @@ export default function SettingsPanel({ onClose, thresholds, onSaveThresholds, r
               <div className="flex gap-2 pt-2">
                 <button
                   onClick={resetDefaults}
-                  className="flex items-center gap-1.5 text-xs text-slate-400 hover:text-white px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 transition-colors"
+                  className="flex items-center gap-1.5 text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] px-3 py-2 rounded-lg bg-[var(--bg-elevated)] hover:bg-[var(--bg-elevated)] transition-colors"
                 >
                   <RotateCcw className="w-3 h-3" /> Reset to Defaults
                 </button>
@@ -192,13 +200,13 @@ export default function SettingsPanel({ onClose, thresholds, onSaveThresholds, r
           {tab === 'mapping' && (
             <div className="space-y-2">
               {Object.keys(mappings).length === 0 && (
-                <p className="text-slate-500 text-sm">No column mappings saved yet — upload a CSV for a new office to create one.</p>
+                <p className="text-[var(--text-muted)] text-sm">No column mappings saved yet — upload a CSV for a new office to create one.</p>
               )}
               {Object.entries(mappings).map(([office, mapping]) => (
-                <div key={office} className="bg-slate-800/60 rounded-lg px-3 py-2.5 flex items-center justify-between">
+                <div key={office} className="bg-[var(--bg-elevated)]/60 rounded-lg px-3 py-2.5 flex items-center justify-between">
                   <div>
-                    <p className="text-white text-sm font-medium">{office}</p>
-                    <p className="text-slate-500 text-xs">{Object.keys(mapping).length} fields mapped</p>
+                    <p className="text-[var(--text-primary)] text-sm font-medium">{office}</p>
+                    <p className="text-[var(--text-muted)] text-xs">{Object.keys(mapping).length} fields mapped</p>
                   </div>
                   <RemapButton officeCode={office} mapping={mapping} />
                 </div>
@@ -209,8 +217,8 @@ export default function SettingsPanel({ onClose, thresholds, onSaveThresholds, r
           {tab === 'departments' && (
             <div className="space-y-4">
               <div>
-                <h4 className="text-slate-400 text-xs font-semibold uppercase tracking-wide mb-2">Create Department</h4>
-                <p className="text-slate-500 text-[11px] mb-2">
+                <h4 className="text-[var(--text-muted)] text-xs font-semibold uppercase tracking-wide mb-2">Create Department</h4>
+                <p className="text-[var(--text-muted)] text-[11px] mb-2">
                   New departments show up as an assignable option on each employee&apos;s panel right away,
                   even before any employee is moved into them.
                 </p>
@@ -221,7 +229,7 @@ export default function SettingsPanel({ onClose, thresholds, onSaveThresholds, r
                     onChange={(e) => { setNewDeptName(e.target.value); setDeptError(null); }}
                     onKeyDown={(e) => { if (e.key === 'Enter') handleAddDepartment(); }}
                     placeholder="e.g. Customer Success"
-                    className="flex-1 bg-slate-800 border border-slate-600 rounded-md px-3 py-2 text-white text-sm focus:outline-none focus:border-blue-500"
+                    className="flex-1 bg-[var(--bg-elevated)] border border-[var(--border)] rounded-md px-3 py-2 text-[var(--text-primary)] text-sm focus:outline-none focus:border-blue-500"
                   />
                   <button
                     onClick={handleAddDepartment}
@@ -235,21 +243,21 @@ export default function SettingsPanel({ onClose, thresholds, onSaveThresholds, r
               </div>
 
               <div>
-                <h4 className="text-slate-400 text-xs font-semibold uppercase tracking-wide mb-2">
+                <h4 className="text-[var(--text-muted)] text-xs font-semibold uppercase tracking-wide mb-2">
                   All Departments ({departments.length})
                 </h4>
                 {departments.length === 0 ? (
-                  <p className="text-slate-500 text-sm">No departments yet — upload a CSV or create one above.</p>
+                  <p className="text-[var(--text-muted)] text-sm">No departments yet — upload a CSV or create one above.</p>
                 ) : (
                   <div className="flex flex-wrap gap-1.5">
                     {departments.map((d) => (
-                      <span key={d} className="bg-slate-800/60 border border-slate-700 text-slate-300 text-xs px-2.5 py-1 rounded-lg">
+                      <span key={d} className="bg-[var(--bg-elevated)]/60 border border-[var(--border)] text-[var(--text-muted)] text-xs px-2.5 py-1 rounded-lg">
                         {d}
                       </span>
                     ))}
                   </div>
                 )}
-                <p className="text-slate-500 text-[11px] mt-2">
+                <p className="text-[var(--text-muted)] text-[11px] mt-2">
                   To move an individual employee into a different department, open their profile from the
                   Employees table and use the department dropdown there.
                 </p>
@@ -260,26 +268,31 @@ export default function SettingsPanel({ onClose, thresholds, onSaveThresholds, r
           {tab === 'employees' && (
             <div className="space-y-4">
               <div>
-                <h4 className="text-slate-400 text-xs font-semibold uppercase tracking-wide mb-2 flex items-center gap-1.5">
+                <h4 className="text-[var(--text-muted)] text-xs font-semibold uppercase tracking-wide mb-2 flex items-center gap-1.5">
                   <Users className="w-3.5 h-3.5" /> Deleted Employees
                 </h4>
-                <p className="text-slate-500 text-[11px] mb-2">
+                <p className="text-[var(--text-muted)] text-[11px] mb-2">
                   Deleted employees are hidden from every chart, table, and export — even if they still
                   appear in a future CSV upload. Restore them here to bring them back.
                 </p>
                 {getDeletedEmployees().length === 0 ? (
-                  <p className="text-slate-500 text-sm">No deleted employees.</p>
+                  <p className="text-[var(--text-muted)] text-sm">No deleted employees.</p>
                 ) : (
                   <div className="space-y-1.5">
                     {getDeletedEmployees().map((e) => (
-                      <div key={e.employeeCode} className="flex items-center justify-between bg-slate-800/60 border border-slate-700 rounded-lg px-3 py-2">
+                      <div key={e.employeeCode} className="flex items-center justify-between bg-[var(--bg-elevated)]/60 border border-[var(--border)] rounded-lg px-3 py-2">
                         <div>
-                          <p className="text-white text-sm">{e.employeeName || e.employeeCode}</p>
-                          <p className="text-slate-500 text-xs">{e.employeeCode} · {e.officeCode}</p>
+                          <p className="text-[var(--text-primary)] text-sm">{e.employeeName || e.employeeCode}</p>
+                          <p className="text-[var(--text-muted)] text-xs">{e.employeeCode} · {e.officeCode}</p>
                         </div>
                         <button
-                          onClick={() => restoreEmployee(e.employeeCode, e.officeCode)}
-                          className="text-emerald-400 hover:text-emerald-300 text-xs font-medium px-2.5 py-1 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 transition-colors"
+                          onClick={async () => {
+                            const result = await restoreEmployee(e.employeeCode, e.officeCode);
+                            if (!result.success) {
+                              onToast?.('error', result.error ?? 'Could not restore employee.');
+                            }
+                          }}
+                          className="text-emerald-400 hover:text-emerald-700 dark:hover:text-emerald-300 text-xs font-medium px-2.5 py-1 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 transition-colors"
                         >
                           Restore
                         </button>
@@ -331,7 +344,7 @@ function RemapButton({ officeCode, mapping }: { officeCode: string; mapping: Col
       />
       <button
         onClick={() => document.getElementById(`remap-${officeCode}`)?.click()}
-        className="text-blue-400 hover:text-blue-300 text-xs font-medium px-2.5 py-1 rounded-lg bg-blue-500/10 hover:bg-blue-500/20 transition-colors"
+        className="text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 text-xs font-medium px-2.5 py-1 rounded-lg bg-blue-500/10 hover:bg-blue-500/20 transition-colors"
       >
         Remap →
       </button>

@@ -3,7 +3,7 @@ import { useState, useRef, useMemo, useEffect } from 'react';
 import { Download, FileSpreadsheet, FileText, FileIcon, ChevronDown, Loader2, X, Calendar, Building2, Users } from 'lucide-react';
 import { UploadedMonth, Thresholds, Holiday, LeaveRecord, AttendanceRecord } from '@/lib/types';
 import { getRecords } from '@/lib/storage';
-import { getAllLeaveRecords } from '@/lib/leaveStorage';
+import { getAllLeaveRecords } from '@/lib/leaveTrackerRead';
 import { getHolidays } from '@/lib/holidays';
 import { useDashboardData } from '@/lib/useDashboardData';
 import { exportExcel, exportCSV } from '@/lib/exportData';
@@ -12,6 +12,11 @@ import { useEmployeeDirectorySync } from '@/lib/employeeStore';
 interface ExportPanelProps {
   uploadedMonths: UploadedMonth[];
   thresholds: Thresholds;
+  // Team Dashboard (manager/lead) passes their team's employee_codes here
+  // so every export — regardless of which months/office/departments they
+  // pick in the dialog — only ever contains their own team's rows, never
+  // the wider org. HR (no restriction passed) is unaffected.
+  restrictToEmployeeCodes?: string[];
 }
 
 const MONTH_NAMES = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -28,7 +33,7 @@ function periodLabel(key: string): string {
 // FR-11D: dedicated multi-month export dialog — From-month / To-month /
 // Office / Department selectors spanning every uploaded month, rather than
 // just exporting whatever happens to be on screen right now.
-export default function ExportPanel({ uploadedMonths, thresholds }: ExportPanelProps) {
+export default function ExportPanel({ uploadedMonths, thresholds, restrictToEmployeeCodes }: ExportPanelProps) {
   const directoryVersion = useEmployeeDirectorySync();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -88,10 +93,15 @@ export default function ExportPanel({ uploadedMonths, thresholds }: ExportPanelP
     let cancelled = false;
     Promise.all(scopedMonths.map(m => getRecords(m.key)))
       .then(results => {
-        if (!cancelled) setScopedRecords(results.flat());
+        if (cancelled) return;
+        const flat = results.flat();
+        const restricted = restrictToEmployeeCodes
+          ? flat.filter(r => restrictToEmployeeCodes.includes(r.employeeCode))
+          : flat;
+        setScopedRecords(restricted);
       });
     return () => { cancelled = true; };
-  }, [scopedMonths, directoryVersion]);
+  }, [scopedMonths, directoryVersion, restrictToEmployeeCodes]);
 
   const departments = useMemo(() => {
     return Array.from(new Set(scopedRecords.map(r => r.department))).filter(Boolean).sort();
@@ -129,14 +139,24 @@ export default function ExportPanel({ uploadedMonths, thresholds }: ExportPanelP
   }, [scopedMonths]);
 
   const [leaveRecords, setLeaveRecords] = useState<LeaveRecord[]>([]);
+  const [leaveLoadError, setLeaveLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    getAllLeaveRecords(scopedMonths.map(m => m.key)).then(records => {
-      if (!cancelled) setLeaveRecords(records);
-    });
+    getAllLeaveRecords(scopedMonths.map(m => m.key))
+      .then(records => {
+        if (cancelled) return;
+        const restricted = restrictToEmployeeCodes
+          ? records.filter(r => restrictToEmployeeCodes.includes(r.employeeCode))
+          : records;
+        setLeaveRecords(restricted);
+        setLeaveLoadError(null);
+      })
+      .catch((err) => {
+        if (!cancelled) setLeaveLoadError(`Could not load leave data from the Leave Tracker — exports may be missing leave columns: ${err instanceof Error ? err.message : 'Unknown error'}`);
+      });
     return () => { cancelled = true; };
-  }, [scopedMonths]);
+  }, [scopedMonths, restrictToEmployeeCodes]);
 
   const { employeeSummaries } = useDashboardData(
     filteredRecords, 'ALL', [], [], holidays, thresholds, leaveRecords
@@ -188,7 +208,7 @@ export default function ExportPanel({ uploadedMonths, thresholds }: ExportPanelP
       <button
         onClick={() => !disabled && openDialog()}
         disabled={disabled}
-        className="flex items-center gap-2 bg-slate-700 hover:bg-slate-600 border border-slate-600 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+        className="flex items-center gap-2 bg-[var(--bg-elevated)] hover:bg-[var(--bg-elevated)] border border-[var(--border)] text-[var(--text-primary)] px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
       >
         <Download className="w-4 h-4" />
         Export
@@ -197,38 +217,47 @@ export default function ExportPanel({ uploadedMonths, thresholds }: ExportPanelP
       {dialogOpen && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={() => setDialogOpen(false)}>
           <div
-            className="bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden max-h-[90vh] flex flex-col"
+            className="bg-[var(--bg-surface)] border border-[var(--border)] rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden max-h-[90vh] flex flex-col"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="px-5 py-4 border-b border-slate-800 flex items-start justify-between gap-3">
+            <div className="px-5 py-4 border-b border-[var(--border)] flex items-start justify-between gap-3">
               <div>
-                <h3 className="text-white font-semibold text-sm">Export Data</h3>
-                <p className="text-slate-400 text-xs mt-1">Choose the months, office and departments to include — spans every uploaded month, not just what's on screen.</p>
+                <h3 className="text-[var(--text-primary)] font-semibold text-sm">Export Data</h3>
+                <p className="text-[var(--text-muted)] text-xs mt-1">
+                  {restrictToEmployeeCodes
+                    ? "Choose the months, office and departments to include — scoped to your team only."
+                    : "Choose the months, office and departments to include — spans every uploaded month, not just what's on screen."}
+                </p>
               </div>
-              <button onClick={() => setDialogOpen(false)} className="text-slate-500 hover:text-white transition-colors flex-shrink-0">
+              <button onClick={() => setDialogOpen(false)} className="text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors flex-shrink-0">
                 <X className="w-4 h-4" />
               </button>
             </div>
 
             <div className="px-5 py-4 space-y-4 overflow-y-auto">
+              {leaveLoadError && (
+                <div className="bg-red-900/30 border border-red-500/30 text-red-700 dark:text-red-300 text-xs rounded-lg px-3 py-2">
+                  {leaveLoadError}
+                </div>
+              )}
               {/* From / To month */}
               <div>
-                <label className="flex items-center gap-1.5 text-slate-400 text-xs font-medium mb-1.5">
+                <label className="flex items-center gap-1.5 text-[var(--text-muted)] text-xs font-medium mb-1.5">
                   <Calendar className="w-3.5 h-3.5" /> Month Range
                 </label>
                 <div className="flex items-center gap-2">
                   <select
                     value={fromPeriod}
                     onChange={(e) => setFromPeriod(e.target.value)}
-                    className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
+                    className="flex-1 bg-[var(--bg-elevated)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)] focus:outline-none focus:border-blue-500"
                   >
                     {periods.map(p => <option key={p} value={p}>{periodLabel(p)}</option>)}
                   </select>
-                  <span className="text-slate-600 text-xs flex-shrink-0">to</span>
+                  <span className="text-[var(--text-muted)] text-xs flex-shrink-0">to</span>
                   <select
                     value={toPeriod}
                     onChange={(e) => setToPeriod(e.target.value)}
-                    className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
+                    className="flex-1 bg-[var(--bg-elevated)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)] focus:outline-none focus:border-blue-500"
                   >
                     {periods.map(p => <option key={p} value={p}>{periodLabel(p)}</option>)}
                   </select>
@@ -237,13 +266,13 @@ export default function ExportPanel({ uploadedMonths, thresholds }: ExportPanelP
 
               {/* Office */}
               <div>
-                <label className="flex items-center gap-1.5 text-slate-400 text-xs font-medium mb-1.5">
+                <label className="flex items-center gap-1.5 text-[var(--text-muted)] text-xs font-medium mb-1.5">
                   <Building2 className="w-3.5 h-3.5" /> Office
                 </label>
                 <select
                   value={office}
                   onChange={(e) => setOffice(e.target.value)}
-                  className="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
+                  className="w-full bg-[var(--bg-elevated)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)] focus:outline-none focus:border-blue-500"
                 >
                   <option value="ALL">All Offices{offices.length > 1 ? ` (${offices.length})` : ''}</option>
                   {offices.map(o => <option key={o} value={o}>{o}</option>)}
@@ -252,17 +281,17 @@ export default function ExportPanel({ uploadedMonths, thresholds }: ExportPanelP
 
               {/* Department */}
               <div>
-                <label className="flex items-center gap-1.5 text-slate-400 text-xs font-medium mb-1.5">
+                <label className="flex items-center gap-1.5 text-[var(--text-muted)] text-xs font-medium mb-1.5">
                   <Users className="w-3.5 h-3.5" /> Departments
-                  {selectedDepts.length > 0 && <span className="text-slate-600">({selectedDepts.length} selected)</span>}
+                  {selectedDepts.length > 0 && <span className="text-[var(--text-muted)]">({selectedDepts.length} selected)</span>}
                 </label>
                 {departments.length === 0 ? (
-                  <p className="text-slate-600 text-xs">No department data in this scope.</p>
+                  <p className="text-[var(--text-muted)] text-xs">No department data in this scope.</p>
                 ) : (
                   <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto">
                     <button
                       onClick={() => setSelectedDepts([])}
-                      className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${selectedDepts.length === 0 ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-white border border-slate-700'}`}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${selectedDepts.length === 0 ? 'bg-blue-600 text-white' : 'bg-[var(--bg-elevated)] text-[var(--text-muted)] hover:text-[var(--text-primary)] border border-[var(--border)]'}`}
                     >
                       All Departments
                     </button>
@@ -270,7 +299,7 @@ export default function ExportPanel({ uploadedMonths, thresholds }: ExportPanelP
                       <button
                         key={d}
                         onClick={() => toggleDept(d)}
-                        className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${selectedDepts.includes(d) ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-white border border-slate-700'}`}
+                        className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${selectedDepts.includes(d) ? 'bg-blue-600 text-white' : 'bg-[var(--bg-elevated)] text-[var(--text-muted)] hover:text-[var(--text-primary)] border border-[var(--border)]'}`}
                       >
                         {d}
                       </button>
@@ -280,9 +309,9 @@ export default function ExportPanel({ uploadedMonths, thresholds }: ExportPanelP
               </div>
 
               {/* Scope summary */}
-              <div className="bg-slate-800/60 border border-slate-700 rounded-lg px-3 py-2 text-xs">
+              <div className="bg-[var(--bg-elevated)]/60 border border-[var(--border)] rounded-lg px-3 py-2 text-xs">
                 {canExport ? (
-                  <p className="text-slate-300">
+                  <p className="text-[var(--text-muted)]">
                     <span className="text-emerald-400 font-medium">{scopedMonths.length}</span> month{scopedMonths.length !== 1 ? 's' : ''} ·{' '}
                     <span className="text-emerald-400 font-medium">{new Set(filteredRecords.map(r => r.employeeCode)).size}</span> employees ·{' '}
                     <span className="text-emerald-400 font-medium">{filteredRecords.length.toLocaleString()}</span> records
@@ -294,11 +323,11 @@ export default function ExportPanel({ uploadedMonths, thresholds }: ExportPanelP
             </div>
 
             {/* Download actions */}
-            <div className="px-5 py-4 border-t border-slate-800 grid grid-cols-3 gap-2">
+            <div className="px-5 py-4 border-t border-[var(--border)] grid grid-cols-3 gap-2">
               <button
                 onClick={handleExcel}
                 disabled={!canExport || loading !== null}
-                className="flex flex-col items-center gap-1.5 py-3 rounded-lg text-xs font-medium text-white bg-slate-800 hover:bg-slate-700 border border-slate-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                className="flex flex-col items-center gap-1.5 py-3 rounded-lg text-xs font-medium text-[var(--text-primary)] bg-[var(--bg-elevated)] hover:bg-[var(--bg-elevated)] border border-[var(--border)] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 {loading === 'excel' ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileSpreadsheet className="w-4 h-4 text-emerald-400" />}
                 Excel
@@ -306,7 +335,7 @@ export default function ExportPanel({ uploadedMonths, thresholds }: ExportPanelP
               <button
                 onClick={handleCSV}
                 disabled={!canExport || loading !== null}
-                className="flex flex-col items-center gap-1.5 py-3 rounded-lg text-xs font-medium text-white bg-slate-800 hover:bg-slate-700 border border-slate-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                className="flex flex-col items-center gap-1.5 py-3 rounded-lg text-xs font-medium text-[var(--text-primary)] bg-[var(--bg-elevated)] hover:bg-[var(--bg-elevated)] border border-[var(--border)] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 {loading === 'csv' ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileText className="w-4 h-4 text-blue-400" />}
                 CSV
@@ -314,7 +343,7 @@ export default function ExportPanel({ uploadedMonths, thresholds }: ExportPanelP
               <button
                 onClick={handlePDF}
                 disabled={!canExport || loading !== null}
-                className="flex flex-col items-center gap-1.5 py-3 rounded-lg text-xs font-medium text-white bg-slate-800 hover:bg-slate-700 border border-slate-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                className="flex flex-col items-center gap-1.5 py-3 rounded-lg text-xs font-medium text-[var(--text-primary)] bg-[var(--bg-elevated)] hover:bg-[var(--bg-elevated)] border border-[var(--border)] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 {loading === 'pdf' ? <Loader2 className="w-4 h-4 animate-spin" /> : <FileIcon className="w-4 h-4 text-red-400" />}
                 PDF

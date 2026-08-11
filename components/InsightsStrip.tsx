@@ -68,7 +68,7 @@ export default function InsightsStrip({ summaries, dailyTrend, deptAttendance, r
       }
       const topAbsentee = summaries.filter(s => s.department === dept).sort((a, b) => b.absentDays - a.absentDays)[0];
       if (topAbsentee && topAbsentee.absentDays > 0) {
-        result.push({ icon: '👤', text: `Top absentee in ${dept}: ${topAbsentee.employeeName} with ${topAbsentee.absentDays} absent days.`, type: 'info' });
+        result.push({ icon: '👤', text: `Most days on leave in ${dept}: ${topAbsentee.employeeName} with ${topAbsentee.absentDays} day${topAbsentee.absentDays === 1 ? '' : 's'}.`, type: 'info' });
       }
     } else if (selectedDepts.length >= 2) {
       const sorted = [...deptAttendance.filter(d => selectedDepts.includes(d.department))].sort((a, b) => b.rate - a.rate);
@@ -86,14 +86,14 @@ export default function InsightsStrip({ summaries, dailyTrend, deptAttendance, r
   if (insights.length === 0) return null;
 
   const typeColors: Record<string, string> = {
-    warn: 'bg-amber-500/10 border-amber-500/20 text-amber-300',
-    danger: 'bg-red-500/10 border-red-500/20 text-red-300',
-    info: 'bg-blue-500/10 border-blue-500/20 text-blue-300',
+    warn: 'bg-amber-500/10 border-amber-500/20 text-amber-700 dark:text-amber-300',
+    danger: 'bg-red-500/10 border-red-500/20 text-red-700 dark:text-red-300',
+    info: 'bg-blue-500/10 border-blue-500/20 text-blue-700 dark:text-blue-300',
   };
 
   return (
     <div className="space-y-2">
-      <h3 className="text-slate-500 text-xs font-semibold uppercase tracking-wide">Insights</h3>
+      <h3 className="text-[var(--text-muted)] text-xs font-semibold uppercase tracking-wide">Insights</h3>
       <div className="flex flex-col gap-2">
         {insights.map((insight, i) => (
           <div key={i} className={`flex items-start gap-2.5 px-4 py-3 rounded-xl border text-sm ${typeColors[insight.type]}`}>

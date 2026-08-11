@@ -1,5 +1,5 @@
 import { AttendanceRecord, ColumnMapping, UploadedMonth } from './types';
-import { applyEmployeeDirectory } from './employeeStore';
+import { applyEmployeeDirectory, ensureEmployeesFromAttendance } from './employeeStore';
 import { createClient } from './supabase/client';
 import { normalizeDate } from './parseCSV';
 
@@ -149,8 +149,8 @@ function fromDbRow(row: Record<string, unknown>): AttendanceRecord {
 export async function saveRecords(
   monthKey: string,
   records: AttendanceRecord[]
-): Promise<{ added: number; updated: number }> {
-  if (records.length === 0) return { added: 0, updated: 0 };
+): Promise<{ added: number; updated: number; employeesCreated: number; employeesSyncError?: string }> {
+  if (records.length === 0) return { added: 0, updated: 0, employeesCreated: 0 };
   const supabase = createClient();
 
   // Figure out added vs. updated BEFORE upserting, by checking which
@@ -181,7 +181,21 @@ export async function saveRecords(
     if (error) throw error;
   }
 
-  return { added, updated };
+  // Auto-onboard any employee_code from this CSV that doesn't already exist
+  // in `employees` — this is what makes the Leave Tracker actually see
+  // people after a biometric upload, instead of staying empty until someone
+  // manually adds each person there. Existing employees are never touched
+  // here (see ensureEmployeesFromAttendance's doc comment) — this only fails
+  // open (attendance data is still saved) if the employee sync errors, since
+  // losing attendance data over a directory-sync problem would be worse.
+  const syncResult = await ensureEmployeesFromAttendance(records);
+
+  return {
+    added,
+    updated,
+    employeesCreated: syncResult.created,
+    employeesSyncError: syncResult.success ? undefined : syncResult.error,
+  };
 }
 
 export async function getRecords(monthKey: string): Promise<AttendanceRecord[]> {
