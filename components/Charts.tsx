@@ -13,7 +13,7 @@ import {
   ChevronLeft,
   ChevronRight,
 } from 'lucide-react';
-import { DailyTrend, DeptAttendance, HoursDistribution, AttendanceRecord, DayDeptSnapshot, Holiday, OfficeAttendance } from '@/lib/types';
+import { DailyTrend, DeptAttendance, HoursDistribution, AttendanceRecord, DayDeptSnapshot, Holiday, OfficeAttendance, LeaveRecord } from '@/lib/types';
 import { durationToMinutes, minutesToHHMM, effectiveMinutes } from '@/lib/parseCSV';
 import { isPresent, isAbsent, isWeeklyOff, SHIFT_MINUTES, computeLateMinutes, computeEarlyMinutes, getLateMinutes, getEarlyMinutes, computeProductivityLostMinutes, targetShiftMinutes } from '@/lib/useDashboardData';
 import { isHoliday } from '@/lib/holidays';
@@ -1188,6 +1188,10 @@ export function getCellStatus(
     return 'present';
   }
   return 'absent';
+}
+
+function leaveKey(employeeCode: string, date: string): string {
+  return `${employeeCode}__${date}`;
 }
 
 export function AttendanceHeatmap({
