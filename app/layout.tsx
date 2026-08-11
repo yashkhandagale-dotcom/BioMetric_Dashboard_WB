@@ -30,7 +30,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en">
       <head>
-        <script dangerouslySetInnerHTML={{ __html: _themeInitScript }} />
+        <script id="theme-init" dangerouslySetInnerHTML={{ __html: _themeInitScript }} />
       </head>
       <body className="bg-[var(--bg-surface)] min-h-screen">
         <ThemeProvider>
