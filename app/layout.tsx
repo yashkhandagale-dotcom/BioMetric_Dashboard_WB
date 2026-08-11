@@ -22,15 +22,14 @@
 // every such switch. See LeaveThemeInit.tsx for the full explanation.
 import LeaveThemeInit from '@/components/leave/LeaveThemeInit';
 
-export default function LeaveRootLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className="bg-[var(--bg-surface)] min-h-screen">
-      <LeaveThemeInit />
-      {children}
-    </div>
+    <html lang="en">
+      <head />
+      <body className="bg-[var(--bg-surface)] min-h-screen">
+        <LeaveThemeInit />
+        {children}
+      </body>
+    </html>
   );
 }
