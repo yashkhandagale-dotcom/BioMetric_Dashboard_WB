@@ -119,12 +119,7 @@ function LoginForm() {
             {loading ? 'Signing in…' : 'Sign in'}
           </button>
         </form>
-        <p className="text-[var(--text-muted)] text-xs text-center mt-4">
-          One login for both attendance and leave. Admins land on the dashboard;
-          everyone else lands on their own leave page. Accounts are created by HR —
-          check your email for an invite link if you don&apos;t have a password yet.
-        </p>
-      </div>
+        </div>
     </div>
   );
 }
