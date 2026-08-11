@@ -5,6 +5,7 @@ import { EmployeeSummary, Holiday, LeaveRecord } from '@/lib/types';
 import { getLateMinutes, getEarlyMinutes } from '@/lib/useDashboardData';
 import { DEFAULT_THRESHOLDS } from '@/lib/settings';
 import { durationToMinutes, effectiveMinutes, minutesToHHMM } from '@/lib/parseCSV';
+import { actualMinutes } from '@/lib/hoursCalc';
 import { getHolidayName } from '@/lib/holidays';
 import {
   setEmployeeDepartment,

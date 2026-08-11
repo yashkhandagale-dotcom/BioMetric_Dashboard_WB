@@ -14,7 +14,7 @@ import {
   ChevronRight,
 } from 'lucide-react';
 import { DailyTrend, DeptAttendance, HoursDistribution, AttendanceRecord, DayDeptSnapshot, Holiday, OfficeAttendance, LeaveRecord } from '@/lib/types';
-import { durationToMinutes, minutesToHHMM, effectiveMinutes } from '@/lib/parseCSV';
+import { durationToMinutes, minutesToHHMM } from '@/lib/parseCSV';
 import { isPresent, isAbsent, isWeeklyOff, SHIFT_MINUTES, computeLateMinutes, computeEarlyMinutes, getLateMinutes, getEarlyMinutes, computeProductivityLostMinutes, targetShiftMinutes } from '@/lib/useDashboardData';
 import { isHoliday } from '@/lib/holidays';
 import { leaveLabelFor, UNMARKED_LEAVE_LABEL } from '@/lib/leaveLabels';
@@ -822,7 +822,8 @@ export function DeptProductivityChart({
       // different things.
       if (raw > 60) {
         e.daysWithDuration++;
-        e.effectiveMins += effectiveMinutes(raw);
+        const eff = effectiveMinutes(raw);
+        if (eff !== null) e.effectiveMins += eff;
       }
     }
     const target = targetShiftMinutes(shiftStartMinutes, shiftEndMinutes);

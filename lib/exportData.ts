@@ -1,7 +1,7 @@
 import * as XLSX from 'xlsx';
 import Papa from 'papaparse';
 import { AttendanceRecord, EmployeeSummary, LeaveRecord, LeaveType, Thresholds } from './types';
-import { durationToMinutes, minutesToHHMM, effectiveMinutes } from './parseCSV';
+import { durationToMinutes, minutesToHHMM } from './parseCSV';
 import { getLateMinutes, getEarlyMinutes, computeProductivityLostMinutes, targetShiftMinutes } from './useDashboardData';
 import { DEFAULT_THRESHOLDS } from './settings';
 import { effectiveMinutes, actualMinutes } from './hoursCalc';
@@ -198,7 +198,17 @@ export function exportExcel(
     if (isPresent(r.status)) {
       dept.present++;
       const mins = durationToMinutes(r.duration);
-      if (mins > 60) { dept.totalMins += effectiveMinutes(mins); dept.presentCount++; }
+      if (mins > 0) {
+        dept.totalActualMins += mins;
+        dept.actualCount++;
+      }
+      if (mins > 60) {
+        const eff = effectiveMinutes(mins);
+        if (eff !== null) {
+          dept.totalEffectiveMins += eff;
+          dept.effectiveCount++;
+        }
+      }
       if (lateMinsFor(r, thresholds) > 0) dept.lateCount++;
       if (earlyMinsFor(r, thresholds) > 0) dept.earlyCount++;
     } else if (isAbsent(r.status)) {
@@ -212,7 +222,8 @@ export function exportExcel(
       Department: dept,
       'Total Employees': v.emps.size,
       'Attendance %': `${rate}%`,
-      'Avg Hours/Day': v.presentCount > 0 ? minutesToHHMM(Math.round(v.totalMins / v.presentCount)) : '—',
+      'Avg Actual Hours/Day': v.actualCount > 0 ? minutesToHHMM(Math.round(v.totalActualMins / v.actualCount)) : '—',
+      'Avg Effective Hours/Day': v.effectiveCount > 0 ? minutesToHHMM(Math.round(v.totalEffectiveMins / v.effectiveCount)) : '—',
       'Late Count': v.lateCount,
       'Early Exit Count': v.earlyCount,
       'On Leave Days': v.absent,

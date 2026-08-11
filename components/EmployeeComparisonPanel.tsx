@@ -4,7 +4,7 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 import { AttendanceRecord, EmployeeSummary, LeaveRecord, Holiday, EffectiveStatus } from '@/lib/types';
 import { computeEmployeeKPIs, ComparisonKPIs, buildLeaveMap, getEffectiveStatus, leaveKey } from '@/lib/useDashboardData';
 import { getEmployeeMonthHistory } from '@/lib/storage';
-import { getLeaveRecords } from '@/lib/leaveStorage';
+import { getLeaveRecords } from '@/lib/leaveTrackerRead';
 import { getHolidays } from '@/lib/holidays';
 import { minutesToHHMM } from '@/lib/parseCSV';
 
@@ -182,12 +182,16 @@ const STATUS_COLOR: Record<EffectiveStatus, string> = {
   half_day: 'bg-amber-500',
   weeklyoff: 'bg-slate-600',
   holiday: 'bg-violet-500',
+  wfh: 'bg-teal-500',
+  business_travel: 'bg-cyan-500',
+  office_shutdown: 'bg-indigo-500',
 };
 
 const STATUS_LABEL: Record<EffectiveStatus, string> = {
   present: 'Present', absent: 'Absent', missed_punch_out: 'Missed Punch Out',
   leave_planned: 'Planned Leave', leave_casual: 'Casual Leave', leave_sick: 'Sick Leave',
   leave_lwp: 'LWP', half_day: 'Half Day', weeklyoff: 'Weekly Off', holiday: 'Holiday',
+  wfh: 'WFH', business_travel: 'Business Travel', office_shutdown: 'Office Shutdown',
 };
 
 function CalendarHeatmap({
