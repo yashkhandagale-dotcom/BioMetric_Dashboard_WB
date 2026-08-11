@@ -263,12 +263,13 @@ export async function getOrgTree(
   // reflects department assignments (the "team" concept) even when the
   // per-employee reporting fields are unset.
   const { data: deptManagerRows } = await supabase.from('department_managers').select('department, manager_id');
-  const deptManagerByDept = new Map((deptManagerRows ?? []).map((r) => [r.department, r.manager_id] as const));
+  const deptManagerByDept = new Map((deptManagerRows ?? []).map((r) => [r.department, r.manager_id ? String(r.manager_id) : null] as const));
 
   const nodesById = new Map<string, OrgTreeNode>();
   for (const r of rows ?? []) {
-    nodesById.set(r.id, {
-      id: r.id,
+    const idStr = String(r.id);
+    nodesById.set(idStr, {
+      id: idStr,
       employeeCode: r.employee_code,
       fullName: r.full_name,
       role: r.role,
@@ -292,11 +293,11 @@ export async function getOrgTree(
     // nodes in the tree — the chart will be manager-based as requested.
     let parentId: string | null | undefined;
     if (r.role === 'manager') {
-      parentId = r.reporting_manager_id;
+      parentId = r.reporting_manager_id ? String(r.reporting_manager_id) : null;
     } else {
       parentId = deptManagerByDept.get(r.department ?? '') ?? null;
     }
-    const parent = parentId ? nodesById.get(parentId) : undefined;
+    const parent = parentId ? nodesById.get(String(parentId)) : undefined;
     if (parent) {
       parent.children.push(node);
     } else if (parentId && !parent) {
