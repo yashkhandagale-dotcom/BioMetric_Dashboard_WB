@@ -284,33 +284,42 @@ export async function getOrgTree(
   // mirror that, not force every row through the same column.
   const roots: OrgTreeNode[] = [];
   let unassignedCount = 0;
+
+  // Compute immediate parent for every node according to manager-centric rules.
+  const parentById = new Map<string, string | null>();
   for (const r of rows ?? []) {
-    const node = nodesById.get(r.id)!;
-    // Build a manager-centric hierarchy: managers form the reporting
-    // chain (via reporting_manager_id) and all other people (leads,
-    // employees, etc.) attach directly to their department's assigned
-    // manager when available. This avoids showing leads as intermediate
-    // nodes in the tree — the chart will be manager-based as requested.
-    let parentId: string | null | undefined;
-    if (r.role === 'manager') {
-      parentId = r.reporting_manager_id ? String(r.reporting_manager_id) : null;
-    } else {
-      parentId = deptManagerByDept.get(r.department ?? '') ?? null;
+    const idStr = String(r.id);
+    if (r.role === 'manager') parentById.set(idStr, r.reporting_manager_id ? String(r.reporting_manager_id) : null);
+    else parentById.set(idStr, deptManagerByDept.get(r.department ?? '') ?? null);
+  }
+
+  // Attach each node to the highest existing ancestor; detect cycles and
+  // treat cycle participants as roots so the UI shows a coherent forest.
+  for (const r of rows ?? []) {
+    const idStr = String(r.id);
+    const node = nodesById.get(idStr)!;
+    let cursor = parentById.get(idStr) ?? null;
+    const seen = new Set<string>();
+    let attached = false;
+    while (cursor) {
+      if (seen.has(cursor)) break; // cycle
+      seen.add(cursor);
+      const parentNode = nodesById.get(String(cursor));
+      if (!parentNode) {
+        // parent points at missing/exited user
+        break;
+      }
+      const next = parentById.get(String(parentNode.id)) ?? null;
+      if (!next) {
+        parentNode.children.push(node);
+        attached = true;
+        break;
+      }
+      cursor = next;
     }
-    const parent = parentId ? nodesById.get(String(parentId)) : undefined;
-    if (parent) {
-      parent.children.push(node);
-    } else if (parentId && !parent) {
-      // Parent id set but points at someone exited/deleted — surface as
-      // its own root rather than silently dropping the employee.
+    if (!attached) {
       roots.push(node);
-      unassignedCount += 1;
-    } else if (!parentId && r.role !== 'employee') {
-      roots.push(node);
-    } else {
-      // role='employee' with no reporting_lead_id set yet.
-      roots.push(node);
-      unassignedCount += 1;
+      if (r.role === 'employee') unassignedCount += 1;
     }
   }
 
