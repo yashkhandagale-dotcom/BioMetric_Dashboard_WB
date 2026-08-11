@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createLeaveClient, createLeaveServiceClient } from '@/lib/leaveSupabase/server';
+import { createLeaveServiceClient } from '@/lib/leaveSupabase/server';
+import { getCurrentEmployee } from '@/lib/leaveSupabase/getCurrentEmployee';
 
 // The original three signals are no longer the only allowed values (see
 // migration 0011) — kept here only as a reference comment for what the
@@ -25,12 +26,9 @@ function expandDateRange(start: string, end: string): string[] {
 // ignoreDuplicates, so re-submitting the same event is a no-op rather
 // than a duplicate-row error — safe to retry from the UI.
 export async function POST(req: NextRequest) {
-  const sessionClient = await createLeaveClient();
-  const {
-    data: { user },
-  } = await sessionClient.auth.getUser();
-  if (!user) {
-    return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+  const requester = await getCurrentEmployee();
+  if (!requester || (requester.role !== 'hr' && requester.role !== 'hr_super_admin')) {
+    return NextResponse.json({ error: 'Not authorized' }, { status: 403 });
   }
 
   const body = await req.json();
@@ -89,15 +87,13 @@ export async function POST(req: NextRequest) {
 
   const dates = expandDateRange(start_date, end_date);
 
-  const { data: hrEmployee } = await service.from('employees').select('id').eq('auth_user_id', user.id).maybeSingle();
-
   const rows = Array.from(targetIds).flatMap((employeeId) =>
     dates.map((eventDate) => ({
       employee_id: employeeId,
       event_type: trimmedEventType,
       event_date: eventDate,
       note: note || null,
-      created_by: hrEmployee?.id ?? null,
+      created_by: requester.id,
     }))
   );
 

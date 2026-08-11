@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createLeaveClient, createLeaveServiceClient } from '@/lib/leaveSupabase/server';
 import { getDepartmentsWithManagers, getReportingHierarchy, getOrgTree } from '@/lib/leaveSupabase/organization';
+import { getCurrentEmployee } from '@/lib/leaveSupabase/getCurrentEmployee';
 
 // Backs the new "Organization Management" admin page — a department-first
 // view of the same assignment data AdjustBalanceButton already edits
@@ -67,12 +68,9 @@ type AssignBody =
   | { action: 'bulk_assign_lead'; department: string; lead_id: string | null };
 
 export async function POST(req: NextRequest) {
-  const supabase = await createLeaveClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) {
-    return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+  const requester = await getCurrentEmployee();
+  if (!requester || (requester.role !== 'hr' && requester.role !== 'hr_super_admin')) {
+    return NextResponse.json({ error: 'Not authorized' }, { status: 403 });
   }
 
   const body = (await req.json()) as AssignBody;

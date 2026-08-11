@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
-import { createLeaveClient, createLeaveServiceClient } from '@/lib/leaveSupabase/server';
+import { createLeaveServiceClient } from '@/lib/leaveSupabase/server';
 import { getFYStartYear, formatFYLabel } from '@/lib/leaveSupabase/fyHelpers';
+import { getCurrentEmployee } from '@/lib/leaveSupabase/getCurrentEmployee';
 
 // There is no historical leave data for any employee (per the project
 // brief), so this is a flat one-time grant of the full annual quota —
@@ -9,10 +10,9 @@ import { getFYStartYear, formatFYLabel } from '@/lib/leaveSupabase/fyHelpers';
 // the FY (an employee who joined mid-year and was already prorated via
 // fn_prorate_new_joiner is left untouched).
 export async function POST() {
-  const sessionClient = await createLeaveClient();
-  const { data: { user } } = await sessionClient.auth.getUser();
-  if (!user) {
-    return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+  const requester = await getCurrentEmployee();
+  if (!requester || (requester.role !== 'hr' && requester.role !== 'hr_super_admin')) {
+    return NextResponse.json({ error: 'Not authorized' }, { status: 403 });
   }
 
   const fyStartYear = getFYStartYear();

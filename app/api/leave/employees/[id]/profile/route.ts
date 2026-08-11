@@ -3,6 +3,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { createLeaveClient, createLeaveServiceClient } from '@/lib/leaveSupabase/server';
 import { getFYStartYear, formatFYLabel } from '@/lib/leaveSupabase/fyHelpers';
 import { getEmployeeBalancesByFY } from '@/lib/leaveSupabase/getEmployeeBalances';
+import { getCurrentEmployee } from '@/lib/leaveSupabase/getCurrentEmployee';
 
 // D2-2: powers the Employee Modal's Overview / Balances / Leave Timeline
 // tabs in one round trip. Balances reuse getEmployeeBalancesByFY — the
@@ -270,13 +271,14 @@ async function resolveReportingManagerId(
 export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
 
-  const supabase = await createLeaveClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) {
-    return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+  // This handler can set role, employment_status, and reporting hierarchy
+  // for ANY employee — HR-only, same as every other admin mutation.
+  const requester = await getCurrentEmployee();
+  if (!requester || (requester.role !== 'hr' && requester.role !== 'hr_super_admin')) {
+    return NextResponse.json({ error: 'Not authorized' }, { status: 403 });
   }
+
+  const supabase = await createLeaveClient();
 
   const body = await req.json();
   const {

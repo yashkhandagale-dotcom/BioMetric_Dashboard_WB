@@ -1,6 +1,7 @@
 ﻿import { NextRequest, NextResponse } from 'next/server';
 import { createLeaveClient, createLeaveServiceClient } from '@/lib/leaveSupabase/server';
 import { createServiceClient as createDashboardServiceClient } from '@/lib/supabase/server';
+import { getCurrentEmployee } from '@/lib/leaveSupabase/getCurrentEmployee';
 
 // Used by AddEmployeeForm to populate the "Reporting Lead" / "Reporting
 // Manager" dropdowns via GET /api/leave/employees?role=lead|manager.
@@ -44,10 +45,9 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const sessionClient = await createLeaveClient();
-  const { data: { user } } = await sessionClient.auth.getUser();
-  if (!user) {
-    return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+  const requester = await getCurrentEmployee();
+  if (!requester || (requester.role !== 'hr' && requester.role !== 'hr_super_admin')) {
+    return NextResponse.json({ error: 'Not authorized' }, { status: 403 });
   }
 
   const body = await req.json();
