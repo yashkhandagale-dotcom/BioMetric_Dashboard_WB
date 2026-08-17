@@ -61,7 +61,7 @@ function fmt(metric: typeof METRICS[number], value: number): string {
 }
 
 function valueColor(metric: typeof METRICS[number], value: number): string {
-  if (value === undefined || Number.isNaN(value)) return 'text-slate-500';
+  if (value === undefined || Number.isNaN(value)) return 'text-[var(--text-muted)]';
   if (metric.key === 'attendanceRate') {
     if (value >= 90) return 'text-emerald-400';
     if (value >= 75) return 'text-amber-400';
@@ -72,7 +72,7 @@ function valueColor(metric: typeof METRICS[number], value: number): string {
     if (value < 25) return 'text-amber-400';
     return 'text-red-400';
   }
-  return 'text-slate-300';
+  return 'text-[var(--text-muted)]';
 }
 
 // Small negligible-change threshold per metric unit, so noise doesn't get called out as a "trend".
@@ -160,7 +160,7 @@ function EmployeeSearchInput({
         value={text}
         placeholder={placeholder || 'Search employee…'}
         onChange={(e) => handleInput(e.target.value)}
-        className="w-full bg-slate-700 border border-slate-600 text-white text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-violet-500"
+        className="w-full bg-[var(--bg-elevated)] border border-[var(--border)] text-[var(--text-primary)] text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-violet-500"
       />
       <datalist id={listId}>
         {options.map((e) => (
@@ -207,12 +207,12 @@ function CalendarHeatmap({
   }, [records, leaveMap, holidays]);
 
   if (days.length === 0) {
-    return <p className="text-slate-500 text-xs text-center py-3">No day-wise data</p>;
+    return <p className="text-[var(--text-muted)] text-xs text-center py-3">No day-wise data</p>;
   }
 
   return (
     <div>
-      <p className="text-slate-400 text-xs font-medium mb-2 truncate">{label}</p>
+      <p className="text-[var(--text-muted)] text-xs font-medium mb-2 truncate">{label}</p>
       <div className="grid grid-cols-7 gap-1">
         {days.map((d) => (
           <div
@@ -248,28 +248,28 @@ function TrendChart({
     if (!active || !payload?.length) return null;
     const p = payload[0]?.payload as TrendPoint;
     return (
-      <div className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-xs shadow-xl">
-        <p className="text-slate-300 font-medium mb-1">{p.label}</p>
+      <div className="bg-[var(--bg-elevated)] border border-[var(--border)] rounded-lg px-3 py-2 text-xs shadow-xl">
+        <p className="text-[var(--text-muted)] font-medium mb-1">{p.label}</p>
         <p className="text-violet-300">{metric.label}: <strong>{fmt(metric, p.value)}</strong></p>
-        {(p.isA || p.isB) && <p className="text-slate-500 text-[10px] mt-1">Selected for comparison above</p>}
+        {(p.isA || p.isB) && <p className="text-[var(--text-muted)] text-[10px] mt-1">Selected for comparison above</p>}
       </div>
     );
   };
 
   return (
-    <div className="mt-4 pt-4 border-t border-slate-700">
+    <div className="mt-4 pt-4 border-t border-[var(--border)]">
       <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
-        <p className="text-slate-500 text-[11px] uppercase tracking-wide">Trend across all uploaded months</p>
+        <p className="text-[var(--text-muted)] text-[11px] uppercase tracking-wide">Trend across all uploaded months</p>
         <select
           value={metric.key}
           onChange={(e) => onMetricChange(e.target.value)}
-          className="bg-slate-700 border border-slate-600 text-white text-xs rounded-lg px-2 py-1 focus:outline-none focus:border-violet-500"
+          className="bg-[var(--bg-elevated)] border border-[var(--border)] text-[var(--text-primary)] text-xs rounded-lg px-2 py-1 focus:outline-none focus:border-violet-500"
         >
           {metricOptions.map((m) => <option key={m.key} value={m.key}>{m.label}</option>)}
         </select>
       </div>
       {data.length < 2 ? (
-        <p className="text-slate-500 text-xs text-center py-6">Need at least 2 uploaded months to show a trend.</p>
+        <p className="text-[var(--text-muted)] text-xs text-center py-6">Need at least 2 uploaded months to show a trend.</p>
       ) : (
         <ResponsiveContainer width="100%" height={180}>
           <LineChart data={data} margin={{ top: 5, right: 10, left: -20, bottom: 5 }}>
@@ -304,8 +304,8 @@ function TrendChart({
         </ResponsiveContainer>
       )}
       <div className="flex items-center gap-3 mt-1">
-        <span className="flex items-center gap-1 text-[10px] text-slate-500"><span className="w-2 h-2 rounded-full bg-blue-400 inline-block" /> Month A</span>
-        <span className="flex items-center gap-1 text-[10px] text-slate-500"><span className="w-2 h-2 rounded-full bg-emerald-400 inline-block" /> Month B</span>
+        <span className="flex items-center gap-1 text-[10px] text-[var(--text-muted)]"><span className="w-2 h-2 rounded-full bg-blue-400 inline-block" /> Month A</span>
+        <span className="flex items-center gap-1 text-[10px] text-[var(--text-muted)]"><span className="w-2 h-2 rounded-full bg-emerald-400 inline-block" /> Month B</span>
       </div>
     </div>
   );
@@ -314,11 +314,11 @@ function TrendChart({
 function HeatmapLegend() {
   const items: EffectiveStatus[] = ['present', 'absent', 'leave_planned', 'leave_casual', 'leave_sick', 'leave_lwp', 'half_day', 'weeklyoff', 'holiday'];
   return (
-    <div className="flex flex-wrap gap-2 mt-3 pt-3 border-t border-slate-700/60">
+    <div className="flex flex-wrap gap-2 mt-3 pt-3 border-t border-[var(--border)]/60">
       {items.map((s) => (
         <div key={s} className="flex items-center gap-1">
           <span className={`w-2.5 h-2.5 rounded-sm ${STATUS_COLOR[s]}`} />
-          <span className="text-slate-500 text-[10px]">{STATUS_LABEL[s]}</span>
+          <span className="text-[var(--text-muted)] text-[10px]">{STATUS_LABEL[s]}</span>
         </div>
       ))}
     </div>
@@ -328,7 +328,7 @@ function HeatmapLegend() {
 function LeaveBadgeRow({ leftLabel, rightLabel, left, right }: { leftLabel: string; rightLabel: string; left: ComparisonKPIs; right: ComparisonKPIs }) {
   return (
     <div className="mt-3">
-      <p className="text-slate-500 text-[11px] uppercase tracking-wide mb-2">Leave Breakdown</p>
+      <p className="text-[var(--text-muted)] text-[11px] uppercase tracking-wide mb-2">Leave Breakdown</p>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         {[{ label: leftLabel, kpi: left }, { label: rightLabel, kpi: right }].map(({ label, kpi }) => (
           <div key={label} className="flex flex-wrap gap-1.5">
@@ -342,7 +342,7 @@ function LeaveBadgeRow({ leftLabel, rightLabel, left, right }: { leftLabel: stri
               );
             })}
             {LEAVE_BADGES.every((b) => !(kpi[b.key] as number)) && (
-              <span className="text-[10px] text-slate-500">No leave taken</span>
+              <span className="text-[10px] text-[var(--text-muted)]">No leave taken</span>
             )}
           </div>
         ))}
@@ -371,19 +371,19 @@ function ComparisonGrid({
         <p className="text-violet-200 text-sm leading-snug">💡 {insight}</p>
       </div>
 
-      <div className="grid grid-cols-3 gap-0 text-xs mb-4 bg-slate-800/40 rounded-lg py-2">
+      <div className="grid grid-cols-3 gap-0 text-xs mb-4 bg-[var(--bg-elevated)]/40 rounded-lg py-2">
         <div className="text-right pr-3">
-          <p className="text-slate-500 text-[10px]">Avg In / Out</p>
-          <p className="text-slate-200 text-xs font-medium">
+          <p className="text-[var(--text-muted)] text-[10px]">Avg In / Out</p>
+          <p className="text-[var(--text-primary)] text-xs font-medium">
             {leftKPIs.avgInTime !== undefined ? minsToClock(leftKPIs.avgInTime) : '—'}
             {' / '}
             {leftKPIs.avgOutTime !== undefined ? minsToClock(leftKPIs.avgOutTime) : '—'}
           </p>
         </div>
-        <div className="text-center text-slate-500 pt-2">Avg Punch Time</div>
+        <div className="text-center text-[var(--text-muted)] pt-2">Avg Punch Time</div>
         <div className="text-left pl-3">
-          <p className="text-slate-500 text-[10px]">Avg In / Out</p>
-          <p className="text-slate-200 text-xs font-medium">
+          <p className="text-[var(--text-muted)] text-[10px]">Avg In / Out</p>
+          <p className="text-[var(--text-primary)] text-xs font-medium">
             {rightKPIs.avgInTime !== undefined ? minsToClock(rightKPIs.avgInTime) : '—'}
             {' / '}
             {rightKPIs.avgOutTime !== undefined ? minsToClock(rightKPIs.avgOutTime) : '—'}
@@ -392,24 +392,24 @@ function ComparisonGrid({
       </div>
 
       <div className="grid grid-cols-3 gap-0 text-xs mb-2">
-        <div className="text-slate-400 font-medium text-right pr-3 py-1 truncate">{leftLabel}</div>
-        <div className="text-slate-500 text-center py-1">Metric</div>
-        <div className="text-slate-400 font-medium text-left pl-3 py-1 truncate">{rightLabel}</div>
+        <div className="text-[var(--text-muted)] font-medium text-right pr-3 py-1 truncate">{leftLabel}</div>
+        <div className="text-[var(--text-muted)] text-center py-1">Metric</div>
+        <div className="text-[var(--text-muted)] font-medium text-left pl-3 py-1 truncate">{rightLabel}</div>
       </div>
       <div className="space-y-1">
         {rows.map(({ m, l, r, delta, improved, meaningful }) => (
-          <div key={m.key} className="grid grid-cols-3 gap-0 items-center py-1.5 px-2 rounded-lg hover:bg-slate-700/30">
+          <div key={m.key} className="grid grid-cols-3 gap-0 items-center py-1.5 px-2 rounded-lg hover:bg-[var(--bg-elevated)]/30">
             <div className="text-right pr-3">
               <span className={`text-sm font-bold ${valueColor(m, l)}`}>{fmt(m, l)}</span>
             </div>
             <div className="text-center">
-              <div className="text-[10px] text-slate-500">{m.label}</div>
+              <div className="text-[10px] text-[var(--text-muted)]">{m.label}</div>
               {meaningful ? (
                 <span className={`inline-block mt-0.5 text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${improved ? 'bg-emerald-500/20 text-emerald-300' : 'bg-red-500/20 text-red-300'}`}>
                   {fmtDelta(m, delta)}
                 </span>
               ) : (
-                <span className="inline-block mt-0.5 text-[10px] text-slate-600">no change</span>
+                <span className="inline-block mt-0.5 text-[10px] text-[var(--text-muted)]">no change</span>
               )}
             </div>
             <div className="text-left pl-3">
@@ -514,10 +514,10 @@ export default function EmployeeComparisonPanel({
   if (employeeSummaries.length < 1) return null;
 
   return (
-    <div className="bg-slate-800 rounded-xl border border-slate-700 p-5">
+    <div className="bg-[var(--bg-elevated)] rounded-xl border border-[var(--border)] p-5">
       <div className="mb-4">
-        <h3 className="text-white font-semibold text-sm">Employee Month Comparison</h3>
-        <p className="text-slate-500 text-xs mt-0.5">Track an employee's performance trend and compare any two of their uploaded months</p>
+        <h3 className="text-[var(--text-primary)] font-semibold text-sm">Employee Month Comparison</h3>
+        <p className="text-[var(--text-muted)] text-xs mt-0.5">Track an employee's performance trend and compare any two of their uploaded months</p>
       </div>
 
       <div className="flex items-center gap-3 mb-5 flex-wrap">
@@ -530,17 +530,17 @@ export default function EmployeeComparisonPanel({
         <select
           value={monthA?.monthKey || ''}
           onChange={(e) => setMonthAKey(e.target.value)}
-          className="flex-1 bg-slate-700 border border-slate-600 text-white text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-violet-500"
+          className="flex-1 bg-[var(--bg-elevated)] border border-[var(--border)] text-[var(--text-primary)] text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-violet-500"
           disabled={history.length === 0}
         >
           {history.length === 0 && <option value="">No months available</option>}
           {history.map((h) => <option key={h.monthKey} value={h.monthKey}>{h.label}</option>)}
         </select>
-        <span className="text-slate-500 text-sm font-medium">vs</span>
+        <span className="text-[var(--text-muted)] text-sm font-medium">vs</span>
         <select
           value={monthB?.monthKey || ''}
           onChange={(e) => setMonthBKey(e.target.value)}
-          className="flex-1 bg-slate-700 border border-slate-600 text-white text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-violet-500"
+          className="flex-1 bg-[var(--bg-elevated)] border border-[var(--border)] text-[var(--text-primary)] text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-violet-500"
           disabled={history.length === 0}
         >
           {history.length === 0 && <option value="">No months available</option>}
@@ -551,7 +551,7 @@ export default function EmployeeComparisonPanel({
       {monthAKPIs && monthBKPIs && monthA && monthB && monthA.monthKey !== monthB.monthKey ? (
         <>
           <ComparisonGrid leftLabel={monthA.label} rightLabel={monthB.label} leftKPIs={monthAKPIs} rightKPIs={monthBKPIs} />
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4 pt-4 border-t border-slate-700">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-4 pt-4 border-t border-[var(--border)]">
             <CalendarHeatmap
               label={`${histEmpName} · ${monthA.label}`}
               records={monthA.records}
@@ -568,7 +568,7 @@ export default function EmployeeComparisonPanel({
           <HeatmapLegend />
         </>
       ) : (
-        <p className="text-slate-500 text-sm text-center py-6">
+        <p className="text-[var(--text-muted)] text-sm text-center py-6">
           {history.length < 2
             ? `Upload at least one more month for ${histEmpName} to enable comparison.`
             : 'Pick two different months above to compare.'}
