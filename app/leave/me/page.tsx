@@ -7,6 +7,7 @@ import MeNavbar from '@/components/leave/MeNavbar';
 import PersonalAttendanceReport from '@/components/leave/PersonalAttendanceReport';
 import LeaveBalanceCards from '@/components/leave/LeaveBalanceCards';
 import LeaveHistoryTable, { LeaveHistoryRow } from '@/components/leave/LeaveHistoryTable';
+import WfhPanel from '@/components/leave/WfhPanel';
 
 type HistoryRow = {
   id: string;
@@ -103,9 +104,11 @@ export default async function LeaveMeHome() {
         </div>
       </div>
 
+      <WfhPanel />
+
       <div>
         <h2 className="text-sm font-semibold text-[var(--text-primary)] mb-3">My Leave History</h2>
-        <LeaveHistoryTable rows={history} />
+        <LeaveHistoryTable rows={history} showActions />
       </div>
     </div>
   );
