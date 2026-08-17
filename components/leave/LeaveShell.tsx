@@ -17,6 +17,7 @@ import {
   ChevronDown,
   Lock,
   LogOut,
+  Settings,
 } from 'lucide-react';
 import LeaveThemeSync from './LeaveThemeSync';
 
@@ -74,6 +75,7 @@ function navGroups(role: LeaveRole, pendingApprovalsCount: number): NavGroup[] {
         { href: '/leave/admin/analytics', label: 'Analytics', icon: BarChart3 },
         { href: '/leave/admin/violations', label: 'Violations', icon: ShieldAlert },
         { href: '/leave/admin/organization', label: 'Organization', icon: Building2 },
+        { href: '/leave/admin/config', label: 'Leave Configuration', icon: Settings },
         { href: '/leave/admin/bulk-logins', label: 'Create Login', icon: KeyRound },
       ],
     });
