@@ -6,6 +6,7 @@ import { getManagedEmployeeIds } from '@/lib/leaveSupabase/organization';
 import { PendingApprovalRequest } from '@/components/leave/ApprovalCard';
 import ApprovalsList from '@/components/leave/ApprovalsList';
 import LeavePageHeader from '@/components/leave/LeavePageHeader';
+import { PendingWfhRequest } from '@/components/leave/WfhApprovalCard';
 
 type PendingRow = {
   id: string;
@@ -92,6 +93,58 @@ export default async function LeaveApprovalsHome() {
 
   const rows = (pending ?? []).filter((r) => r.employees && r.leave_types);
 
+  // Feedback items #5/#6 — WFH requests join the same approvals queue,
+  // scoped with the exact same rules as leave above (department_managers
+  // for a manager, reporting_lead_id for a lead, org-wide for HR) since
+  // approval routing for WFH reuses the identical
+  // getEffectiveApproverId mechanism at write time — a Delivery-
+  // department employee's WFH already lands with the Delivery manager
+  // this way, no separate role needed.
+  type PendingWfhRow = {
+    id: string;
+    start_date: string;
+    end_date: string;
+    is_half_day: boolean;
+    half_day_session: string | null;
+    reason: string;
+    applied_on: string;
+    employees: { full_name: string; employee_code: string; department: string; reporting_lead_id: string | null } | null;
+  };
+
+  let wfhQuery = supabase
+    .from('wfh_requests')
+    .select(
+      `id, start_date, end_date, is_half_day, half_day_session, reason, applied_on,
+       employees!inner ( full_name, employee_code, department, reporting_lead_id )`
+    )
+    .eq('status', 'pending')
+    .order('start_date', { ascending: true });
+
+  if (isLead) {
+    wfhQuery = wfhQuery.eq('employees.reporting_lead_id', employee.id);
+  } else if (isManager) {
+    wfhQuery = managedIds.length > 0
+      ? wfhQuery.in('employee_id', managedIds)
+      : wfhQuery.eq('employee_id', '00000000-0000-0000-0000-000000000000');
+  }
+
+  const { data: pendingWfh } = await wfhQuery.returns<PendingWfhRow[]>();
+
+  const wfhRequests: PendingWfhRequest[] = (pendingWfh ?? [])
+    .filter((r) => r.employees)
+    .map((r) => ({
+      id: r.id,
+      employeeName: r.employees!.full_name,
+      employeeCode: r.employees!.employee_code,
+      department: r.employees!.department,
+      startDate: r.start_date,
+      endDate: r.end_date,
+      isHalfDay: r.is_half_day,
+      halfDaySession: r.half_day_session,
+      reason: r.reason,
+      appliedOn: r.applied_on,
+    }));
+
   // Current balance snapshot per request (B1) — reuses
   // getEmployeeBalanceBreakdown (A3's addition to getEmployeeBalances.ts),
   // no new balance math. One call per distinct employee in the queue
@@ -133,9 +186,9 @@ export default async function LeaveApprovalsHome() {
         title={
           <span className="flex items-center gap-2">
             Pending Approvals
-            {requests.length > 0 && (
+            {(requests.length + wfhRequests.length) > 0 && (
               <span className="inline-flex items-center justify-center bg-amber-500 text-white text-xs font-bold rounded-full min-w-[1.4rem] h-[1.4rem] px-1.5">
-                {requests.length}
+                {requests.length + wfhRequests.length}
               </span>
             )}
           </span>
@@ -149,7 +202,7 @@ export default async function LeaveApprovalsHome() {
         </div>
       )}
 
-      <ApprovalsList requests={requests} isHr={isHr} canApprove={canApprove} canRemind={canRemind} />
+      <ApprovalsList requests={requests} wfhRequests={wfhRequests} isHr={isHr} canApprove={canApprove} canRemind={canRemind} />
     </div>
   );
 }

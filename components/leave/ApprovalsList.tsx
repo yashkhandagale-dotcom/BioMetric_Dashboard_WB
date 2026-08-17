@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import ApprovalCard, { PendingApprovalRequest } from './ApprovalCard';
+import WfhApprovalCard, { PendingWfhRequest } from './WfhApprovalCard';
 
 // Extracted so HR's org-wide queue (potentially long) can be searched /
 // filtered by department client-side without a round trip — a manager's
@@ -10,11 +11,17 @@ import ApprovalCard, { PendingApprovalRequest } from './ApprovalCard';
 // consistency.
 export default function ApprovalsList({
   requests,
+  wfhRequests = [],
   isHr,
   canApprove,
   canRemind,
 }: {
   requests: PendingApprovalRequest[];
+  // Feedback items #5/#6 — WFH requests rendered in the same queue,
+  // below leave requests, each with its own small "Work From Home"
+  // sub-heading so the two request types stay visually distinct without
+  // needing a separate tab/page.
+  wfhRequests?: PendingWfhRequest[];
   isHr: boolean;
   // hr_super_admin (HR Admin) is remind-only; manager/lead/hr approve
   // directly and don't see a remind button — see ApprovalCard.
@@ -25,8 +32,8 @@ export default function ApprovalsList({
   const [department, setDepartment] = useState('');
 
   const departments = useMemo(
-    () => Array.from(new Set(requests.map((r) => r.department))).sort(),
-    [requests]
+    () => Array.from(new Set([...requests.map((r) => r.department), ...wfhRequests.map((r) => r.department)])).sort(),
+    [requests, wfhRequests]
   );
 
   const filtered = requests.filter((r) => {
@@ -36,9 +43,18 @@ export default function ApprovalsList({
     return r.employeeName.toLowerCase().includes(q) || r.employeeCode.toLowerCase().includes(q);
   });
 
+  const filteredWfh = wfhRequests.filter((r) => {
+    if (department && r.department !== department) return false;
+    if (!search.trim()) return true;
+    const q = search.trim().toLowerCase();
+    return r.employeeName.toLowerCase().includes(q) || r.employeeCode.toLowerCase().includes(q);
+  });
+
+  const nothingToShow = filtered.length === 0 && filteredWfh.length === 0;
+
   return (
     <div className="space-y-3">
-      {isHr && requests.length > 0 && (
+      {(isHr && (requests.length > 0 || wfhRequests.length > 0)) && (
         <div className="flex flex-wrap items-center gap-2 mb-1">
           <input
             type="text"
@@ -60,14 +76,28 @@ export default function ApprovalsList({
         </div>
       )}
 
-      {filtered.length === 0 ? (
+      {nothingToShow ? (
         <div className="bg-[var(--bg-elevated)]/40 border border-[var(--border)] rounded-xl p-6 text-center text-[var(--text-muted)] text-sm">
-          {requests.length === 0 ? 'No pending requests right now.' : 'No requests match your filters.'}
+          {requests.length === 0 && wfhRequests.length === 0 ? 'No pending requests right now.' : 'No requests match your filters.'}
         </div>
       ) : (
-        filtered.map((r) => (
-          <ApprovalCard key={r.id} request={r} canApprove={canApprove} canRemind={canRemind} />
-        ))
+        <>
+          {filtered.map((r) => (
+            <ApprovalCard key={r.id} request={r} canApprove={canApprove} canRemind={canRemind} />
+          ))}
+          {filteredWfh.length > 0 && (
+            <div className="space-y-3">
+              {filtered.length > 0 && (
+                <h3 className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wide pt-2">
+                  Work From Home
+                </h3>
+              )}
+              {filteredWfh.map((r) => (
+                <WfhApprovalCard key={r.id} request={r} canApprove={canApprove} />
+              ))}
+            </div>
+          )}
+        </>
       )}
     </div>
   );

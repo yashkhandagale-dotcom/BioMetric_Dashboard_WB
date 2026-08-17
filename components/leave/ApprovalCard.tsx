@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import ViolationBadge from './ViolationBadge';
+import ConfirmDialog from '../ConfirmDialog';
 
 export type PendingApprovalRequest = {
   id: string;
@@ -50,6 +51,8 @@ export default function ApprovalCard({
 }) {
   const router = useRouter();
   const [rejecting, setRejecting] = useState(false);
+  const [confirmingApprove, setConfirmingApprove] = useState(false);
+  const [confirmingReject, setConfirmingReject] = useState(false);
   const [comment, setComment] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -79,6 +82,7 @@ export default function ApprovalCard({
   }
 
   async function handleApprove() {
+    setConfirmingApprove(false);
     setLoading(true);
     setError(null);
     try {
@@ -98,6 +102,7 @@ export default function ApprovalCard({
   }
 
   async function handleReject() {
+    setConfirmingReject(false);
     if (!comment.trim()) {
       setError('A short comment is required to reject.');
       return;
@@ -187,7 +192,7 @@ export default function ApprovalCard({
           <div className="flex gap-2">
             <button
               type="button"
-              onClick={handleReject}
+              onClick={() => setConfirmingReject(true)}
               disabled={loading}
               className="bg-red-600 hover:bg-red-500 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
             >
@@ -208,7 +213,7 @@ export default function ApprovalCard({
             <>
               <button
                 type="button"
-                onClick={handleApprove}
+                onClick={() => setConfirmingApprove(true)}
                 disabled={loading}
                 className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
               >
@@ -236,6 +241,28 @@ export default function ApprovalCard({
             </button>
           )}
         </div>
+      )}
+
+      {/* Feedback item #10 — confirmation popup before approve/reject. */}
+      {confirmingApprove && (
+        <ConfirmDialog
+          title="Approve this leave request?"
+          message={`Approve ${request.employeeName}'s ${request.leaveTypeLabel} request for ${formatDateRange(request.startDate, request.endDate)}?`}
+          confirmLabel="Yes, approve"
+          cancelLabel="Cancel"
+          onConfirm={handleApprove}
+          onCancel={() => setConfirmingApprove(false)}
+        />
+      )}
+      {confirmingReject && (
+        <ConfirmDialog
+          title="Reject this leave request?"
+          message={`Reject ${request.employeeName}'s ${request.leaveTypeLabel} request? They'll be notified with your comment.`}
+          confirmLabel="Yes, reject"
+          cancelLabel="Cancel"
+          onConfirm={handleReject}
+          onCancel={() => setConfirmingReject(false)}
+        />
       )}
     </div>
   );
