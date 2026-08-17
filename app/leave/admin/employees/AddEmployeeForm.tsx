@@ -149,7 +149,7 @@ export default function AddEmployeeForm() {
           <>
             <div>
               <label className="block text-xs text-[var(--text-muted)] mb-1">Departments Managed</label>
-              <div className="border border-[var(--border)] rounded-lg px-3 py-2 max-h-32 overflow-y-auto space-y-1 bg-[var(--bg-surface)]">
+              <div className="scroll-thin border border-[var(--border)] rounded-lg px-3 py-2 max-h-32 overflow-y-auto space-y-1 bg-[var(--bg-surface)]">
                 {departments.length === 0 && <p className="text-[var(--text-muted)] text-xs">No departments yet.</p>}
                 {departments.map((d) => (
                   <label key={d.department} className="flex items-center gap-2 text-xs text-[var(--text-primary)] cursor-pointer">

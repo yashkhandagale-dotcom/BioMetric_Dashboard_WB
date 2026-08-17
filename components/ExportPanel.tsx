@@ -234,7 +234,7 @@ export default function ExportPanel({ uploadedMonths, thresholds, restrictToEmpl
               </button>
             </div>
 
-            <div className="px-5 py-4 space-y-4 overflow-y-auto">
+            <div className="scroll-thin px-5 py-4 space-y-4 overflow-y-auto">
               {leaveLoadError && (
                 <div className="bg-red-900/30 border border-red-500/30 text-red-700 dark:text-red-300 text-xs rounded-lg px-3 py-2">
                   {leaveLoadError}
@@ -288,7 +288,11 @@ export default function ExportPanel({ uploadedMonths, thresholds, restrictToEmpl
                 {departments.length === 0 ? (
                   <p className="text-[var(--text-muted)] text-xs">No department data in this scope.</p>
                 ) : (
-                  <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto">
+                  // Flattened: nested inside the dialog body below, which
+                  // already scrolls. A wrapped list of pill buttons has no
+                  // fixed-height dependency, so it can flow with the body
+                  // instead of carrying its own independent scrollbar.
+                  <div className="flex flex-wrap gap-1.5">
                     <button
                       onClick={() => setSelectedDepts([])}
                       className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${selectedDepts.length === 0 ? 'bg-blue-600 text-white' : 'bg-[var(--bg-elevated)] text-[var(--text-muted)] hover:text-[var(--text-primary)] border border-[var(--border)]'}`}

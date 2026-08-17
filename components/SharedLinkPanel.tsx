@@ -76,7 +76,7 @@ export default function SharedLinkPanel({ records }: SharedLinkPanelProps) {
         </button>
       ) : (
         <div className="space-y-2">
-          <div className="bg-[var(--bg-surface)] rounded-lg px-3 py-2 text-xs font-mono text-blue-700 dark:text-blue-300 break-all border border-[var(--border)] max-h-20 overflow-y-auto">
+          <div className="scroll-thin bg-[var(--bg-surface)] rounded-lg px-3 py-2 text-xs font-mono text-blue-700 dark:text-blue-300 break-all border border-[var(--border)] max-h-20 overflow-y-auto">
             {link}
           </div>
           <div className="flex gap-2">

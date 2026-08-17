@@ -204,7 +204,7 @@ export default function LeaveShell({
           )}
         </div>
 
-        <nav className="flex-1 overflow-y-auto px-3 py-2 space-y-5">
+        <nav className="scroll-thin flex-1 overflow-y-auto px-3 py-2 space-y-5">
           {groups.map((group) => (
             <div key={group.label}>
               <p className="px-2.5 pb-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--text-muted)]">
@@ -341,7 +341,7 @@ export default function LeaveShell({
           min-h-0 is required alongside flex-1 here, or this flex child refuses to
           shrink below its content height and md:overflow-hidden on the wrapper has
           nothing to clip — the page (not this pane) would end up scrolling instead. */}
-      <main className="flex-1 min-w-0 md:h-screen md:min-h-0 md:overflow-y-auto">
+      <main className="scroll-thin flex-1 min-w-0 md:h-screen md:min-h-0 md:overflow-y-auto">
         <div className="mx-auto max-w-[1400px] px-4 sm:px-6 lg:px-10 py-6 sm:py-8">{children}</div>
       </main>
     </div>

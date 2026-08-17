@@ -570,7 +570,7 @@ export default function OrganizationManagementPage() {
                     </button>
                   </div>
                 </div>
-                <div className="max-h-[26rem] overflow-y-auto p-2" key={treeVersion}>
+                <div className="scroll-thin max-h-[26rem] overflow-y-auto p-2" key={treeVersion}>
                   {hierarchyRoots.map((n) => (
                     <OrgTreeRow key={n.id} node={n} depth={0} forceOpen={treeForceOpen} />
                   ))}
@@ -613,7 +613,7 @@ export default function OrganizationManagementPage() {
                     </div>
                   </div>
                   {unplacedOpen && (
-                    <div className="max-h-96 overflow-y-auto px-2 pb-2 border-t" style={{ borderColor: 'var(--border)' }}>
+                    <div className="scroll-thin max-h-96 overflow-y-auto px-2 pb-2 border-t" style={{ borderColor: 'var(--border)' }}>
                       {unplacedRoots.map((n) => (
                         <UnplacedRow key={n.id} node={n} />
                       ))}

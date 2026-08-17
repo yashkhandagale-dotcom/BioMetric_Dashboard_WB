@@ -66,7 +66,7 @@ export default function CalendarDayDrawer({
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-4 space-y-2">
+        <div className="scroll-thin flex-1 overflow-y-auto p-4 space-y-2">
           {sorted.length === 0 && (
             <p className="text-[var(--text-muted)] text-sm text-center py-10">
               Nothing to review for this day.

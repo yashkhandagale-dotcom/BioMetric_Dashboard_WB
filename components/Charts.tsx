@@ -357,7 +357,7 @@ export function DailyTrendChart({ data, selectedDepts, onDateClick, selectedDate
           onClick={() => setAbsentModal(null)}
         >
           <div
-            className="bg-[var(--bg-elevated)] border border-[var(--border)] rounded-xl p-5 max-w-md w-full max-h-[80vh] overflow-y-auto shadow-2xl"
+            className="scroll-thin bg-[var(--bg-elevated)] border border-[var(--border)] rounded-xl p-5 max-w-md w-full max-h-[80vh] overflow-y-auto shadow-2xl"
             onClick={e => e.stopPropagation()}
           >
             <div className="flex items-center justify-between mb-3">
@@ -1028,7 +1028,7 @@ export function HoursDistributionChart({ data, allRecords, selectedDepts }: {
         {drillEmployees.length === 0
           ? <div className="h-40 flex items-center justify-center text-[var(--text-muted)] text-sm">No data</div>
           : (
-            <div className="space-y-1 max-h-80 overflow-y-auto">
+            <div className="scroll-thin space-y-1 max-h-80 overflow-y-auto">
               {drillEmployees.map((e, i) => (
                 <div key={e.code} className="flex items-center justify-between py-2 px-3 rounded-lg bg-[var(--bg-elevated)]/30 hover:bg-[var(--bg-elevated)]/50">
                   <div>
@@ -1598,7 +1598,7 @@ export function DayDeptAttendanceChart({
             <DayNav date={date} onPrevDay={onPrevDay} onNextDay={onNextDay} canGoPrev={canGoPrev} canGoNext={canGoNext} />
           </div>
         </div>
-        <div className="space-y-1 max-h-[240px] overflow-y-auto">
+        <div className="scroll-thin space-y-1 max-h-[240px] overflow-y-auto">
           {present.map(r => (
             <EmployeeAttendanceRow
               key={r.employeeCode} r={r}
@@ -1712,7 +1712,7 @@ export function DayDeptLateChart({
         {lateRecords.length === 0
           ? <div className="h-40 flex items-center justify-center text-[var(--text-muted)] text-sm">No late arrivals in this team today 🎉</div>
           : (
-            <div className="space-y-1 max-h-[240px] overflow-y-auto">
+            <div className="scroll-thin space-y-1 max-h-[240px] overflow-y-auto">
               {[...lateRecords].sort((a, b) => getLateMinutes(b, graceMinutes, shiftStartMinutes) - getLateMinutes(a, graceMinutes, shiftStartMinutes)).map(r => (
                 <div key={r.employeeCode} className="flex items-center justify-between py-2 px-3 rounded-lg bg-amber-500/10">
                   <span className="text-[var(--text-primary)] text-xs font-medium truncate max-w-[140px]">{r.employeeName || r.employeeCode}</span>
@@ -1811,7 +1811,7 @@ export function DayDeptProductivityChart({
         {empData.length === 0
           ? <div className="h-40 flex items-center justify-center text-[var(--text-muted)] text-sm">No productivity loss in this team today 🎉</div>
           : (
-            <div className="space-y-1 max-h-[240px] overflow-y-auto">
+            <div className="scroll-thin space-y-1 max-h-[240px] overflow-y-auto">
               {empData.map(({ r, lostM }) => (
                 <div key={r.employeeCode} className="flex items-center justify-between py-2 px-3 rounded-lg bg-[var(--bg-elevated)]/40 hover:bg-[var(--bg-elevated)]/60 transition-colors">
                   <span className="text-[var(--text-primary)] text-xs font-medium truncate max-w-[140px]">{r.employeeName || r.employeeCode}</span>

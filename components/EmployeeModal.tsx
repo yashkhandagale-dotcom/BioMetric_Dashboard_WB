@@ -45,7 +45,7 @@ export default function EmployeeModal({ employee, onClose, readOnly = false }: E
           </button>
         </div>
 
-        <div className="overflow-y-auto flex-1 p-5 space-y-4">
+        <div className="scroll-thin overflow-y-auto flex-1 p-5 space-y-4">
           {/* Summary grid */}
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
             {[
@@ -116,7 +116,12 @@ export default function EmployeeModal({ employee, onClose, readOnly = false }: E
               <h4 className="text-[var(--text-muted)] text-xs font-semibold uppercase tracking-wide mb-2">
                 Day-wise Late / Early Records ({dayWise.length} days)
               </h4>
-              <div className="space-y-1 max-h-52 overflow-y-auto pr-1">
+              {/* Flattened: this used to be its own overflow-y-auto region nested
+                  inside the modal body below, which already scrolls — two
+                  independent scrollbars stacked on top of each other for no
+                  reason. It's a plain row list with no fixed-height layout
+                  dependency, so it's safe to let it flow with the body. */}
+              <div className="space-y-1 pr-1">
                 {dayWise.map((d) => (
                   <div key={d.date} className="flex items-center justify-between flex-wrap gap-1 bg-[var(--bg-elevated)]/30 rounded-lg px-3 py-2 text-xs">
                     <span className="text-[var(--text-muted)] font-mono">{d.date}</span>

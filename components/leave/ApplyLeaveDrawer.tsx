@@ -50,7 +50,7 @@ export default function ApplyLeaveDrawer({
             <X size={18} />
           </button>
         </div>
-        <div className="flex-1 overflow-y-auto p-5">
+        <div className="scroll-thin flex-1 overflow-y-auto p-5">
           <ApplyLeaveForm onSuccess={handleFormSuccess} initialValues={initialValues} />
         </div>
       </div>

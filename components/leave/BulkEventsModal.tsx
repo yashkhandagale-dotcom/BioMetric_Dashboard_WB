@@ -117,7 +117,7 @@ export default function BulkEventsModal({ onClose }: { onClose: () => void }) {
   return (
     <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={onClose}>
       <div
-        className="bg-[var(--bg-surface)] border border-[var(--border)] rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto p-5 space-y-4"
+        className="scroll-thin bg-[var(--bg-surface)] border border-[var(--border)] rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto p-5 space-y-4"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-start justify-between">
@@ -220,7 +220,7 @@ export default function BulkEventsModal({ onClose }: { onClose: () => void }) {
                 ))}
               </select>
             ) : (
-              <div className="max-h-40 overflow-y-auto border border-[var(--border)] rounded-lg divide-y divide-[var(--border)]">
+              <div className="scroll-thin max-h-40 overflow-y-auto border border-[var(--border)] rounded-lg divide-y divide-[var(--border)]">
                 {employees.map((e) => (
                   <label key={e.id} className="flex items-center gap-2 px-3 py-2 text-sm text-[var(--text-muted)] hover:bg-[var(--bg-elevated)]/60">
                     <input type="checkbox" checked={selectedEmployeeIds.has(e.id)} onChange={() => toggleEmployee(e.id)} />
