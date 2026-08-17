@@ -40,13 +40,32 @@ const EMPTY_PREVIEW: PreviewState = {
 // a dry run and surfaces the same warnings inline, before the employee
 // ever hits submit — so nobody finds out about a notice-period shortfall
 // or an LWP conversion only after the fact.
-export default function ApplyLeaveForm({ onSuccess }: { onSuccess?: (result: ApplySubmitResult) => void }) {
+// Feedback item #7 — "Reapply after rejection": prefills the form from
+// a just-rejected request (dates/half-day/reason carried over, leave
+// type deliberately NOT carried over — the whole point is picking a
+// DIFFERENT applicable type) when opened via LeaveHistoryTable's
+// "Apply for another leave type" action.
+export type ApplyLeaveInitialValues = {
+  startDate?: string;
+  endDate?: string;
+  isHalfDay?: boolean;
+  halfDaySession?: 'AM' | 'PM';
+  reason?: string;
+};
+
+export default function ApplyLeaveForm({
+  onSuccess,
+  initialValues,
+}: {
+  onSuccess?: (result: ApplySubmitResult) => void;
+  initialValues?: ApplyLeaveInitialValues;
+}) {
   const [leaveTypeCode, setLeaveTypeCode] = useState<'SL' | 'CL' | 'PL' | 'LWP'>('CL');
-  const [isHalfDay, setIsHalfDay] = useState(false);
-  const [halfDaySession, setHalfDaySession] = useState<'AM' | 'PM'>('AM');
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
-  const [reason, setReason] = useState('');
+  const [isHalfDay, setIsHalfDay] = useState(initialValues?.isHalfDay ?? false);
+  const [halfDaySession, setHalfDaySession] = useState<'AM' | 'PM'>(initialValues?.halfDaySession ?? 'AM');
+  const [startDate, setStartDate] = useState(initialValues?.startDate ?? '');
+  const [endDate, setEndDate] = useState(initialValues?.endDate ?? '');
+  const [reason, setReason] = useState(initialValues?.reason ?? '');
   const [actionPlan, setActionPlan] = useState('');
 
   const [error, setError] = useState<string | null>(null);

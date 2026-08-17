@@ -1,9 +1,9 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import ApplyLeaveDrawer from './ApplyLeaveDrawer';
-import type { ApplySubmitResult } from './ApplyLeaveForm';
+import type { ApplySubmitResult, ApplyLeaveInitialValues } from './ApplyLeaveForm';
 import LeavePageHeader from './LeavePageHeader';
 
 // app/leave/me/page.tsx itself is a Server Component (fetches employee/
@@ -25,10 +25,33 @@ export default function MeNavbar({
   role?: 'employee' | 'lead' | 'manager' | 'hr' | 'hr_super_admin';
 }) {
   const [open, setOpen] = useState(false);
+  const [prefill, setPrefill] = useState<ApplyLeaveInitialValues | undefined>(undefined);
   const router = useRouter();
+
+  // Feedback item #7 — "Reapply after rejection". LeaveHistoryTable
+  // (a sibling under the same server-rendered page, not a descendant of
+  // this component) dispatches this event from its "Apply for another
+  // leave type" button on a rejected row. A DOM CustomEvent is the
+  // simplest way for two independent client islands on the same server
+  // page to talk to each other without hoisting drawer state into the
+  // server component itself.
+  useEffect(() => {
+    function onReapply(e: Event) {
+      const detail = (e as CustomEvent<ApplyLeaveInitialValues>).detail;
+      setPrefill(detail);
+      setOpen(true);
+    }
+    window.addEventListener('leave:reapply', onReapply as EventListener);
+    return () => window.removeEventListener('leave:reapply', onReapply as EventListener);
+  }, []);
 
   function handleSuccess(_result: ApplySubmitResult) {
     router.refresh();
+  }
+
+  function handleClose() {
+    setOpen(false);
+    setPrefill(undefined);
   }
 
   return (
@@ -47,7 +70,7 @@ export default function MeNavbar({
         }
       />
 
-      {open && <ApplyLeaveDrawer onClose={() => setOpen(false)} onSuccess={handleSuccess} />}
+      {open && <ApplyLeaveDrawer onClose={handleClose} onSuccess={handleSuccess} initialValues={prefill} />}
     </>
   );
 }
