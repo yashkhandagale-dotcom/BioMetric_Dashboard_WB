@@ -20,6 +20,7 @@ import UploadZone from '@/components/UploadZone';
 import ColumnMappingScreen from '@/components/ColumnMappingScreen';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import KPICards from '@/components/KPICards';
+import OnLeaveTodayCard from '@/components/OnLeaveTodayCard';
 
 import EmployeeTable from '@/components/EmployeeTable';
 import {
@@ -181,6 +182,7 @@ function ManagerView({
             : 'Read-only view — upload, export and settings are not available here.'}
         </div>
         <KPICards kpi={kpi} thresholds={thresholds} />
+        <OnLeaveTodayCard />
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
           <DailyTrendChart data={dailyTrend} />
           <HoursDistributionChart data={hoursDistribution} allRecords={records} />
@@ -874,6 +876,8 @@ function HRDashboard() {
 
             {/* ── KPI Cards ──────────────────────────────────────────────── */}
             <KPICards kpi={kpi} thresholds={thresholds} viewMode={viewMode} onCardClick={(f) => setTableFilter(f === tableFilter ? 'all' : f)} />
+            {/* Feedback item #1 — pre-approved leave visibility, HR dashboard. */}
+            <OnLeaveTodayCard />
 
 
 
