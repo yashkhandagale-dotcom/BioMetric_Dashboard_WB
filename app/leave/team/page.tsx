@@ -2,9 +2,12 @@ import { createLeaveClient } from '@/lib/leaveSupabase/server';
 import { getCurrentEmployee } from '@/lib/leaveSupabase/getCurrentEmployee';
 import { getEmployeeBalancesByFY } from '@/lib/leaveSupabase/getEmployeeBalances';
 import { getManagedEmployeeIds } from '@/lib/leaveSupabase/organization';
+import { getEmployeesOnLeaveToday } from '@/lib/leaveSupabase/onLeaveToday';
+import { listRegularisationsForEmployees } from '@/lib/leaveSupabase/regularisation';
 import { selectAllRows } from '@/lib/attendanceExceptions';
 import LeaveHistoryTable, { LeaveHistoryRow } from '@/components/leave/LeaveHistoryTable';
 import LeavePageHeader from '@/components/leave/LeavePageHeader';
+import RegulariseButton from '@/components/leave/RegulariseButton';
 
 type HistoryRow = {
   id: string;
@@ -90,6 +93,15 @@ export default async function LeaveTeamHome() {
 
   const teamBalances = balances.filter((b) => teamIds.includes(b.employeeId));
 
+  // Feedback item #13 — "who's on leave today / pre-approved leave", and
+  // item #2's regularisation history, both scoped to this manager/lead's
+  // own team (teamIds), fetched alongside everything else this page
+  // already loads server-side.
+  const [{ rows: onLeaveToday }, { rows: regularisations }] = await Promise.all([
+    teamIds.length > 0 ? getEmployeesOnLeaveToday(supabase, undefined, teamIds) : Promise.resolve({ rows: [], error: null }),
+    teamIds.length > 0 ? listRegularisationsForEmployees(supabase, teamIds) : Promise.resolve({ rows: [], error: null }),
+  ]);
+
   const history: LeaveHistoryRow[] = (historyResult.data ?? [])
     .filter((r) => r.employees && r.leave_types)
     .map((r) => ({
@@ -125,6 +137,31 @@ export default async function LeaveTeamHome() {
         </div>
       )}
 
+      {/* Feedback item #13 — plan/manage team workload at a glance. */}
+      <div className="bg-[var(--bg-elevated)]/40 border border-[var(--border)] rounded-xl p-4">
+        <h2 className="text-sm font-semibold mb-3">On Leave Today ({onLeaveToday.length})</h2>
+        {onLeaveToday.length === 0 ? (
+          <p className="text-[var(--text-muted)] text-sm">Nobody on your team is on approved leave today.</p>
+        ) : (
+          <ul className="divide-y divide-[var(--border)]">
+            {onLeaveToday.map((row) => (
+              <li key={`${row.employeeId}-${row.startDate}`} className="py-2 flex items-center justify-between text-sm">
+                <div>
+                  <p className="text-[var(--text-primary)]">{row.employeeName}</p>
+                  <p className="text-[var(--text-muted)] text-xs">
+                    {row.employeeCode} · {row.department}
+                  </p>
+                </div>
+                <span className="text-xs font-medium rounded-full px-2 py-0.5 bg-emerald-500/20 text-emerald-700 dark:text-emerald-300">
+                  {row.leaveTypeLabel}
+                  {row.isHalfDay ? ` (${row.halfDaySession ?? 'Half day'})` : ''}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
       <div className="bg-[var(--bg-elevated)]/40 border border-[var(--border)] rounded-xl p-4 mb-6">
           <h2 className="text-sm font-semibold mb-3">Roster &amp; Balances</h2>
           {!reports || reports.length === 0 ? (
@@ -140,7 +177,8 @@ export default async function LeaveTeamHome() {
                     <th className="pb-2 pr-4 text-right">SL</th>
                     <th className="pb-2 pr-4 text-right">CL</th>
                     <th className="pb-2 pr-4 text-right">PL</th>
-                    <th className="pb-2 text-right">LWP</th>
+                    <th className="pb-2 pr-4 text-right">LWP</th>
+                    <th className="pb-2 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -154,7 +192,10 @@ export default async function LeaveTeamHome() {
                         <td className="py-2 pr-4 text-right">{b ? b.SL.toFixed(1) : '—'}</td>
                         <td className="py-2 pr-4 text-right">{b ? b.CL.toFixed(1) : '—'}</td>
                         <td className="py-2 pr-4 text-right">{b ? b.PL.toFixed(1) : '—'}</td>
-                        <td className="py-2 text-right">{b ? b.LWP.toFixed(1) : '—'}</td>
+                        <td className="py-2 pr-4 text-right">{b ? b.LWP.toFixed(1) : '—'}</td>
+                        <td className="py-2 text-right">
+                          <RegulariseButton employeeId={r.id} employeeName={r.full_name} />
+                        </td>
                       </tr>
                     );
                   })}
@@ -163,6 +204,23 @@ export default async function LeaveTeamHome() {
             </div>
           )}
       </div>
+
+      {/* Feedback item #2 — manager-visible log of regularisations for their team. */}
+      {regularisations.length > 0 && (
+        <div className="bg-[var(--bg-elevated)]/40 border border-[var(--border)] rounded-xl p-4">
+          <h2 className="text-sm font-semibold mb-3">Recent Regularisations</h2>
+          <ul className="divide-y divide-[var(--border)]">
+            {regularisations.slice(0, 20).map((row) => (
+              <li key={row.id} className="py-2 text-sm">
+                <p className="text-[var(--text-primary)]">
+                  {row.employeeName} <span className="text-[var(--text-muted)] text-xs">({row.date})</span>
+                </p>
+                <p className="text-[var(--text-muted)] text-xs">{row.reason} — by {row.regularisedByName}</p>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       <div>
         <h2 className="text-sm font-semibold mb-3">Team Leave History</h2>
