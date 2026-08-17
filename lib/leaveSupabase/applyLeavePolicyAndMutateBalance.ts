@@ -2,6 +2,7 @@
 import { createLeaveServiceClient } from './server';
 import { TrackerLeaveTypeCode } from './leaveTypeMap';
 import { checkCombiningLeaves, getAutoLwpConversionReason, EmployeeForConversionCheck } from '../leavePolicy';
+import { getLeavePolicyConfig } from './leaveConfig';
 import { notifyLeaveEvent as notifyLeaveEventReal } from './notifyLeaveEvent';
 import { getEmployeeBalancesByFY } from './getEmployeeBalances';
 
@@ -303,7 +304,12 @@ export async function previewLeavePolicy(
 
   let wouldBeLwp = false;
   if (leaveType.code !== 'LWP') {
-    const autoLwpReason = getAutoLwpConversionReason(employee as EmployeeForConversionCheck, startDate);
+    const { config } = await getLeavePolicyConfig(service);
+    const autoLwpReason = getAutoLwpConversionReason(
+      employee as EmployeeForConversionCheck,
+      startDate,
+      config.probationUnlockMonths
+    );
     if (autoLwpReason) {
       notes.push(`${autoLwpReason} — this will be recorded as Leave Without Pay, not ${leaveType.code}.`);
       wouldBeLwp = true;
@@ -433,7 +439,12 @@ async function createAndMaybeApprove(
   let autoLwpTypeRow: LeaveTypeRow | null = null;
 
   if (leaveType.code !== 'LWP') {
-    autoLwpReason = getAutoLwpConversionReason(employee as EmployeeForConversionCheck, startDate);
+    const { config } = await getLeavePolicyConfig(service);
+    autoLwpReason = getAutoLwpConversionReason(
+      employee as EmployeeForConversionCheck,
+      startDate,
+      config.probationUnlockMonths
+    );
   }
   if (autoLwpReason) {
     const { data: lwpType, error: lwpFetchError } = await service

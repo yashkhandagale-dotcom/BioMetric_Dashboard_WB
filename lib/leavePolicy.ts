@@ -23,9 +23,14 @@ export function addMonths(dateStr: string, months: number): Date {
 // ---------------------------------------------------------------------
 export function getProbationLwpReason(
   dateOfJoining: string,
-  requestStartDate: string
+  requestStartDate: string,
+  // Configurable via leave_policy_config.probation_unlock_months (HR's
+  // new Leave Configuration page — item #3 of the Aug 2026 feedback
+  // batch). Defaults to the original hardcoded value of 4 so any caller
+  // that hasn't been updated to fetch config yet keeps the old behavior.
+  unlockMonths: number = 4
 ): string | null {
-  const unlockDate = addMonths(dateOfJoining, 4);
+  const unlockDate = addMonths(dateOfJoining, unlockMonths);
   const start = new Date(`${requestStartDate}T00:00:00Z`);
   if (start < unlockDate) {
     return 'Leave during probation period (before month-4 unlock)';
@@ -78,9 +83,14 @@ export interface EmployeeForConversionCheck {
 // condition so it takes priority if both were somehow true).
 export function getAutoLwpConversionReason(
   employee: EmployeeForConversionCheck,
-  requestStartDate: string
+  requestStartDate: string,
+  // See getProbationLwpReason's comment — sourced from
+  // leave_policy_config by callers that have a Supabase client handy
+  // (applyLeavePolicyAndMutateBalance.ts); pure callers can omit it and
+  // get the original default.
+  unlockMonths: number = 4
 ): string | null {
-  const probationReason = getProbationLwpReason(employee.date_of_joining, requestStartDate);
+  const probationReason = getProbationLwpReason(employee.date_of_joining, requestStartDate, unlockMonths);
   if (probationReason) return probationReason;
   return getNoticePeriodLwpReason(
     employee.employment_status,
