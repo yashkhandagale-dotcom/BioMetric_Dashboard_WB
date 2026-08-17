@@ -37,7 +37,15 @@ export type LeaveNotificationType =
   | 'leave_approved'
   | 'leave_rejected'
   | 'leave_cancelled'
-  | 'leave_reminder';
+  | 'leave_reminder'
+  // WFH (feedback items #5/#6) reuses the notifications table rather
+  // than a parallel one — same recipient-resolution helper
+  // (getEffectiveApproverId), just its own type values so the UI can
+  // tell a WFH notification apart from a leave one.
+  | 'wfh_submitted'
+  | 'wfh_approved'
+  | 'wfh_rejected'
+  | 'wfh_cancelled';
 
 export interface LeaveEvent {
   type: 'submitted' | 'approved' | 'rejected' | 'cancelled';
@@ -78,6 +86,18 @@ type EmployeeRow = {
 function dateRangeLabel(start?: string, end?: string): string {
   if (!start) return '';
   return start === end || !end ? start : `${start} to ${end}`;
+}
+
+// Exported single-row wrapper for callers outside this file that need to
+// drop one notification without building the whole LeaveEvent shape —
+// e.g. lib/leaveSupabase/regularisation.ts and wfhRequests.ts. Routes
+// through the same de-dupe/best-effort insertNotifications below so
+// there's exactly one write path into `notifications`.
+export async function insertLeaveNotification(
+  service: SupabaseClient,
+  row: { recipient_employee_id: string; type: LeaveNotificationType; title: string; body: string; leave_request_id: string | null }
+): Promise<void> {
+  await insertNotifications(service, [row]);
 }
 
 async function insertNotifications(
