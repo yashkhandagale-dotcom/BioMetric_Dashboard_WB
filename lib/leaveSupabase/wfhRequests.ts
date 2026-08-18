@@ -207,6 +207,14 @@ export async function cancelWfhRequest(supabase: SupabaseClient, requestId: stri
     return { id: requestId, error: `Request is already '${existing.status}' — nothing to cancel.` };
   }
 
+  // Same rule leave cancellation enforces (app/api/leave/requests/[id]/cancel/route.ts)
+  // — an approved request that has already started is done; nothing left
+  // to cancel.
+  const today = new Date().toISOString().slice(0, 10);
+  if (existing.status === 'approved' && existing.start_date <= today) {
+    return { id: requestId, error: 'This WFH request has already started — it can no longer be cancelled.' };
+  }
+
   const wasApproved = existing.status === 'approved';
 
   const { error: updateError } = await supabase

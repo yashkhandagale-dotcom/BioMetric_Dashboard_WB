@@ -35,6 +35,10 @@ function formatDateRange(start: string, end: string) {
   return start === end ? start : `${start} → ${end}`;
 }
 
+function todayYMD() {
+  return new Date().toISOString().slice(0, 10);
+}
+
 const STATUS_STYLE: Record<string, string> = {
   pending: 'bg-amber-500/20 text-amber-700 dark:text-amber-300',
   approved: 'bg-emerald-500/20 text-emerald-700 dark:text-emerald-300',
@@ -226,16 +230,25 @@ export default function LeaveHistoryTable({
               {(showActions || hrCorrection) && (
                 <td className="px-4 py-2.5">
                   <div className="flex flex-col gap-1 items-start">
-                    {showActions && (r.status === 'pending' || r.status === 'approved' || r.status === 'auto_lwp') && (
-                      <button
-                        type="button"
-                        onClick={() => setConfirmingId(r.id)}
-                        disabled={busyId === r.id}
-                        className="text-red-600 dark:text-red-400 hover:underline text-xs font-medium disabled:opacity-50"
-                      >
-                        {r.status === 'pending' ? 'Withdraw' : 'Cancel'}
-                      </button>
-                    )}
+                    {showActions && (r.status === 'pending' || r.status === 'approved' || r.status === 'auto_lwp') && (() => {
+                      // Same "already started" rule the cancel API enforces
+                      // server-side (app/api/leave/requests/[id]/cancel/route.ts)
+                      // — a completed/in-progress approved leave can no
+                      // longer be cancelled. Disable the button up front
+                      // instead of letting it be clicked and fail.
+                      const alreadyStarted = r.status !== 'pending' && r.startDate <= todayYMD();
+                      return (
+                        <button
+                          type="button"
+                          onClick={() => setConfirmingId(r.id)}
+                          disabled={busyId === r.id || alreadyStarted}
+                          title={alreadyStarted ? 'This leave has already started — it can no longer be cancelled.' : undefined}
+                          className="text-red-600 dark:text-red-400 hover:underline text-xs font-medium disabled:opacity-40 disabled:no-underline disabled:cursor-not-allowed"
+                        >
+                          {r.status === 'pending' ? 'Withdraw' : 'Cancel'}
+                        </button>
+                      );
+                    })()}
                     {showActions && r.status === 'rejected' && (
                       <button
                         type="button"

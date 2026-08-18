@@ -84,9 +84,31 @@ export default function PersonalAttendanceReport() {
           ))}
         </div>
       ) : !kpis || recordCount === 0 ? (
-        <p className="text-[var(--text-muted)] text-sm text-center py-4">
-          No attendance data uploaded for {monthLabel(monthKey)} yet.
-        </p>
+        // Same card grid as the loaded state below (label + dash instead
+        // of a value), just without the pulse animation — keeps the
+        // panel's shape consistent instead of collapsing to one line of
+        // text once loading finishes with nothing to show.
+        <div className="space-y-2">
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+            {['Attendance Rate', 'Present Days', 'Absent Days', 'Late Count', 'Early Exit Count', 'Productivity Lost'].map((label) => (
+              <div key={label} className="bg-[var(--bg-elevated)]/50 rounded-xl p-3">
+                <p className="text-[var(--text-muted)] text-xs mb-1">{label}</p>
+                <p className="text-lg font-bold text-[var(--text-muted)]">—</p>
+              </div>
+            ))}
+          </div>
+          <div className="grid grid-cols-2 gap-2">
+            {['Actual Hours / Day', 'Effective Hours / Day'].map((label) => (
+              <div key={label} className="bg-[var(--bg-elevated)]/50 rounded-xl p-3">
+                <p className="text-[var(--text-muted)] text-xs mb-1">{label}</p>
+                <p className="text-lg font-bold text-[var(--text-muted)]">—</p>
+              </div>
+            ))}
+          </div>
+          <p className="text-[var(--text-muted)] text-xs text-center pt-1">
+            No attendance data uploaded for {monthLabel(monthKey)} yet.
+          </p>
+        </div>
       ) : (
         <>
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">

@@ -20,8 +20,14 @@ import {
   Settings,
   PanelLeftClose,
   PanelLeftOpen,
+  CalendarPlus,
+  Home,
 } from 'lucide-react';
 import LeaveThemeSync from './LeaveThemeSync';
+import ApplyLeaveDrawer from './ApplyLeaveDrawer';
+import WfhApplyDrawer from './WfhApplyDrawer';
+import type { ApplySubmitResult, ApplyLeaveInitialValues } from './ApplyLeaveForm';
+import type { WfhSubmitResult, WfhApplyInitialValues } from './WfhApplyForm';
 
 export type LeaveRole = 'employee' | 'lead' | 'manager' | 'hr' | 'hr_super_admin';
 
@@ -95,6 +101,37 @@ function initials(name: string) {
   return ((parts[0]?.[0] ?? '') + (parts[1]?.[0] ?? '')).toUpperCase() || 'U';
 }
 
+function NavLink({ item, pathname, collapsed }: { item: NavItem; pathname: string; collapsed: boolean }) {
+  const active = isActive(pathname, item);
+  const Icon = item.icon;
+  return (
+    <Link
+      href={item.href}
+      title={collapsed ? item.label : undefined}
+      className={`relative flex items-center gap-2 rounded-lg px-2.5 py-2 text-sm font-medium transition-colors ${
+        collapsed ? 'justify-center' : 'justify-between'
+      } ${
+        active ? 'bg-[var(--accent)] text-white' : 'text-[var(--text-primary)] hover:bg-[var(--bg-elevated)]'
+      }`}
+    >
+      <span className={`flex items-center ${collapsed ? '' : 'gap-2.5'}`}>
+        <Icon size={16} className={active ? 'text-white' : 'text-[var(--text-muted)]'} />
+        {!collapsed && item.label}
+      </span>
+      {!!item.badge && !collapsed && (
+        <span
+          className={`inline-flex min-w-[1.1rem] h-[1.1rem] items-center justify-center rounded-full px-1 text-[10px] font-bold ${
+            active ? 'bg-white/25 text-white' : 'bg-amber-500 text-white'
+          }`}
+        >
+          {item.badge}
+        </span>
+      )}
+      {!!item.badge && collapsed && <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-amber-500" />}
+    </Link>
+  );
+}
+
 const ROLE_LABEL: Record<LeaveRole, string> = {
   employee: 'Employee',
   lead: 'Lead',
@@ -119,9 +156,76 @@ export default function LeaveShell({
   const groups = navGroups(role, pendingApprovalsCount);
   const flatItems = groups.flatMap((g) => g.items);
   const canReturnToDashboard = role !== 'employee';
+  // hr_super_admin has no personal leave/WFH of their own — same
+  // condition navGroups() uses to decide whether to show the
+  // "Personal" nav group, reused here to decide whether to show the
+  // quick-apply actions.
+  const showPersonal = role !== 'hr_super_admin';
 
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+
+  // "Apply for Leave" / "Apply for WFH" — feedback item: these used to
+  // be a button buried in each page's own header/card (MeNavbar,
+  // WfhPanel), only reachable from /leave/me. Living here instead
+  // means they're one click away from any /leave/** page, and both
+  // still open as a popup (slide-over drawer), same as before.
+  const [applyLeaveOpen, setApplyLeaveOpen] = useState(false);
+  const [applyLeavePrefill, setApplyLeavePrefill] = useState<ApplyLeaveInitialValues | undefined>(undefined);
+  const [applyWfhOpen, setApplyWfhOpen] = useState(false);
+  const [applyWfhPrefill, setApplyWfhPrefill] = useState<WfhApplyInitialValues | undefined>(undefined);
+
+  // "Reapply" flows dispatch these same two custom events they always
+  // have (from LeaveHistoryTable and WfhPanel) — only the listener
+  // moved, from MeNavbar to here, so it keeps working now that the
+  // drawers themselves live at the shell level.
+  useEffect(() => {
+    function onLeaveReapply(e: Event) {
+      const detail = (e as CustomEvent<ApplyLeaveInitialValues>).detail;
+      setApplyLeavePrefill(detail);
+      setApplyLeaveOpen(true);
+    }
+    function onWfhReapply(e: Event) {
+      const detail = (e as CustomEvent<WfhApplyInitialValues>).detail;
+      setApplyWfhPrefill(detail);
+      setApplyWfhOpen(true);
+    }
+    window.addEventListener('leave:reapply', onLeaveReapply as EventListener);
+    window.addEventListener('wfh:reapply', onWfhReapply as EventListener);
+    return () => {
+      window.removeEventListener('leave:reapply', onLeaveReapply as EventListener);
+      window.removeEventListener('wfh:reapply', onWfhReapply as EventListener);
+    };
+  }, []);
+
+  function openApplyLeave() {
+    setApplyLeavePrefill(undefined);
+    setApplyLeaveOpen(true);
+  }
+  function closeApplyLeave() {
+    setApplyLeaveOpen(false);
+    setApplyLeavePrefill(undefined);
+  }
+  function handleApplyLeaveSuccess(_result: ApplySubmitResult) {
+    router.refresh();
+  }
+
+  function openApplyWfh() {
+    setApplyWfhPrefill(undefined);
+    setApplyWfhOpen(true);
+  }
+  function closeApplyWfh() {
+    setApplyWfhOpen(false);
+    setApplyWfhPrefill(undefined);
+  }
+  function handleApplyWfhSuccess(_result: WfhSubmitResult) {
+    router.refresh();
+    // WfhPanel (on /leave/me) fetches its own list client-side rather
+    // than via the server page, so router.refresh() alone won't update
+    // it — nudge it to refetch the same way it already listens for
+    // other cross-component signals.
+    window.dispatchEvent(new CustomEvent('wfh:applied'));
+  }
 
   // Collapsed = icon-only rail, mirrors DashboardShell's identical
   // pattern so both products behave the same way.
@@ -238,52 +342,80 @@ export default function LeaveShell({
         </div>
 
         <nav className={`scroll-thin flex-1 overflow-y-auto py-2 space-y-5 ${collapsed ? 'px-2' : 'px-3'}`}>
-          {groups.map((group) => (
-            <div key={group.label}>
+          {/* "My Leave" always comes first, then "Apply" (Leave / WFH —
+              opens the popup drawers, not a navigation link), then
+              everything else (Team, Organization-wide) in their usual
+              order. Personal is pulled out of `groups` and rendered
+              here explicitly instead of via the generic map below, so
+              Apply can sit directly under it regardless of what other
+              groups a given role has. */}
+          {groups
+            .filter((g) => g.label === 'Personal')
+            .map((group) => (
+              <div key={group.label}>
+                {!collapsed && (
+                  <p className="px-2.5 pb-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--text-muted)]">
+                    {group.label}
+                  </p>
+                )}
+                <div className="space-y-0.5">
+                  {group.items.map((item) => (
+                    <NavLink key={item.href + item.label} item={item} pathname={pathname} collapsed={collapsed} />
+                  ))}
+                </div>
+              </div>
+            ))}
+
+          {showPersonal && (
+            <div>
               {!collapsed && (
                 <p className="px-2.5 pb-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--text-muted)]">
-                  {group.label}
+                  Apply
                 </p>
               )}
               <div className="space-y-0.5">
-                {group.items.map((item) => {
-                  const active = isActive(pathname, item);
-                  const Icon = item.icon;
-                  return (
-                    <Link
-                      key={item.href + item.label}
-                      href={item.href}
-                      title={collapsed ? item.label : undefined}
-                      className={`relative flex items-center gap-2 rounded-lg px-2.5 py-2 text-sm font-medium transition-colors ${
-                        collapsed ? 'justify-center' : 'justify-between'
-                      } ${
-                        active
-                          ? 'bg-[var(--accent)] text-white'
-                          : 'text-[var(--text-primary)] hover:bg-[var(--bg-elevated)]'
-                      }`}
-                    >
-                      <span className={`flex items-center ${collapsed ? '' : 'gap-2.5'}`}>
-                        <Icon size={16} className={active ? 'text-white' : 'text-[var(--text-muted)]'} />
-                        {!collapsed && item.label}
-                      </span>
-                      {!!item.badge && !collapsed && (
-                        <span
-                          className={`inline-flex min-w-[1.1rem] h-[1.1rem] items-center justify-center rounded-full px-1 text-[10px] font-bold ${
-                            active ? 'bg-white/25 text-white' : 'bg-amber-500 text-white'
-                          }`}
-                        >
-                          {item.badge}
-                        </span>
-                      )}
-                      {!!item.badge && collapsed && (
-                        <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-amber-500" />
-                      )}
-                    </Link>
-                  );
-                })}
+                <button
+                  type="button"
+                  onClick={openApplyLeave}
+                  title={collapsed ? 'Leave' : undefined}
+                  className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-sm font-medium text-[var(--text-primary)] hover:bg-[var(--bg-elevated)] transition-colors ${
+                    collapsed ? 'justify-center' : ''
+                  }`}
+                >
+                  <CalendarPlus size={16} className="text-[var(--text-muted)]" />
+                  {!collapsed && 'Leave'}
+                </button>
+                <button
+                  type="button"
+                  onClick={openApplyWfh}
+                  title={collapsed ? 'WFH' : undefined}
+                  className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-sm font-medium text-[var(--text-primary)] hover:bg-[var(--bg-elevated)] transition-colors ${
+                    collapsed ? 'justify-center' : ''
+                  }`}
+                >
+                  <Home size={16} className="text-[var(--text-muted)]" />
+                  {!collapsed && 'WFH'}
+                </button>
               </div>
             </div>
-          ))}
+          )}
+
+          {groups
+            .filter((g) => g.label !== 'Personal')
+            .map((group) => (
+              <div key={group.label}>
+                {!collapsed && (
+                  <p className="px-2.5 pb-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--text-muted)]">
+                    {group.label}
+                  </p>
+                )}
+                <div className="space-y-0.5">
+                  {group.items.map((item) => (
+                    <NavLink key={item.href + item.label} item={item} pathname={pathname} collapsed={collapsed} />
+                  ))}
+                </div>
+              </div>
+            ))}
         </nav>
 
         <div className={`border-t border-[var(--border)] py-3 space-y-2 ${collapsed ? 'px-2' : 'px-3'}`}>
@@ -321,6 +453,28 @@ export default function LeaveShell({
             <p className="truncate text-sm font-semibold text-[var(--text-primary)]">Leave Tracker</p>
           </div>
           <div className="flex items-center gap-2 shrink-0">
+            {showPersonal && (
+              <>
+                <button
+                  type="button"
+                  onClick={openApplyLeave}
+                  aria-label="Apply for Leave"
+                  title="Apply for Leave"
+                  className="flex h-8 w-8 items-center justify-center rounded-lg bg-[var(--accent)] text-white"
+                >
+                  <CalendarPlus size={14} />
+                </button>
+                <button
+                  type="button"
+                  onClick={openApplyWfh}
+                  aria-label="Apply for WFH"
+                  title="Apply for WFH"
+                  className="flex h-8 w-8 items-center justify-center rounded-lg border border-[var(--border)] text-[var(--text-muted)]"
+                >
+                  <Home size={14} />
+                </button>
+              </>
+            )}
             <LeaveThemeSync />
             <div className="relative">
               <button
@@ -396,6 +550,13 @@ export default function LeaveShell({
       <main className="scroll-thin flex-1 min-w-0 md:h-screen md:min-h-0 md:overflow-y-auto">
         <div className="mx-auto max-w-[1400px] px-4 sm:px-6 lg:px-10 py-6 sm:py-8">{children}</div>
       </main>
+
+      {applyLeaveOpen && (
+        <ApplyLeaveDrawer onClose={closeApplyLeave} onSuccess={handleApplyLeaveSuccess} initialValues={applyLeavePrefill} />
+      )}
+      {applyWfhOpen && (
+        <WfhApplyDrawer onClose={closeApplyWfh} onSuccess={handleApplyWfhSuccess} initialValues={applyWfhPrefill} />
+      )}
     </div>
   );
 }

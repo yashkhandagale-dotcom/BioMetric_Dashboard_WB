@@ -28,6 +28,10 @@ const EMPTY_PREVIEW: PreviewState = {
   loading: false, totalDays: null, notes: [], wouldBeLwp: false, currentBalance: null, error: null,
 };
 
+function todayYMD() {
+  return new Date().toISOString().slice(0, 10);
+}
+
 // A5 — self-service version of RecordLeaveForm.tsx: same underlying
 // validation/POST contract (minus employee-picker, since it's always
 // "me"), plus action_plan (required for Planned, per schema) which
@@ -74,6 +78,13 @@ export default function ApplyLeaveForm({
 
   const [preview, setPreview] = useState<PreviewState>(EMPTY_PREVIEW);
   const previewSeq = useRef(0);
+
+  // Planned Leave is, by definition, planned ahead of time — unlike
+  // Sick/Casual/LWP, which are routinely applied for after the fact
+  // (e.g. you were out sick yesterday and are only applying today), so
+  // the past-date restriction is scoped to PL only.
+  const isPlanned = leaveTypeCode === 'PL';
+  const minDate = isPlanned ? todayYMD() : undefined;
 
   useEffect(() => {
     const hasDates = isHalfDay ? !!startDate : !!startDate && !!endDate;
@@ -138,6 +149,10 @@ export default function ApplyLeaveForm({
     }
     if (leaveTypeCode === 'PL' && !actionPlan.trim()) {
       setError('An action plan is required for Planned leave.');
+      return;
+    }
+    if (isPlanned && minDate && (startDate < minDate || (!isHalfDay && endDate < minDate))) {
+      setError('Planned leave cannot be applied for a past date.');
       return;
     }
 
@@ -241,6 +256,7 @@ export default function ApplyLeaveForm({
               <input
                 type="date"
                 value={startDate}
+                min={minDate}
                 onChange={(e) => setStartDate(e.target.value)}
                 className="w-full bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)]"
                 required
@@ -265,6 +281,7 @@ export default function ApplyLeaveForm({
               <input
                 type="date"
                 value={startDate}
+                min={minDate}
                 onChange={(e) => setStartDate(e.target.value)}
                 className="w-full bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)]"
                 required
@@ -275,6 +292,7 @@ export default function ApplyLeaveForm({
               <input
                 type="date"
                 value={endDate}
+                min={minDate ?? (startDate || undefined)}
                 onChange={(e) => setEndDate(e.target.value)}
                 className="w-full bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)]"
                 required
