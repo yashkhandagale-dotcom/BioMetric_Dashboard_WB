@@ -97,7 +97,7 @@ export async function GET(req: NextRequest) {
 
     const { data, error } = await leaveService
       .from('leave_requests')
-      .select('id, start_date, end_date, is_half_day, reason, applied_on, leave_types(code), employees!inner(employee_code, office)')
+      .select('id, start_date, end_date, is_half_day, reason, applied_on, leave_types(code), employees!leave_requests_employee_id_fkey!inner(employee_code, office)')
       .eq('status', 'approved')
       .eq('employees.office', officeCode)
       .lte('start_date', rangeEnd)

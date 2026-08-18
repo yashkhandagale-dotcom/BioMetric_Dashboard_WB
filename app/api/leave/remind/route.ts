@@ -41,7 +41,7 @@ export async function POST(req: NextRequest) {
   if (leave_request_id) {
     const { data: request } = await sessionClient
       .from('leave_requests')
-      .select('employee_id, employees!inner(department, reporting_lead_id)')
+      .select('employee_id, employees!leave_requests_employee_id_fkey!inner(department, reporting_lead_id)')
       .eq('id', leave_request_id)
       .maybeSingle();
     if (!request) return NextResponse.json({ error: 'Leave request not found' }, { status: 404 });

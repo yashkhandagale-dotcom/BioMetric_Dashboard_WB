@@ -52,6 +52,14 @@ export async function middleware(req: NextRequest) {
   const { response, user, supabase } = await updateSession(req);
 
   if (!user) {
+    // For API consumers, return JSON 401 instead of redirecting to the
+    // HTML login page — a fetch/XHR expecting JSON will otherwise get an
+    // HTML document (login page) which leads to JSON.parse errors client-side.
+    const wantsJson = pathname.startsWith('/api') || req.headers.get('accept')?.includes('application/json') || req.headers.get('x-requested-with') === 'XMLHttpRequest';
+    if (wantsJson) {
+      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+    }
+
     const loginUrl = new URL('/login', req.url);
     loginUrl.searchParams.set('next', pathname + req.nextUrl.search);
     return NextResponse.redirect(loginUrl);

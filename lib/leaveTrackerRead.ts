@@ -17,7 +17,27 @@ export async function getAllLeaveRecords(monthKeys: string[]): Promise<LeaveReco
   if (monthKeys.length === 0) return [];
   const res = await fetch(`/api/dashboard/leave-records?monthKeys=${encodeURIComponent(monthKeys.join(','))}`);
   const text = await res.text();
-  const body = text ? JSON.parse(text) : {};
+
+  // If the server returned 404, return a clear error immediately rather
+  // than attempting to parse the body as JSON (often HTML). This helps
+  // debugging when a route is missing or not registered by Next.
+  if (res.status === 404) {
+    const excerpt = (text || '').slice(0, 200).replace(/\n/g, ' ');
+    throw new Error(`Leave records route not found (404). Response excerpt: ${excerpt}`);
+  }
+
+  let body: any = {};
+  if (text) {
+    try {
+      body = JSON.parse(text);
+    } catch (err) {
+      // Non-JSON response (for example an auth redirect that returned HTML).
+      // Surface a short excerpt to help debugging rather than crashing with
+      // "Unexpected token '<'" from JSON.parse.
+      const excerpt = text.slice(0, 200).replace(/\n/g, ' ');
+      throw new Error(`Unexpected non-JSON response from leave-records route (status ${res.status}): ${excerpt}`);
+    }
+  }
   if (!res.ok) {
     throw new Error(body.error || `Failed to load leave data (${res.status})`);
   }
@@ -40,7 +60,21 @@ export async function getAllWorkforceEvents(monthKeys: string[]): Promise<Workfo
   if (monthKeys.length === 0) return [];
   const res = await fetch(`/api/dashboard/workforce-events?monthKeys=${encodeURIComponent(monthKeys.join(','))}`);
   const text = await res.text();
-  const body = text ? JSON.parse(text) : {};
+
+  if (res.status === 404) {
+    const excerpt = (text || '').slice(0, 200).replace(/\n/g, ' ');
+    throw new Error(`Workforce events route not found (404). Response excerpt: ${excerpt}`);
+  }
+
+  let body: any = {};
+  if (text) {
+    try {
+      body = JSON.parse(text);
+    } catch (err) {
+      const excerpt = text.slice(0, 200).replace(/\n/g, ' ');
+      throw new Error(`Unexpected non-JSON response from workforce-events route (status ${res.status}): ${excerpt}`);
+    }
+  }
   if (!res.ok) {
     throw new Error(body.error || `Failed to load workforce events (${res.status})`);
   }

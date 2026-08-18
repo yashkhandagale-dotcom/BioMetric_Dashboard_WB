@@ -579,7 +579,11 @@ export default function LeaveTrackerPage() {
               ) : (
                 <>
                   <p className="text-xs text-[var(--text-muted)]">{rows.length} record(s)</p>
-                  <LeaveHistoryTable rows={department || office ? rows.filter((r) => (!department || r.department === department) && (!office || r.office === office)) : rows} />
+                  <LeaveHistoryTable
+                    rows={department || office ? rows.filter((r) => (!department || r.department === department) && (!office || r.office === office)) : rows}
+                    hrCorrection
+                    onChanged={fetchHistory}
+                  />
                 </>
               )}
             </>

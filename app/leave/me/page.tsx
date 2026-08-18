@@ -20,8 +20,10 @@ type HistoryRow = {
   source: string;
   is_lwp_override: boolean;
   applied_on: string;
+  correction_reason: string | null;
   employees: { id: string; full_name: string; employee_code: string; department: string; office: string } | null;
   leave_types: { code: string; display_name: string } | null;
+  corrector: { full_name: string } | null;
 };
 
 // A6 — Server Component that assembles Part A: personal attendance
@@ -53,9 +55,10 @@ export default async function LeaveMeHome() {
         .select(
           `
           id, start_date, end_date, is_half_day, half_day_session, total_days,
-          status, source, is_lwp_override, applied_on,
-          employees ( id, full_name, employee_code, department, office ),
-          leave_types ( code, display_name )
+          status, source, is_lwp_override, applied_on, correction_reason,
+          employees!leave_requests_employee_id_fkey ( id, full_name, employee_code, department, office ),
+          leave_types ( code, display_name ),
+          corrector:employees!leave_requests_corrected_by_fkey ( full_name )
         `
         )
         .eq('employee_id', employee.id)
@@ -85,6 +88,8 @@ export default async function LeaveMeHome() {
       isLwpOverride: r.is_lwp_override,
       appliedOn: r.applied_on,
       recordedBy: r.source === 'hr_manual' ? 'HR (manual entry)' : 'Self-applied',
+      correctedByName: (Array.isArray(r.corrector) ? r.corrector[0] : r.corrector)?.full_name ?? null,
+      correctionReason: r.correction_reason,
     }));
 
   return (

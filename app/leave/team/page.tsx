@@ -79,7 +79,7 @@ export default async function LeaveTeamHome() {
               `
               id, start_date, end_date, is_half_day, half_day_session, total_days,
               status, source, is_lwp_override, applied_on,
-              employees ( id, full_name, employee_code, department, office ),
+              employees!leave_requests_employee_id_fkey ( id, full_name, employee_code, department, office ),
               leave_types ( code, display_name )
             `
             )

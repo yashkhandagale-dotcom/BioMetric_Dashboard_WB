@@ -43,7 +43,7 @@ export async function GET(req: NextRequest) {
       .select(
         `
         start_date, total_days,
-        employees ( department ),
+        employees!leave_requests_employee_id_fkey ( department ),
         leave_types ( code, display_name )
       `
       )

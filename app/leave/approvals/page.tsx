@@ -69,7 +69,7 @@ export default async function LeaveApprovalsHome() {
       `
       id, employee_id, start_date, end_date, is_half_day, half_day_session,
       total_days, reason, is_lwp_override, lwp_override_reason,
-      employees!inner ( full_name, employee_code, department, reporting_lead_id ),
+      employees!leave_requests_employee_id_fkey!inner ( full_name, employee_code, department, reporting_lead_id ),
       leave_types ( code, display_name )
     `
     )

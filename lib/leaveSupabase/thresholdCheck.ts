@@ -50,7 +50,7 @@ export async function runLeaveThresholdCheck(
 
     const { data: requests, error: reqError } = await supabase
       .from('leave_requests')
-      .select('id, employee_id, employees ( department, full_name )')
+      .select('id, employee_id, employees!leave_requests_employee_id_fkey ( department, full_name )')
       .eq('leave_type_id', row.leave_type_id)
       .in('status', ['pending', 'approved', 'auto_lwp'])
       .gte('start_date', windowStart)

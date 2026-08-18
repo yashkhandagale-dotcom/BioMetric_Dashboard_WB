@@ -35,7 +35,7 @@ export async function getEmployeesOnLeaveToday(
     .from('leave_requests')
     .select(
       `id, is_half_day, half_day_session, start_date, end_date,
-       employees ( id, full_name, employee_code, department, office ),
+       employees!leave_requests_employee_id_fkey ( id, full_name, employee_code, department, office ),
        leave_types ( code, display_name )`
     )
     .in('status', ['approved', 'auto_lwp'])

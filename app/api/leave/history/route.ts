@@ -41,8 +41,11 @@ type HistoryRow = {
   source: string;
   is_lwp_override: boolean;
   applied_on: string;
+  corrected_by: string | null;
+  correction_reason: string | null;
   employees: { id: string; full_name: string; employee_code: string; department: string; office: string } | null;
   leave_types: { code: string; display_name: string } | null;
+  corrector: { full_name: string } | null;
 };
 
 export async function GET(req: NextRequest) {
@@ -104,9 +107,10 @@ export async function GET(req: NextRequest) {
         .select(
           `
           id, start_date, end_date, is_half_day, half_day_session, total_days,
-          status, source, is_lwp_override, applied_on,
-          employees ( id, full_name, employee_code, department, office ),
-          leave_types ( code, display_name )
+          status, source, is_lwp_override, applied_on, corrected_by, correction_reason,
+          employees!leave_requests_employee_id_fkey ( id, full_name, employee_code, department, office ),
+          leave_types ( code, display_name ),
+          corrector:employees!leave_requests_corrected_by_fkey ( full_name )
         `
         )
         .order('start_date', { ascending: false })
@@ -157,6 +161,8 @@ export async function GET(req: NextRequest) {
         // scope this sprint per the Scope (MoSCoW) tab), so `source` is
         // the accurate, honest answer to "who recorded this" for now.
         recordedBy: r.source === 'hr_manual' ? 'HR (manual entry)' : 'Employee self-service',
+        correctedByName: (Array.isArray(r.corrector) ? r.corrector[0] : r.corrector)?.full_name ?? null,
+        correctionReason: r.correction_reason,
       }));
 
     return NextResponse.json({ requests });

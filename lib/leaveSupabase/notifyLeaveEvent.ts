@@ -37,6 +37,7 @@ export type LeaveNotificationType =
   | 'leave_approved'
   | 'leave_rejected'
   | 'leave_cancelled'
+  | 'leave_corrected'
   | 'leave_reminder'
   // WFH (feedback items #5/#6) reuses the notifications table rather
   // than a parallel one — same recipient-resolution helper
@@ -48,10 +49,10 @@ export type LeaveNotificationType =
   | 'wfh_cancelled';
 
 export interface LeaveEvent {
-  type: 'submitted' | 'approved' | 'rejected' | 'cancelled';
+  type: 'submitted' | 'approved' | 'rejected' | 'cancelled' | 'corrected';
   requestId: string;
   employeeId: string;
-  source: 'self_apply' | 'manager_approval' | 'manager_reject' | 'hr_manual' | 'cancellation';
+  source: 'self_apply' | 'manager_approval' | 'manager_reject' | 'hr_manual' | 'cancellation' | 'hr_correction';
   convertedToLwp?: boolean;
   // Present on submitted/approved/rejected/cancelled — needed to decide
   // wide vs narrow broadcast scope (section 6). Optional because a hard
@@ -64,6 +65,10 @@ export interface LeaveEvent {
   startDate?: string;
   endDate?: string;
   violationNote?: string | null;
+  // corrected only — HR's mandatory reason for reversing an
+  // already-finished approved/auto_lwp request (see
+  // applyLeavePolicyAndMutateBalance.ts's hrCorrectExistingRequest).
+  correctionReason?: string;
 }
 
 type EmployeeRow = {
@@ -199,16 +204,21 @@ export async function notifyLeaveEvent(service: SupabaseClient, event: LeaveEven
     for (const t of team ?? []) recipientIds.add(t.id);
   }
 
-  const type: LeaveNotificationType = event.type === 'approved' ? 'leave_approved' : 'leave_cancelled';
-  const verb = event.type === 'approved' ? 'approved' : 'cancelled';
+  const type: LeaveNotificationType =
+    event.type === 'approved' ? 'leave_approved' : event.type === 'corrected' ? 'leave_corrected' : 'leave_cancelled';
+  const verb = event.type === 'approved' ? 'approved' : event.type === 'corrected' ? 'reversed by HR' : 'cancelled';
   const lwpNote = event.convertedToLwp ? ' (recorded as Leave Without Pay due to insufficient balance)' : '';
+  // corrected-only: HR's reason is required at the write boundary (see
+  // hrCorrectExistingRequest), so it's always present here, but this
+  // stays defensive rather than assuming.
+  const reasonNote = event.type === 'corrected' && event.correctionReason ? ` Reason: ${event.correctionReason}` : '';
 
   for (const id of recipientIds) {
     rows.push({
       recipient_employee_id: id,
       type,
       title: id === employee.id ? `Your leave request was ${verb}` : `${employee.full_name}'s leave was ${verb}`,
-      body: `${employee.full_name}'s leave${range ? ` for ${range}` : ''} was ${verb}${lwpNote}.`,
+      body: `${employee.full_name}'s leave${range ? ` for ${range}` : ''} was ${verb}${lwpNote}.${reasonNote}`,
       leave_request_id: event.requestId,
     });
   }

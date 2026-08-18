@@ -41,7 +41,7 @@ import { getEmployeeBalancesByFY } from './getEmployeeBalances';
 //     wasn't in scope for this prompt.
 // =====================================================================
 
-export type ApplyLeaveSource = 'self_apply' | 'manager_approval' | 'manager_reject' | 'hr_manual' | 'cancellation';
+export type ApplyLeaveSource = 'self_apply' | 'manager_approval' | 'manager_reject' | 'hr_manual' | 'cancellation' | 'hr_correction';
 
 export interface ApplyLeavePolicyAndMutateBalanceParams {
   employeeId: string;
@@ -75,6 +75,11 @@ export interface ApplyLeavePolicyAndMutateBalanceParams {
   // approvals-queue UI (see components/leave/ApprovalCard.tsx) and
   // surfaced verbatim to the employee via notifyLeaveEvent.
   rejectionComment?: string;
+  // hr_correction only — required. Why HR is reversing an already-
+  // approved/auto_lwp request after the fact (typically after its dates
+  // have already passed, which is exactly why this isn't routed through
+  // 'cancellation' — see hrCorrectExistingRequest's own header comment).
+  correctionReason?: string;
 }
 
 export interface ApplyLeavePolicyAndMutateBalanceResult {
@@ -142,7 +147,7 @@ function dbSourceFor(source: ApplyLeaveSource): 'employee_apply' | 'hr_manual' {
 // broadcast scope.
 // ---------------------------------------------------------------------
 interface LeaveEvent {
-  type: 'submitted' | 'approved' | 'rejected' | 'cancelled';
+  type: 'submitted' | 'approved' | 'rejected' | 'cancelled' | 'corrected';
   requestId: string;
   employeeId: string;
   source: ApplyLeaveSource;
@@ -153,6 +158,7 @@ interface LeaveEvent {
   endDate?: string;
   rejectionComment?: string;
   violationNote?: string | null;
+  correctionReason?: string;
 }
 async function notifyLeaveEvent(service: SupabaseClient, event: LeaveEvent): Promise<void> {
   await notifyLeaveEventReal(service, event);
@@ -887,6 +893,165 @@ async function cancelExistingRequest(
 }
 
 // ---------------------------------------------------------------------
+// hr_correction — HR reverses an 'approved'/'auto_lwp' request that
+// cancelExistingRequest can no longer touch because its leave has
+// already started/finished (that route's own already-started guard is
+// deliberate — you cannot "cancel" something that already happened).
+// This is a data-correction tool instead: "the record is wrong, credit
+// the days back", distinct from cancellation in three ways —
+//   1. No already-started/already-finished restriction at all (the
+//      whole point is to reach rows a normal cancel can't).
+//   2. A reason is mandatory (schema: leave_requests.correction_reason
+//      NOT enforced NOT NULL at the DB level, but this function refuses
+//      to proceed without one — same "re-checked at the write boundary"
+//      posture as rejectExistingRequest's comment requirement).
+//   3. Tags corrected_by/correction_reason/corrected_at on the row
+//      (migration 0013) so the UI can render "Reversed by HR — <reason>"
+//      distinctly from a plain employee/HR cancellation, instead of the
+//      two being indistinguishable once both just say status=cancelled.
+// Still reuses status='cancelled' — every existing reader (balance
+// math, history filters, badge colors) already treats that status as
+// "not counted, nothing owed", which is exactly right here too.
+// ---------------------------------------------------------------------
+async function hrCorrectExistingRequest(
+  service: SupabaseClient,
+  existingRequestId: string | undefined,
+  actingEmployeeId: string | null | undefined,
+  correctionReason: string | undefined
+): Promise<ApplyLeavePolicyAndMutateBalanceResult> {
+  if (!existingRequestId) {
+    return {
+      requestId: null,
+      violation: { type: 'missing_request_id', reason: 'hr_correction requires existingRequestId — there is no request to correct without it.' },
+      convertedToLwp: false, policyNotes: [], totalDays: 0, leaveRequest: null,
+    };
+  }
+  if (!actingEmployeeId) {
+    return {
+      requestId: existingRequestId,
+      violation: { type: 'missing_actor', reason: 'hr_correction requires the acting HR employee to be identified.' },
+      convertedToLwp: false, policyNotes: [], totalDays: 0, leaveRequest: null,
+    };
+  }
+  if (!correctionReason || !correctionReason.trim()) {
+    return {
+      requestId: existingRequestId,
+      violation: { type: 'missing_reason', reason: 'A reason is required to correct/reverse a leave record.' },
+      convertedToLwp: false, policyNotes: [], totalDays: 0, leaveRequest: null,
+    };
+  }
+
+  const { data: existing, error: fetchError } = await service
+    .from('leave_requests')
+    .select('*, leave_types ( id, code )')
+    .eq('id', existingRequestId)
+    .single();
+  if (fetchError || !existing) {
+    return {
+      requestId: null,
+      violation: { type: 'request_not_found', reason: fetchError?.message ?? `leave_requests row ${existingRequestId} not found` },
+      convertedToLwp: false, policyNotes: [], totalDays: 0, leaveRequest: null,
+    };
+  }
+  if (existing.status !== 'approved' && existing.status !== 'auto_lwp') {
+    return {
+      requestId: existingRequestId,
+      violation: {
+        type: 'invalid_status',
+        reason: `Cannot correct a request in status '${existing.status}' — only an approved (or LWP) request has a debit to reverse. A still-pending request should be withdrawn/cancelled instead.`,
+      },
+      convertedToLwp: false, policyNotes: [], totalDays: existing.total_days, leaveRequest: existing,
+    };
+  }
+
+  const leaveType = Array.isArray(existing.leave_types) ? existing.leave_types[0] : existing.leave_types;
+  const fyStartYear = fyStartYearForDate(existing.start_date);
+  const { data: balance, error: balError } = await service
+    .from('leave_balances')
+    .select('id, used')
+    .eq('employee_id', existing.employee_id)
+    .eq('leave_type_id', existing.leave_type_id)
+    .eq('fy_start_year', fyStartYear)
+    .single();
+  if (balError || !balance) {
+    return {
+      requestId: existingRequestId,
+      violation: {
+        type: 'balance_not_found',
+        reason: balError?.message ?? `No leave_balances row for employee ${existing.employee_id}, type ${leaveType?.code}, FY${fyStartYear} — cannot reverse the debit.`,
+      },
+      convertedToLwp: false, policyNotes: [], totalDays: existing.total_days, leaveRequest: existing,
+    };
+  }
+
+  const { error: creditError } = await service
+    .from('leave_balances')
+    .update({ used: balance.used - existing.total_days, updated_at: new Date().toISOString() })
+    .eq('id', balance.id);
+  if (creditError) {
+    return {
+      requestId: existingRequestId,
+      violation: { type: 'credit_back_failed', reason: creditError.message },
+      convertedToLwp: false, policyNotes: [], totalDays: existing.total_days, leaveRequest: existing,
+    };
+  }
+
+  await service.from('balance_transactions').insert({
+    leave_balance_id: balance.id,
+    delta: existing.total_days,
+    reason: 'leave_cancelled',
+    reference_id: existingRequestId,
+    created_by: actingEmployeeId,
+    note: `HR correction: credited back ${existing.total_days} day(s) — leave_requests ${existingRequestId} reversed (was ${existing.status}, ${existing.start_date} to ${existing.end_date}). Reason: ${correctionReason}`,
+  });
+
+  const nowIso = new Date().toISOString();
+  const { error: updateError } = await service
+    .from('leave_requests')
+    .update({
+      status: 'cancelled',
+      corrected_by: actingEmployeeId,
+      correction_reason: correctionReason,
+      corrected_at: nowIso,
+      updated_at: nowIso,
+    })
+    .eq('id', existingRequestId);
+  if (updateError) {
+    return {
+      requestId: existingRequestId,
+      violation: { type: 'update_failed', reason: updateError.message },
+      convertedToLwp: false, policyNotes: [], totalDays: existing.total_days, leaveRequest: existing,
+    };
+  }
+
+  await notifyLeaveEvent(service, {
+    type: 'corrected',
+    requestId: existingRequestId,
+    employeeId: existing.employee_id,
+    source: 'hr_correction',
+    leaveTypeCode: leaveType?.code as TrackerLeaveTypeCode | undefined,
+    isHalfDay: !!existing.is_half_day,
+    startDate: existing.start_date,
+    endDate: existing.end_date,
+    correctionReason,
+  });
+
+  return {
+    requestId: existingRequestId,
+    convertedToLwp: false,
+    policyNotes: [],
+    totalDays: existing.total_days,
+    leaveRequest: {
+      ...existing,
+      status: 'cancelled',
+      corrected_by: actingEmployeeId,
+      correction_reason: correctionReason,
+      corrected_at: nowIso,
+    },
+  };
+}
+
+// ---------------------------------------------------------------------
 // Entry point
 // ---------------------------------------------------------------------
 export async function applyLeavePolicyAndMutateBalance(
@@ -897,6 +1062,9 @@ export async function applyLeavePolicyAndMutateBalance(
 
   if (params.source === 'cancellation') {
     return cancelExistingRequest(service, params.existingRequestId);
+  }
+  if (params.source === 'hr_correction') {
+    return hrCorrectExistingRequest(service, params.existingRequestId, params.actingEmployeeId, params.correctionReason);
   }
   if (params.source === 'manager_approval') {
     return approveExistingRequest(service, params.existingRequestId, params.actingEmployeeId, approverRole);

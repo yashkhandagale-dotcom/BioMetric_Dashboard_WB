@@ -29,7 +29,7 @@ export async function getPendingApprovalsCount(
   if (isLead) {
     const { count } = await supabase
       .from('leave_requests')
-      .select('id, employees!inner(reporting_lead_id)', { count: 'exact', head: true })
+      .select('id, employees!leave_requests_employee_id_fkey!inner(reporting_lead_id)', { count: 'exact', head: true })
       .eq('status', 'pending')
       .eq('employees.reporting_lead_id', employee.id);
     return count ?? 0;
