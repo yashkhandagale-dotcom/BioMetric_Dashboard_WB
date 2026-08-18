@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import LeaveHistoryTable, { LeaveHistoryRow } from '@/components/leave/LeaveHistoryTable';
 import AbsenteesPanel from '@/components/leave/AbsenteesPanel';
 import HalfDayPanel from '@/components/leave/HalfDayPanel';
@@ -96,7 +96,14 @@ export default function LeaveTrackerPage() {
   );
   const offices = useMemo(() => Array.from(new Set(employees.map((e) => e.office))).sort(), [employees]);
 
+  // Guards against the same class of race the Absentees/Half Day panels
+  // had: an older, slower request landing after a newer one and silently
+  // overwriting fresher data with stale rows.
+  const historyRequestIdRef = useRef(0);
+  const calendarRequestIdRef = useRef(0);
+
   async function fetchHistory() {
+    const myRequestId = ++historyRequestIdRef.current;
     setLoading(true);
     setError(null);
     try {
@@ -111,6 +118,7 @@ export default function LeaveTrackerPage() {
       const res = await fetch(`/api/leave/history?${params.toString()}`);
       const text = await res.text();
       const data = text ? JSON.parse(text) : {};
+      if (myRequestId !== historyRequestIdRef.current) return;
       if (!res.ok) {
         setError(data.error || `Could not load leave history (${res.status}).`);
         setRows([]);
@@ -118,10 +126,11 @@ export default function LeaveTrackerPage() {
       }
       setRows(data.requests ?? []);
     } catch {
+      if (myRequestId !== historyRequestIdRef.current) return;
       setError('Could not reach the server — check your connection and retry.');
       setRows([]);
     } finally {
-      setLoading(false);
+      if (myRequestId === historyRequestIdRef.current) setLoading(false);
     }
   }
 
@@ -136,6 +145,7 @@ export default function LeaveTrackerPage() {
   // same convention AbsenteesPanel/HalfDayPanel already use for their
   // Department/Office/Search filters).
   const loadCalendarMonth = useCallback(async () => {
+    const myRequestId = ++calendarRequestIdRef.current;
     setCalendarLoading(true);
     setCalendarError(null);
     try {
@@ -152,6 +162,7 @@ export default function LeaveTrackerPage() {
         holidaysRes.json(),
       ]);
 
+      if (myRequestId !== calendarRequestIdRef.current) return;
       if (!exceptionsRes.ok) throw new Error(exceptionsBody.error || 'Could not load attendance exceptions.');
       if (!leaveRes.ok) throw new Error(leaveBody.error || 'Could not load leave requests.');
       if (!holidaysRes.ok) throw new Error(holidaysBody.error || 'Could not load holidays.');
@@ -166,9 +177,10 @@ export default function LeaveTrackerPage() {
       }
       setCalendarHolidays(holidayMap);
     } catch (err) {
+      if (myRequestId !== calendarRequestIdRef.current) return;
       setCalendarError(err instanceof Error ? err.message : 'Could not reach the server to load the calendar.');
     } finally {
-      setCalendarLoading(false);
+      if (myRequestId === calendarRequestIdRef.current) setCalendarLoading(false);
     }
   }, [monthKey]);
 
