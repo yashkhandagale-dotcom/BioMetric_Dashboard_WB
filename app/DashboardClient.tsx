@@ -601,6 +601,17 @@ function HRDashboard() {
     return { min, max };
   })();
 
+  // What the From/To boxes actually display right now, INCLUDING the
+  // implied fallback — this is the thing that must be preserved when the
+  // other box changes. `dateFrom`/`dateTo` alone aren't enough: they're
+  // still null before the user has explicitly touched a box, even though
+  // the box is visibly showing impliedRange's min/max. Using the raw null
+  // check was the root cause of "changing From also changes To" — the
+  // effective value WAS already set (via the implied default), just not
+  // captured in state yet.
+  const effectiveDateFrom = dateFrom ?? impliedRange?.min ?? null;
+  const effectiveDateTo = dateTo ?? impliedRange?.max ?? null;
+
   const filteredSummaries = tableFilter === 'all' ? employeeSummaries
     : tableFilter === 'present' ? employeeSummaries.filter(e => e.presentDays > 0)
     : tableFilter === 'absent' ? employeeSummaries.filter(e => e.absentDays > 0)
@@ -714,7 +725,7 @@ function HRDashboard() {
                     type="date"
                     value={dateFrom ?? impliedRange?.min ?? ''}
                     min={minAvailableDate}
-                    max={dateTo ?? maxAvailableDate}
+                    max={effectiveDateTo ?? maxAvailableDate}
                     onChange={e => {
                       const v = e.target.value || null;
                       if (v && (v < minAvailableDate! || v > maxAvailableDate!)) {
@@ -722,13 +733,12 @@ function HRDashboard() {
                         return;
                       }
                                         setDateFrom(v);
-                      // Auto-set To = From for single-day selection if To not set
-                      if (v && !dateTo) setDateTo(v);
-                      // Bug fix: previously this silently overwrote an already-set
-                      // To whenever From moved past it, collapsing the range to a
-                      // single day. The native input's own max={dateTo ?? ...}
-                      // above already prevents picking a From past To in the
-                      // first place, so no further action is needed here.
+                      // If To is already showing a value — whether the user set it
+                      // explicitly or it's just the implied default for the current
+                      // month — lock that value in rather than letting it collapse
+                      // to match From. Only default To = From when there's truly
+                      // nothing shown for To yet.
+                      if (v) setDateTo(effectiveDateTo ?? v);
                     }}
                     className={`bg-transparent text-xs focus:outline-none w-28 sm:w-32 ${dateFrom ? 'text-[var(--text-primary)]' : 'text-[var(--text-muted)]'}`}
                     title={!dateFrom ? 'Auto-filled to match the data currently shown — pick a date to filter explicitly' : undefined}
@@ -738,7 +748,7 @@ function HRDashboard() {
                   <input
                     type="date"
                     value={dateTo ?? impliedRange?.max ?? ''}
-                    min={dateFrom ?? minAvailableDate}
+                    min={effectiveDateFrom ?? minAvailableDate}
                     max={maxAvailableDate}
                     onChange={e => {
                       const v = e.target.value || null;
@@ -747,8 +757,10 @@ function HRDashboard() {
                         return;
                       }
                                         setDateTo(v);
-                      // Auto-set From = To for single-day selection if From not set
-                      if (v && !dateFrom) setDateFrom(v);
+                      // Same fix mirrored for the From side — lock in whatever
+                      // From is currently showing (explicit or implied) instead
+                      // of letting it collapse to match the new To.
+                      if (v) setDateFrom(effectiveDateFrom ?? v);
                     }}
                     className={`bg-transparent text-xs focus:outline-none w-28 sm:w-32 ${dateTo ? 'text-[var(--text-primary)]' : 'text-[var(--text-muted)]'}`}
                     title={!dateTo ? 'Auto-filled to match the data currently shown — pick a date to filter explicitly' : undefined}
