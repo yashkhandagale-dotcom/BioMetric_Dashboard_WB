@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import RecordLeaveDrawer from './RecordLeaveDrawer';
 import type { SubmitResult } from './RecordLeaveForm';
 import type { HalfDayCandidate } from '@/lib/attendanceExceptions';
@@ -51,6 +51,10 @@ export default function HalfDayPanel({
   const [refreshSignal, setRefreshSignal] = useState(0);
   const [remindedKeys, setRemindedKeys] = useState<Set<string>>(new Set());
   const [remindingKey, setRemindingKey] = useState<string | null>(null);
+  // See AbsenteesPanel's identical guard — prevents a slower, older
+  // request (e.g. June) from landing after a newer one (April) and
+  // silently overwriting it with stale data.
+  const requestIdRef = useRef(0);
 
   async function sendReminder(employeeId: string, forDate: string) {
     const key = `${employeeId}-${forDate}`;
@@ -70,6 +74,7 @@ export default function HalfDayPanel({
   }
 
   const load = useCallback(async () => {
+    const myRequestId = ++requestIdRef.current;
     setLoading(true);
     setError(null);
     try {
@@ -81,6 +86,7 @@ export default function HalfDayPanel({
       const res = await fetch(`/api/leave/attendance/exceptions${qs}`);
       const text = await res.text();
       const body = text ? JSON.parse(text) : {};
+      if (myRequestId !== requestIdRef.current) return;
       if (!res.ok) {
         setError(body.error || `Could not load half-day candidates (${res.status}).`);
         return;
@@ -88,9 +94,10 @@ export default function HalfDayPanel({
       setRows(body.halfDayCandidates ?? []);
       if (!isRange && !date && body.date) onResolvedDate(body.date);
     } catch {
+      if (myRequestId !== requestIdRef.current) return;
       setError('Could not reach the server to load half-day candidates.');
     } finally {
-      setLoading(false);
+      if (myRequestId === requestIdRef.current) setLoading(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [date, endDate, isRange]);
