@@ -81,7 +81,7 @@
    see spec §2 "Preserve all existing functionality".
    ──────────────────────────────────────────────────────────────────── */
 
-import { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import {
   LayoutGrid,
@@ -198,7 +198,16 @@ function buildNavGroups(opts: {
 }
 
 function NavItemButton({ item, active, collapsed }: { item: NavItem; active: boolean; collapsed?: boolean }) {
-  if (item.kind === 'node') return <>{item.node}</>;
+  if (item.kind === 'node') {
+    // When the sidebar is collapsed we want a compact trigger instead of
+    // rendering the full node (which may include text and controls that
+    // overflow the rail). If the node is a valid React element, clone it
+    // with a `compact` prop so it can render a tiny icon-only trigger.
+    if (React.isValidElement(item.node)) {
+      return React.cloneElement(item.node as React.ReactElement, { compact: collapsed });
+    }
+    return <>{item.node}</>;
+  }
 
   const Icon = item.icon;
   const baseClass = `flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-sm font-medium transition-colors ${

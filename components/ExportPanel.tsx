@@ -12,6 +12,10 @@ import { useEmployeeDirectorySync } from '@/lib/employeeStore';
 interface ExportPanelProps {
   uploadedMonths: UploadedMonth[];
   thresholds: Thresholds;
+  // When true, render only the compact icon-only trigger suitable for
+  // placement inside a collapsed sidebar. The full dialog still mounts
+  // so the trigger can open it.
+  compact?: boolean;
   // Team Dashboard (manager/lead) passes their team's employee_codes here
   // so every export — regardless of which months/office/departments they
   // pick in the dialog — only ever contains their own team's rows, never
@@ -33,7 +37,7 @@ function periodLabel(key: string): string {
 // FR-11D: dedicated multi-month export dialog — From-month / To-month /
 // Office / Department selectors spanning every uploaded month, rather than
 // just exporting whatever happens to be on screen right now.
-export default function ExportPanel({ uploadedMonths, thresholds, restrictToEmployeeCodes }: ExportPanelProps) {
+export default function ExportPanel({ uploadedMonths, thresholds, restrictToEmployeeCodes, compact }: ExportPanelProps) {
   const directoryVersion = useEmployeeDirectorySync();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -203,38 +207,40 @@ export default function ExportPanel({ uploadedMonths, thresholds, restrictToEmpl
 
   const disabled = uploadedMonths.length === 0;
 
-  return (
-    <>
-      <button
-        onClick={() => !disabled && openDialog()}
-        disabled={disabled}
-        className="flex items-center gap-2 bg-[var(--bg-elevated)] hover:bg-[var(--bg-elevated)] border border-[var(--border)] text-[var(--text-primary)] px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-      >
-        <Download className="w-4 h-4" />
-        Export
-      </button>
+  if (compact) {
+    // Render a compact icon-only trigger suitable for a collapsed sidebar.
+    return (
+      <>
+        <button
+          onClick={() => !disabled && setDialogOpen(true)}
+          disabled={disabled}
+          title={disabled ? 'No data to export' : 'Export'}
+          className="flex items-center justify-center w-8 h-8 rounded-lg text-[var(--text-muted)] hover:text-[var(--text-primary)] border border-[var(--border)] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+        >
+          <Download className="w-4 h-4" />
+        </button>
 
-      {dialogOpen && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={() => setDialogOpen(false)}>
-          <div
-            className="bg-[var(--bg-surface)] border border-[var(--border)] rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden max-h-[90vh] flex flex-col"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="px-5 py-4 border-b border-[var(--border)] flex items-start justify-between gap-3">
-              <div>
-                <h3 className="text-[var(--text-primary)] font-semibold text-sm">Export Data</h3>
-                <p className="text-[var(--text-muted)] text-xs mt-1">
-                  {restrictToEmployeeCodes
-                    ? "Choose the months, office and departments to include — scoped to your team only."
-                    : "Choose the months, office and departments to include — spans every uploaded month, not just what's on screen."}
-                </p>
+        {dialogOpen && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={() => setDialogOpen(false)}>
+            <div
+              className="bg-[var(--bg-surface)] border border-[var(--border)] rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden max-h-[90vh] flex flex-col"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="px-5 py-4 border-b border-[var(--border)] flex items-start justify-between gap-3">
+                <div>
+                  <h3 className="text-[var(--text-primary)] font-semibold text-sm">Export Data</h3>
+                  <p className="text-[var(--text-muted)] text-xs mt-1">
+                    {restrictToEmployeeCodes
+                      ? "Choose the months, office and departments to include — scoped to your team only."
+                      : "Choose the months, office and departments to include — spans every uploaded month, not just what's on screen."}
+                  </p>
+                </div>
+                <button onClick={() => setDialogOpen(false)} className="text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors flex-shrink-0">
+                  <X className="w-4 h-4" />
+                </button>
               </div>
-              <button onClick={() => setDialogOpen(false)} className="text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors flex-shrink-0">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
 
-            <div className="scroll-thin px-5 py-4 space-y-4 overflow-y-auto">
+              <div className="scroll-thin px-5 py-4 space-y-4 overflow-y-auto">
               {leaveLoadError && (
                 <div className="bg-red-900/30 border border-red-500/30 text-red-700 dark:text-red-300 text-xs rounded-lg px-3 py-2">
                   {leaveLoadError}
