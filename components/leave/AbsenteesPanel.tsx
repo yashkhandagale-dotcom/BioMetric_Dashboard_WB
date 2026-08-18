@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import RecordLeaveDrawer from './RecordLeaveDrawer';
 import type { SubmitResult } from './RecordLeaveForm';
 import type { AbsenteeCandidate } from '@/lib/attendanceExceptions';
@@ -60,6 +60,12 @@ export default function AbsenteesPanel({
   const [refreshSignal, setRefreshSignal] = useState(0);
   const [remindedKeys, setRemindedKeys] = useState<Set<string>>(new Set());
   const [remindingKey, setRemindingKey] = useState<string | null>(null);
+  // Guards against a race between overlapping requests: if the user picks
+  // a new date range before the previous fetch has come back (e.g. April
+  // right after June), the June response can land AFTER April's and
+  // silently overwrite it with stale data. Each fetch gets a ticket; a
+  // response only gets applied if it's still the most recent one in flight.
+  const requestIdRef = useRef(0);
 
   async function sendReminder(employeeId: string, forDate: string) {
     const key = `${employeeId}-${forDate}`;
@@ -79,6 +85,7 @@ export default function AbsenteesPanel({
   }
 
   const load = useCallback(async () => {
+    const myRequestId = ++requestIdRef.current;
     setLoading(true);
     setError(null);
     try {
@@ -90,6 +97,10 @@ export default function AbsenteesPanel({
       const res = await fetch(`/api/leave/attendance/exceptions${qs}`);
       const text = await res.text();
       const body = text ? JSON.parse(text) : {};
+      // A newer request has since been fired (date/range changed again
+      // before this one came back) — this response is stale, drop it
+      // rather than let it clobber whatever the newer request already set.
+      if (myRequestId !== requestIdRef.current) return;
       if (!res.ok) {
         setError(body.error || `Could not load absentees (${res.status}).`);
         return;
@@ -97,9 +108,10 @@ export default function AbsenteesPanel({
       setRows(body.absentees ?? []);
       if (!isRange && !date && body.date) onResolvedDate(body.date);
     } catch {
+      if (myRequestId !== requestIdRef.current) return;
       setError('Could not reach the server to load absentees.');
     } finally {
-      setLoading(false);
+      if (myRequestId === requestIdRef.current) setLoading(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [date, endDate, isRange]);
