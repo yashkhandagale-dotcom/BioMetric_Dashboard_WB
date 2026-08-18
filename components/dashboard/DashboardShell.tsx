@@ -204,7 +204,10 @@ function NavItemButton({ item, active, collapsed }: { item: NavItem; active: boo
     // overflow the rail). If the node is a valid React element, clone it
     // with a `compact` prop so it can render a tiny icon-only trigger.
     if (React.isValidElement(item.node)) {
-      return React.cloneElement(item.node as React.ReactElement, { compact: collapsed });
+      return React.cloneElement(
+        item.node as React.ReactElement<{ compact?: boolean }>,
+        { compact: collapsed }
+      );
     }
     return <>{item.node}</>;
   }

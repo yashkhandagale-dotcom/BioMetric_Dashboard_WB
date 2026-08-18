@@ -1,7 +1,8 @@
 'use client';
 import { useState, useEffect, useCallback, Suspense } from 'react';
+import { createPortal } from 'react-dom';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { CheckCircle, ShieldX, Calendar, X as XIcon, ArrowLeft } from 'lucide-react';
+import { CheckCircle, ShieldX, Calendar, X as XIcon } from 'lucide-react';
 import { AttendanceRecord, ColumnMapping, EmployeeSummary, UploadedMonth, Holiday, Thresholds, LeaveRecord } from '@/lib/types';
 import {
   getMapping, saveMapping, getRecords, saveRecords, addUploadedMonth, getUploadedMonths,
@@ -649,10 +650,18 @@ function HRDashboard() {
     setDateTo(next);
   }
 
+  // Once there's actual uploaded data, the dashboard itself stays mounted
+  // and visible even while Upload/Mapping are open — those become a modal
+  // layered on top (same pattern as Settings/Holidays below), rather than
+  // replacing the whole page. Only the genuine first-run empty state (no
+  // data at all yet) still gets Upload as a full page, since there's no
+  // dashboard behind it to show.
+  const hasDashboardData = uploadedMonths.length > 0;
+
   // Nav sections only exist once there's an actual dashboard rendered —
-  // during loading/upload/mapping there's nothing to scroll to yet. The
+  // before any data exists there's nothing to scroll to yet. The
   // Comparison panels only render outside single-day view (see below).
-  const availableSections: DashboardSectionId[] = appState !== 'dashboard'
+  const availableSections: DashboardSectionId[] = !hasDashboardData
     ? []
     : viewMode === 'single_day'
       ? ['overview', 'employees', 'departments']
@@ -664,10 +673,10 @@ function HRDashboard() {
       availableSections={availableSections}
       onSignOut={handleSignOut}
       holidayCount={holidays.length}
-      onOpenHolidays={appState === 'dashboard' && (holidays.length > 0 || !!currentOffice) ? () => setShowHolidayModal(true) : undefined}
-      onOpenSettings={appState === 'dashboard' ? () => setShowSettings(true) : undefined}
-      onUpload={appState === 'dashboard' ? () => setAppState('upload') : undefined}
-      exportSlot={appState === 'dashboard' ? <ExportPanel uploadedMonths={uploadedMonths} thresholds={thresholds} /> : undefined}
+      onOpenHolidays={hasDashboardData && (holidays.length > 0 || !!currentOffice) ? () => setShowHolidayModal(true) : undefined}
+      onOpenSettings={hasDashboardData ? () => setShowSettings(true) : undefined}
+      onUpload={hasDashboardData ? () => setAppState('upload') : undefined}
+      exportSlot={hasDashboardData ? <ExportPanel uploadedMonths={uploadedMonths} thresholds={thresholds} /> : undefined}
     >
       {toast && (
         <div className={`fixed top-4 right-4 left-4 sm:left-auto z-50 flex items-start gap-3 sm:max-w-md px-4 py-3 rounded-xl shadow-2xl border
@@ -683,31 +692,26 @@ function HRDashboard() {
             <div className="text-[var(--text-muted)] text-sm">Loading...</div>
           </div>
         )}
-        {appState === 'upload' && (
+
+        {/* True first-run empty state — no dashboard exists yet, so Upload
+           renders full-page rather than as a modal (nothing to show behind it). */}
+        {!hasDashboardData && appState === 'upload' && (
           <div className="space-y-6">
-            <div className="flex justify-between items-center flex-wrap gap-2">
-              <button
-                onClick={() => setAppState('dashboard')}
-                className="inline-flex items-center gap-2 text-[var(--text-muted)] hover:text-[var(--text-primary)] bg-[var(--bg-elevated)]/70 border border-[var(--border)] px-3 py-2 rounded-lg text-sm transition-colors"
-              >
-                <ArrowLeft className="w-4 h-4" />
-                Back to dashboard
-              </button>
-              <div className="text-[var(--text-muted)] text-xs">Upload one or more biometric export CSVs to get started</div>
-            </div>
+            <div className="text-[var(--text-muted)] text-xs">Upload one or more biometric export CSVs to get started</div>
             <UploadZone onFiles={handleFiles} />
           </div>
         )}
-        {appState === 'mapping' && mappingQueue.length > 0 && (
+        {!hasDashboardData && appState === 'mapping' && mappingQueue.length > 0 && (
           <ColumnMappingScreen
             officeCode={mappingQueue[0].officeCode}
             csvHeaders={mappingQueue[0].headers}
             initialMapping={remapInitial}
             onSave={handleMappingSave}
-            onCancel={() => { setMappingQueue([]); setPendingBatch([]); setRemapInitial(undefined); setAppState(uploadedMonths.length > 0 ? 'dashboard' : 'upload'); }}
+            onCancel={() => { setMappingQueue([]); setPendingBatch([]); setRemapInitial(undefined); setAppState('upload'); }}
           />
         )}
-        {appState === 'dashboard' && (
+
+        {hasDashboardData && (
           <div className="space-y-6">
 
             {/* ── Filter Bar ─────────────────────────────────────────────── */}
@@ -1016,6 +1020,52 @@ function HRDashboard() {
               </>
             )}
           </div>
+        )}
+
+        {/* Upload / Mapping as a modal over the existing dashboard, rather
+           than replacing it — matches how Settings/Holidays already behave.
+           Portaled to <body> so it can't get trapped inside the sidebar's
+           own stacking context (the same bug that hit the Export dialog). */}
+        {hasDashboardData && (appState === 'upload' || appState === 'mapping') && typeof document !== 'undefined' && createPortal(
+          <div
+            className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+            onClick={() => setAppState('dashboard')}
+          >
+            <div
+              className="bg-[var(--bg-surface)] border border-[var(--border)] rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden max-h-[90vh] flex flex-col"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="px-5 py-4 border-b border-[var(--border)] flex items-start justify-between gap-3">
+                <div>
+                  <h3 className="text-[var(--text-primary)] font-semibold text-sm">
+                    {appState === 'mapping' ? 'Map Columns' : 'Upload CSV'}
+                  </h3>
+                  {appState === 'upload' && (
+                    <p className="text-[var(--text-muted)] text-xs mt-1">Upload one or more biometric export CSVs to add data.</p>
+                  )}
+                </div>
+                <button
+                  onClick={() => setAppState('dashboard')}
+                  className="text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors flex-shrink-0"
+                >
+                  <XIcon className="w-4 h-4" />
+                </button>
+              </div>
+              <div className="scroll-thin px-5 py-4 overflow-y-auto">
+                {appState === 'upload' && <UploadZone onFiles={handleFiles} />}
+                {appState === 'mapping' && mappingQueue.length > 0 && (
+                  <ColumnMappingScreen
+                    officeCode={mappingQueue[0].officeCode}
+                    csvHeaders={mappingQueue[0].headers}
+                    initialMapping={remapInitial}
+                    onSave={handleMappingSave}
+                    onCancel={() => { setMappingQueue([]); setPendingBatch([]); setRemapInitial(undefined); setAppState('dashboard'); }}
+                  />
+                )}
+              </div>
+            </div>
+          </div>,
+          document.body
         )}
       </div>
 

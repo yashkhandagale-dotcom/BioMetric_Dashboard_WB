@@ -1,5 +1,6 @@
 ﻿'use client';
 import { useState, useRef, useMemo, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { Download, FileSpreadsheet, FileText, FileIcon, ChevronDown, Loader2, X, Calendar, Building2, Users } from 'lucide-react';
 import { UploadedMonth, Thresholds, Holiday, LeaveRecord, AttendanceRecord } from '@/lib/types';
 import { getRecords } from '@/lib/storage';
@@ -40,6 +41,14 @@ function periodLabel(key: string): string {
 export default function ExportPanel({ uploadedMonths, thresholds, restrictToEmployeeCodes, compact }: ExportPanelProps) {
   const directoryVersion = useEmployeeDirectorySync();
   const [dialogOpen, setDialogOpen] = useState(false);
+  // The sidebar is `position: sticky`, which creates its own stacking
+  // context — a `fixed` + high-z-index dialog nested inside it can only
+  // out-rank *siblings within that context*, not the dashboard content
+  // outside it, so the overlay silently loses to the page behind it.
+  // Portaling straight to <body> sidesteps that entirely. `mounted` avoids
+  // an SSR/hydration mismatch since `document` doesn't exist on the server.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
   const [menuOpen, setMenuOpen] = useState(false);
   const [loading, setLoading] = useState<'excel' | 'csv' | 'pdf' | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -207,20 +216,11 @@ export default function ExportPanel({ uploadedMonths, thresholds, restrictToEmpl
 
   const disabled = uploadedMonths.length === 0;
 
-  if (compact) {
-    // Render a compact icon-only trigger suitable for a collapsed sidebar.
-    return (
-      <>
-        <button
-          onClick={() => !disabled && setDialogOpen(true)}
-          disabled={disabled}
-          title={disabled ? 'No data to export' : 'Export'}
-          className="flex items-center justify-center w-8 h-8 rounded-lg text-[var(--text-muted)] hover:text-[var(--text-primary)] border border-[var(--border)] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-        >
-          <Download className="w-4 h-4" />
-        </button>
-
-        {dialogOpen && (
+  // Dialog markup is identical whether the trigger is the compact icon
+  // (collapsed sidebar) or the full labelled button (expanded sidebar) —
+  // shared here so the two trigger variants below don't drift apart.
+  const dialog = mounted && dialogOpen ? createPortal(
+    (
           <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={() => setDialogOpen(false)}>
             <div
               className="bg-[var(--bg-surface)] border border-[var(--border)] rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden max-h-[90vh] flex flex-col"
@@ -361,7 +361,32 @@ export default function ExportPanel({ uploadedMonths, thresholds, restrictToEmpl
             </div>
           </div>
         </div>
-      )}
+    ),
+    document.body
+  ) : null;
+
+  // Matches NavItemButton's baseClass exactly so this trigger sits flush
+  // with every other sidebar item instead of looking like a boxed-in
+  // outlier — same padding, same hover state, no border, same icon size.
+  const triggerClass = `flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-sm font-medium transition-colors ${
+    compact ? 'justify-center' : 'justify-between'
+  } text-[var(--text-primary)] hover:bg-[var(--bg-elevated)] disabled:opacity-40 disabled:cursor-not-allowed`;
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => !disabled && setDialogOpen(true)}
+        disabled={disabled}
+        title={disabled ? 'No data to export' : compact ? 'Export' : undefined}
+        className={compact ? `relative ${triggerClass}` : triggerClass}
+      >
+        <span className={`flex items-center ${compact ? '' : 'gap-2.5'}`}>
+          <Download size={16} className="text-[var(--text-muted)]" />
+          {!compact && 'Export'}
+        </span>
+      </button>
+      {dialog}
     </>
   );
 }
