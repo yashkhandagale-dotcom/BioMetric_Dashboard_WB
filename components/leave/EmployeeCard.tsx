@@ -1,6 +1,7 @@
 'use client';
 
 import AdjustBalanceButton from '@/app/leave/admin/AdjustBalanceButton';
+import FnFCalculatorButton from '@/app/leave/admin/FnFCalculatorButton';
 import EmployeeLoginButton from './EmployeeLoginButton';
 import ViolationBadge from './ViolationBadge';
 
@@ -104,6 +105,7 @@ export default function EmployeeCard({
           currentManagerId={employee.reportingManagerId}
           currentManagedDepartments={employee.managedDepartments ?? []}
         />
+        <FnFCalculatorButton employeeId={employee.id} employeeName={employee.name} />
         <EmployeeLoginButton
           employeeId={employee.id}
           employeeName={employee.name}

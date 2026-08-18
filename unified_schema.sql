@@ -190,6 +190,22 @@ create table if not exists staging_existing_employees (
   constraint staging_existing_employees_pkey primary key (id)
 );
 
+-- Audit trail for HR-run F&F (Full & Final) day/leave calculations — see
+-- supabase/migrations/0014_fnf_calculations.sql. calculation_detail holds
+-- the full breakdown so a number can be reconstructed later if questioned.
+create table if not exists fnf_calculations (
+  id                  uuid primary key default gen_random_uuid(),
+  employee_id         uuid not null references employees(id),
+  last_working_day    date not null,
+  payable_days        integer not null,
+  payable_leaves      numeric(5,2) not null,
+  calculation_detail  jsonb not null,
+  calculated_by       uuid not null references employees(id),
+  calculated_at       timestamptz not null default now()
+);
+create index if not exists idx_fnf_calculations_employee on fnf_calculations(employee_id);
+alter table fnf_calculations enable row level security;
+
 -- ═══════════════════════════════════════════════════════════════════════════
 -- SECTION 3 — Dashboard tables (unchanged from the live Dashboard project,
 -- minus its own `employees` / department-override table — superseded by
@@ -332,7 +348,7 @@ begin
     'balance_transactions','statutory_leave_records','leave_requests',
     'approval_steps','workforce_events','staging_existing_employees',
     'uploaded_months','attendance_records','column_mappings',
-    'leave_records','custom_holidays','dashboard_settings'
+    'leave_records','custom_holidays','dashboard_settings','fnf_calculations'
   ]
   loop
     if not exists (
