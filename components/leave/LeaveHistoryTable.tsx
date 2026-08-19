@@ -80,17 +80,21 @@ export default function LeaveHistoryTable({
   rows,
   showActions = false,
   hrCorrection = false,
+  allowHrCancel = false,
   onChanged,
 }: {
   rows: LeaveHistoryRow[];
   showActions?: boolean;
   hrCorrection?: boolean;
+  allowHrCancel?: boolean;
   // Admin History fetches its own rows client-side rather than via a
   // Server Component (see app/leave/admin/history/page.tsx), so a
   // successful correction needs an explicit refetch hook instead of
   // router.refresh() (which only re-runs Server Components — no-op
   // there). showActions's own /leave/me caller has no onChanged and
   // keeps using router.refresh(), unaffected.
+  // allowHrCancel: when true, show the Cancel/Withdraw action for HR
+  // users in admin tables so HR can cancel pre-approved or pending requests.
   onChanged?: () => void;
 }) {
   const router = useRouter();
@@ -230,7 +234,7 @@ export default function LeaveHistoryTable({
               {(showActions || hrCorrection) && (
                 <td className="px-4 py-2.5">
                   <div className="flex flex-col gap-1 items-start">
-                    {showActions && (r.status === 'pending' || r.status === 'approved' || r.status === 'auto_lwp') && (() => {
+                    {(showActions || allowHrCancel) && (r.status === 'pending' || r.status === 'approved' || r.status === 'auto_lwp') && (() => {
                       // Same "already started" rule the cancel API enforces
                       // server-side (app/api/leave/requests/[id]/cancel/route.ts)
                       // — a completed/in-progress approved leave can no
