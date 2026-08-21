@@ -767,6 +767,14 @@ async function rejectExistingRequest(
     endDate: existing.end_date,
   });
 
+  // Part C, §C.5 — rejecting a half-day request that originated from
+  // the employee's own attendance-exception response is itself a
+  // decision: it auto-converts to LWP immediately rather than leaving
+  // the day unresolved again. A no-op for any ordinary leave request
+  // that never had a linked attendance_exceptions row (see the
+  // function's own header comment).
+  await applyAutoLwpForRejectedRequest(service, existingRequestId, actingEmployeeId ?? null);
+
   return {
     requestId: existingRequestId,
     convertedToLwp: false,
@@ -774,6 +782,230 @@ async function rejectExistingRequest(
     totalDays: existing.total_days,
     leaveRequest: { ...existing, status: 'rejected' },
   };
+}
+
+// ---------------------------------------------------------------------
+// Part C escalation — system-generated LWP writes (§C.5). Kept in THIS
+// file (rather than a separate module) specifically to respect the
+// "only function allowed to write to leave_balances,
+// balance_transactions, or leave_requests" invariant in the header
+// comment above — these deliberately bypass the normal policy engine
+// (checkCombiningLeaves, getAutoLwpConversionReason, etc.) because a
+// forced escalation to LWP is the one path that must always succeed
+// regardless of policy/balance caps; LWP is the uncapped escape valve
+// by design (see leave_types.is_directly_applicable in schema.sql).
+//
+// createSystemAutoLwpRequest — brand-new single-day row, status
+//   'auto_lwp' from birth. Used for: HR's ACK on an unmarked attendance
+//   exception, HR's ACK on a pending regularisation, and a manager
+//   rejecting a regularisation request that originated from Part C.
+// convertPendingRequestToAutoLwp — retypes an EXISTING pending row (an
+//   employee's own "actual half day" self_apply request) in place.
+//   Used for: HR's ACK on a pending half-day request, and a manager
+//   rejecting that same half-day request (rejectExistingRequest above).
+// ---------------------------------------------------------------------
+
+export interface CreateSystemAutoLwpInput {
+  employeeId: string;
+  date: string;
+  isHalfDay: boolean;
+  reason: string;
+}
+
+async function getLwpLeaveTypeId(service: SupabaseClient): Promise<{ id: string | null; error: string | null }> {
+  const { data, error } = await service.from('leave_types').select('id').eq('code', 'LWP').single();
+  if (error || !data) return { id: null, error: error?.message ?? 'LWP leave type not found' };
+  return { id: data.id, error: null };
+}
+
+export async function createSystemAutoLwpRequest(
+  service: SupabaseClient,
+  input: CreateSystemAutoLwpInput
+): Promise<{ requestId: string | null; error: string | null }> {
+  const { id: lwpTypeId, error: typeError } = await getLwpLeaveTypeId(service);
+  if (!lwpTypeId) return { requestId: null, error: typeError };
+
+  const { data: created, error: insertError } = await service
+    .from('leave_requests')
+    .insert({
+      employee_id: input.employeeId,
+      leave_type_id: lwpTypeId,
+      start_date: input.date,
+      end_date: input.date,
+      is_half_day: !!input.isHalfDay,
+      half_day_session: null,
+      total_days: input.isHalfDay ? 0.5 : 1,
+      reason: input.reason,
+      status: 'auto_lwp',
+      source: 'hr_manual', // DB constraint only knows employee_apply/hr_manual (see header comment) — a system-generated entry is closest in spirit to an HR-side write
+      is_lwp_override: true,
+      lwp_override_reason: input.reason,
+    })
+    .select('id')
+    .single();
+  if (insertError || !created) {
+    return { requestId: null, error: insertError?.message ?? 'Could not create the auto-LWP request.' };
+  }
+
+  const { error: debitError } = await service.rpc('fn_debit_leave_on_approval', { p_leave_request_id: created.id });
+  if (debitError) {
+    // Roll back rather than leave an un-debited auto_lwp row sitting
+    // around looking terminal when it isn't.
+    await service.from('leave_requests').delete().eq('id', created.id);
+    return { requestId: null, error: `Could not debit LWP balance: ${debitError.message}` };
+  }
+
+  await notifyLeaveEvent(service, {
+    type: 'approved',
+    requestId: created.id,
+    employeeId: input.employeeId,
+    source: 'hr_manual',
+    convertedToLwp: true,
+    leaveTypeCode: 'LWP',
+    isHalfDay: !!input.isHalfDay,
+    startDate: input.date,
+    endDate: input.date,
+  });
+
+  return { requestId: created.id, error: null };
+}
+
+export async function convertPendingRequestToAutoLwp(
+  service: SupabaseClient,
+  requestId: string,
+  reason: string
+): Promise<{ requestId: string | null; error: string | null }> {
+  const { data: existing, error: fetchError } = await service
+    .from('leave_requests')
+    .select('id, employee_id, status, start_date, end_date, is_half_day')
+    .eq('id', requestId)
+    .single();
+  if (fetchError || !existing) return { requestId: null, error: fetchError?.message ?? 'Leave request not found.' };
+  if (existing.status !== 'pending') {
+    return { requestId, error: `Cannot convert a request in status '${existing.status}' — only 'pending' requests can be escalated.` };
+  }
+
+  const { id: lwpTypeId, error: typeError } = await getLwpLeaveTypeId(service);
+  if (!lwpTypeId) return { requestId, error: typeError };
+
+  const { error: updateError } = await service
+    .from('leave_requests')
+    .update({
+      leave_type_id: lwpTypeId,
+      status: 'auto_lwp',
+      is_lwp_override: true,
+      lwp_override_reason: reason,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', requestId);
+  if (updateError) return { requestId, error: updateError.message };
+
+  const { error: debitError } = await service.rpc('fn_debit_leave_on_approval', { p_leave_request_id: requestId });
+  if (debitError) {
+    await service.from('leave_requests').update({ status: 'pending' }).eq('id', requestId);
+    return { requestId, error: `Could not debit LWP balance: ${debitError.message}` };
+  }
+
+  await notifyLeaveEvent(service, {
+    type: 'approved',
+    requestId,
+    employeeId: existing.employee_id,
+    source: 'hr_manual',
+    convertedToLwp: true,
+    leaveTypeCode: 'LWP',
+    isHalfDay: existing.is_half_day,
+    startDate: existing.start_date,
+    endDate: existing.end_date,
+  });
+
+  return { requestId, error: null };
+}
+
+// applyAutoLwpForRejectedRequest — called from rejectExistingRequest
+// above right after a rejection succeeds. A no-op for any ordinary
+// rejection: only fires when the rejected row is linked to an
+// attendance_exceptions row with employee_choice='half_day', i.e. it
+// originated from Part C's employee self-serve flow.
+async function applyAutoLwpForRejectedRequest(
+  service: SupabaseClient,
+  rejectedRequestId: string,
+  actingEmployeeId: string | null
+): Promise<void> {
+  const { data: exception } = await service
+    .from('attendance_exceptions')
+    .select('id, employee_id, exception_date')
+    .eq('leave_request_id', rejectedRequestId)
+    .eq('employee_choice', 'half_day')
+    .maybeSingle();
+  if (!exception) return;
+
+  const { data: original } = await service.from('leave_requests').select('is_half_day').eq('id', rejectedRequestId).maybeSingle();
+
+  const { requestId } = await createSystemAutoLwpRequest(service, {
+    employeeId: exception.employee_id,
+    date: exception.exception_date,
+    isHalfDay: !!original?.is_half_day,
+    reason: 'Auto-converted to Leave Without Pay — manager rejected the half-day request.',
+  });
+
+  await service
+    .from('attendance_exceptions')
+    .update({
+      resolution: 'lwp',
+      leave_request_id: requestId,
+      resolved_by: actingEmployeeId,
+      resolved_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', exception.id);
+
+  await service
+    .from('escalation_reminders')
+    .update({ acked_by: actingEmployeeId, acked_at: new Date().toISOString() })
+    .eq('target_type', 'leave_request_pending')
+    .eq('target_id', rejectedRequestId);
+}
+
+// Mirrors applyAutoLwpForRejectedRequest above, for the
+// leave_regularisations table — called from the regularisation reject
+// route (app/api/leave/regularisations/[id]/reject), which is outside
+// this file's normal source-dispatch since regularisations aren't
+// leave_requests rows at all.
+export async function applyAutoLwpForRejectedRegularisation(
+  service: SupabaseClient,
+  rejectedRegularisationId: string,
+  actingEmployeeId: string | null
+): Promise<void> {
+  const { data: exception } = await service
+    .from('attendance_exceptions')
+    .select('id, employee_id, exception_date')
+    .eq('regularisation_id', rejectedRegularisationId)
+    .maybeSingle();
+  if (!exception) return;
+
+  const { requestId } = await createSystemAutoLwpRequest(service, {
+    employeeId: exception.employee_id,
+    date: exception.exception_date,
+    isHalfDay: false,
+    reason: 'Auto-converted to Leave Without Pay — manager rejected the regularisation request.',
+  });
+
+  await service
+    .from('attendance_exceptions')
+    .update({
+      resolution: 'lwp',
+      leave_request_id: requestId,
+      resolved_by: actingEmployeeId,
+      resolved_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', exception.id);
+
+  await service
+    .from('escalation_reminders')
+    .update({ acked_by: actingEmployeeId, acked_at: new Date().toISOString() })
+    .eq('target_type', 'regularisation_pending')
+    .eq('target_id', rejectedRegularisationId);
 }
 
 // ---------------------------------------------------------------------

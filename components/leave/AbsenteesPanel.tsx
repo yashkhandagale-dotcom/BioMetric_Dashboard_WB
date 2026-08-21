@@ -1,13 +1,22 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import RecordLeaveDrawer from './RecordLeaveDrawer';
-import type { SubmitResult } from './RecordLeaveForm';
 import type { AbsenteeCandidate } from '@/lib/attendanceExceptions';
 import AttendanceTableSkeleton from './AttendanceTableSkeleton';
 
 // Absentees panel — lives inside the "Absentees" tab of the Leave
 // Tracker (app/leave/admin/history/page.tsx).
+//
+// Part C (MASTER_PLAN_CONSOLIDATED.md §C.4) removed HR's direct-
+// resolution power here — there is no more "Record Leave" button.
+// Resolving one of these days (missed punch / actual half day /
+// regularise) is now exclusively the EMPLOYEE's own call, made from
+// /leave/me (see components/leave/MyAttendanceExceptions.tsx). HR's
+// only actions on an unresolved row are:
+//   - Remind: nudges the employee to respond (Stage A of the §C.5
+//     escalation — see lib/leaveSupabase/attendanceEscalation.ts).
+//   - ACK → LWP: available once reminder_count reaches 3, converts the
+//     day straight to Leave Without Pay.
 //
 // Date handling: this app's attendance_records come from batch CSV
 // uploads, so there is no dependable "today". `date` is the single-day
@@ -53,13 +62,12 @@ export default function AbsenteesPanel({
   const isMultiDate = !date || isRange;
 
   const [rows, setRows] = useState<AbsenteeCandidate[]>([]);
+  const [escalation, setEscalation] = useState<Map<string, { id: string; reminderCount: number }>>(new Map());
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [drawerEmployeeId, setDrawerEmployeeId] = useState<string | null>(null);
-  const [drawerDate, setDrawerDate] = useState<string>('');
-  const [refreshSignal, setRefreshSignal] = useState(0);
-  const [remindedKeys, setRemindedKeys] = useState<Set<string>>(new Set());
   const [remindingKey, setRemindingKey] = useState<string | null>(null);
+  const [ackingKey, setAckingKey] = useState<string | null>(null);
+  const [refreshSignal, setRefreshSignal] = useState(0);
   // Guards against a race between overlapping requests: if the user picks
   // a new date range before the previous fetch has come back (e.g. April
   // right after June), the June response can land AFTER April's and
@@ -69,18 +77,42 @@ export default function AbsenteesPanel({
 
   async function sendReminder(employeeId: string, forDate: string) {
     const key = `${employeeId}-${forDate}`;
+    const target = escalation.get(`${employeeId}__${forDate}`);
+    if (!target) return;
     setRemindingKey(key);
     try {
-      const res = await fetch('/api/leave/remind', {
+      const res = await fetch('/api/leave/attendance/remind', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ employee_id: employeeId, date: forDate }),
+        body: JSON.stringify({ targetType: 'attendance_exception_unmarked', targetId: target.id }),
       });
       if (res.ok) {
-        setRemindedKeys((prev) => new Set(prev).add(key));
+        const body = await res.json();
+        setEscalation((prev) => {
+          const next = new Map(prev);
+          next.set(`${employeeId}__${forDate}`, { id: target.id, reminderCount: body.reminderCount ?? target.reminderCount + 1 });
+          return next;
+        });
       }
     } finally {
       setRemindingKey(null);
+    }
+  }
+
+  async function ackToLwp(employeeId: string, forDate: string) {
+    const key = `${employeeId}-${forDate}`;
+    const target = escalation.get(`${employeeId}__${forDate}`);
+    if (!target) return;
+    setAckingKey(key);
+    try {
+      const res = await fetch('/api/leave/attendance/ack', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ targetType: 'attendance_exception_unmarked', targetId: target.id }),
+      });
+      if (res.ok) setRefreshSignal((s) => s + 1);
+    } finally {
+      setAckingKey(null);
     }
   }
 
@@ -105,8 +137,28 @@ export default function AbsenteesPanel({
         setError(body.error || `Could not load absentees (${res.status}).`);
         return;
       }
-      setRows(body.absentees ?? []);
+      const absentees: AbsenteeCandidate[] = body.absentees ?? [];
+      setRows(absentees);
       if (!isRange && !date && body.date) onResolvedDate(body.date);
+
+      // Ensure every visible row has a stable attendance_exceptions row
+      // to Remind/ACK against — see ensureAttendanceExceptionRows's
+      // header comment for why this is safe to call every load.
+      if (absentees.length > 0) {
+        const ensureRes = await fetch('/api/leave/attendance/ensure-exceptions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            entries: absentees.map((a) => ({ employeeId: a.employeeId, date: a.date, kind: 'absent' })),
+          }),
+        });
+        if (ensureRes.ok && myRequestId === requestIdRef.current) {
+          const ensureBody = await ensureRes.json();
+          setEscalation(new Map(Object.entries(ensureBody.targets ?? {})) as Map<string, { id: string; reminderCount: number }>);
+        }
+      } else {
+        setEscalation(new Map());
+      }
     } catch {
       if (myRequestId !== requestIdRef.current) return;
       setError('Could not reach the server to load absentees.');
@@ -129,26 +181,6 @@ export default function AbsenteesPanel({
       return true;
     });
   }, [rows, department, office, search]);
-
-  const drawerRow = filtered.find((r) => r.employeeId === drawerEmployeeId && r.date === drawerDate);
-
-  async function handleRecorded(result: SubmitResult) {
-    if (!drawerRow) return;
-    try {
-      await fetch('/api/leave/attendance/resolve', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          employee_id: drawerRow.employeeId,
-          date: drawerRow.date,
-          action: 'leave_recorded',
-          leave_request_id: result.leave_request.id,
-        }),
-      });
-    } finally {
-      setRefreshSignal((s) => s + 1);
-    }
-  }
 
   const periodLabel = !date ? 'all pending dates' : isRange ? `${date} → ${endDate}` : date;
   const columnCount = isMultiDate ? 6 : 5;
@@ -193,62 +225,58 @@ export default function AbsenteesPanel({
               </tr>
             </thead>
             <tbody>
-              {filtered.map((r) => (
-                <tr key={`${r.employeeId}-${r.date}`} className="border-b border-[var(--border)] last:border-0">
-                  {isMultiDate && <td className="px-4 py-2 text-[var(--text-muted)]">{r.date}</td>}
-                  <td className="px-4 py-2 text-[var(--text-primary)]">
-                    {r.employeeName}
-                    <span className="text-[var(--text-muted)]"> · {r.employeeCode}</span>
-                  </td>
-                  <td className="px-4 py-2 text-[var(--text-muted)]">{r.department}</td>
-                  <td className="px-4 py-2 text-[var(--text-muted)]">{r.office}</td>
-                  <td className="px-4 py-2 text-[var(--text-muted)]">{r.workingHours}</td>
-                  <td className="px-4 py-2">
-                    <span className="border border-red-500/30 bg-red-900/30 text-red-700 dark:text-red-300 rounded-full px-2 py-0.5 text-xs">
-                      Unmarked Leave
-                    </span>
-                  </td>
-                  <td className="px-4 py-2">
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setDrawerEmployeeId(r.employeeId);
-                          setDrawerDate(r.date);
-                        }}
-                        className="text-xs bg-[var(--accent)] hover:bg-[var(--accent)]/90 text-white font-medium px-2.5 py-1.5 rounded-lg transition-colors"
-                      >
-                        Record Leave
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => sendReminder(r.employeeId, r.date)}
-                        disabled={remindingKey === `${r.employeeId}-${r.date}` || remindedKeys.has(`${r.employeeId}-${r.date}`)}
-                        title="No leave application is on file for this date — nudge the employee and their approver"
-                        className="text-xs border border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--text-primary)] disabled:opacity-50 font-medium px-2.5 py-1.5 rounded-lg transition-colors"
-                      >
-                        {remindedKeys.has(`${r.employeeId}-${r.date}`) ? 'Reminded' : 'Send Reminder'}
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+              {filtered.map((r) => {
+                const key = `${r.employeeId}-${r.date}`;
+                const target = escalation.get(`${r.employeeId}__${r.date}`);
+                const reminderCount = target?.reminderCount ?? 0;
+                return (
+                  <tr key={key} className="border-b border-[var(--border)] last:border-0">
+                    {isMultiDate && <td className="px-4 py-2 text-[var(--text-muted)]">{r.date}</td>}
+                    <td className="px-4 py-2 text-[var(--text-primary)]">
+                      {r.employeeName}
+                      <span className="text-[var(--text-muted)]"> · {r.employeeCode}</span>
+                    </td>
+                    <td className="px-4 py-2 text-[var(--text-muted)]">{r.department}</td>
+                    <td className="px-4 py-2 text-[var(--text-muted)]">{r.office}</td>
+                    <td className="px-4 py-2 text-[var(--text-muted)]">{r.workingHours}</td>
+                    <td className="px-4 py-2">
+                      <span className="border border-red-500/30 bg-red-900/30 text-red-700 dark:text-red-300 rounded-full px-2 py-0.5 text-xs">
+                        Unmarked
+                      </span>
+                      {reminderCount > 0 && (
+                        <span className="ml-1.5 text-[10px] text-[var(--text-muted)]">
+                          {reminderCount} reminder{reminderCount === 1 ? '' : 's'} sent
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-4 py-2">
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => sendReminder(r.employeeId, r.date)}
+                          disabled={!target || remindingKey === key}
+                          title="Nudge the employee to respond via My Leave"
+                          className="text-xs border border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--text-primary)] disabled:opacity-50 font-medium px-2.5 py-1.5 rounded-lg transition-colors"
+                        >
+                          {remindingKey === key ? 'Sending…' : 'Remind'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => ackToLwp(r.employeeId, r.date)}
+                          disabled={!target || reminderCount < 3 || ackingKey === key}
+                          title={reminderCount < 3 ? `ACK is available after 3 reminders (currently ${reminderCount})` : 'Convert this day to Leave Without Pay'}
+                          className="text-xs bg-red-600 hover:bg-red-700 disabled:bg-[var(--bg-elevated)] disabled:text-[var(--text-muted)] text-white font-medium px-2.5 py-1.5 rounded-lg transition-colors disabled:cursor-not-allowed"
+                        >
+                          {ackingKey === key ? 'Converting…' : 'ACK → LWP'}
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
-      )}
-
-      {drawerRow && (
-        <RecordLeaveDrawer
-          employeeId={drawerRow.employeeId}
-          employeeName={drawerRow.employeeName}
-          presetDate={drawerRow.date}
-          onClose={() => {
-            setDrawerEmployeeId(null);
-            setDrawerDate('');
-          }}
-          onSuccess={handleRecorded}
-        />
       )}
     </div>
   );

@@ -340,7 +340,15 @@ export async function getAttendanceExceptions(
       .select('employee_id, event_type')
       .eq('event_date', date),
     supabase.from('custom_holidays').select('office_code, date, name').eq('year', year),
-    supabase.from('attendance_exceptions').select('employee_id').eq('exception_date', date).neq('resolution', 'pending'),
+    // "Already handled" now means resolved OR the employee has already
+    // made a choice on it via /leave/me (§C.2's "unmarked" = employee_
+    // choice IS NULL) — a half-day/regularise pick sitting pending
+    // manager approval must stop reappearing in this HR-facing list even
+    // though attendance_exceptions.resolution itself is still 'pending'
+    // (it only reaches a terminal value once the manager/escalation
+    // decides — see migration 0015). Without this, HR's Absentees/Half
+    // Day tabs and the employee's own unmarked list would disagree.
+    supabase.from('attendance_exceptions').select('employee_id, resolution, employee_choice').eq('exception_date', date),
   ]);
 
   const firstError = employeesError || attendanceError || leaveError || eventsError || holidaysError || resolvedError;
@@ -351,7 +359,11 @@ export async function getAttendanceExceptions(
   const attendanceByCode = new Map((attendanceRows ?? []).map((r) => [r.employee_code, r as AttendanceRow]));
   const onApprovedLeave = new Set((approvedLeave ?? []).map((r) => r.employee_id));
   const exemptEmployeeIds = new Set((workforceEvents ?? []).map((e) => e.employee_id));
-  const alreadyResolved = new Set((resolved ?? []).map((r) => r.employee_id));
+  const alreadyResolved = new Set(
+    (resolved ?? [])
+      .filter((r) => r.resolution !== 'pending' || r.employee_choice !== null)
+      .map((r) => r.employee_id)
+  );
   const holidayDatesByOffice = buildHolidayLookup((employees ?? []) as EmployeeRow[], [year], customHolidays ?? []);
 
   const absentees: AbsenteeCandidate[] = [];
@@ -470,13 +482,16 @@ export async function getAttendanceExceptionsRange(
     selectAllRows<{ office_code: string; date: string; name: string }>((from, to) =>
       supabase.from('custom_holidays').select('office_code, date, name').in('year', years).range(from, to)
     ),
-    selectAllRows<{ employee_id: string; exception_date: string }>((from, to) =>
+    // Same "already handled" widening as getAttendanceExceptions above —
+    // excludes resolved rows AND rows where the employee has already
+    // made a choice via /leave/me, even while that choice still awaits
+    // manager approval.
+    selectAllRows<{ employee_id: string; exception_date: string; resolution: string; employee_choice: string | null }>((from, to) =>
       supabase
         .from('attendance_exceptions')
-        .select('employee_id, exception_date')
+        .select('employee_id, exception_date, resolution, employee_choice')
         .gte('exception_date', startDate)
         .lte('exception_date', endDate)
-        .neq('resolution', 'pending')
         .range(from, to)
     ),
   ]);
@@ -515,6 +530,7 @@ export async function getAttendanceExceptionsRange(
 
   const resolvedByDate = new Map<string, Set<string>>();
   for (const r of resolved ?? []) {
+    if (r.resolution === 'pending' && r.employee_choice === null) continue; // still genuinely unmarked
     const set = resolvedByDate.get(r.exception_date) ?? new Set<string>();
     set.add(r.employee_id);
     resolvedByDate.set(r.exception_date, set);

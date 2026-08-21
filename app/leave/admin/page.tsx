@@ -54,7 +54,7 @@ export default async function LeaveAdminHome() {
   // "auto-updated everywhere" hierarchy is entirely driven off
   // department_managers.manager_id, so this is the single source of
   // truth both for a manager's card and for every department member's
-  // effective-manager lookup below.
+  // effective-manager lookup below
   const departmentsByManagerId = new Map<string, string[]>();
   for (const d of deptManagers ?? []) {
     if (!d.manager_id) continue;

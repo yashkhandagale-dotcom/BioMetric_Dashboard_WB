@@ -3,6 +3,7 @@
 import { useMemo, useState } from 'react';
 import ApprovalCard, { PendingApprovalRequest } from './ApprovalCard';
 import WfhApprovalCard, { PendingWfhRequest } from './WfhApprovalCard';
+import RegularisationApprovalCard, { PendingRegularisationRequest } from './RegularisationApprovalCard';
 
 // Extracted so HR's org-wide queue (potentially long) can be searched /
 // filtered by department client-side without a round trip — a manager's
@@ -12,6 +13,7 @@ import WfhApprovalCard, { PendingWfhRequest } from './WfhApprovalCard';
 export default function ApprovalsList({
   requests,
   wfhRequests = [],
+  regularisationRequests = [],
   isHr,
   canApprove,
   canRemind,
@@ -22,6 +24,11 @@ export default function ApprovalsList({
   // sub-heading so the two request types stay visually distinct without
   // needing a separate tab/page.
   wfhRequests?: PendingWfhRequest[];
+  // Part C, §C.2 — pending, employee-initiated regularisation requests,
+  // same treatment as WFH above. No department field on this type (see
+  // RegularisationApprovalCard's header comment) so the department
+  // filter below only narrows leave/WFH — search still works on it.
+  regularisationRequests?: PendingRegularisationRequest[];
   isHr: boolean;
   // hr_super_admin (HR Admin) is remind-only; manager/lead/hr approve
   // directly and don't see a remind button — see ApprovalCard.
@@ -50,11 +57,17 @@ export default function ApprovalsList({
     return r.employeeName.toLowerCase().includes(q) || r.employeeCode.toLowerCase().includes(q);
   });
 
-  const nothingToShow = filtered.length === 0 && filteredWfh.length === 0;
+  const filteredRegularisations = regularisationRequests.filter((r) => {
+    if (!search.trim()) return true;
+    const q = search.trim().toLowerCase();
+    return r.employeeName.toLowerCase().includes(q) || r.employeeCode.toLowerCase().includes(q);
+  });
+
+  const nothingToShow = filtered.length === 0 && filteredWfh.length === 0 && filteredRegularisations.length === 0;
 
   return (
     <div className="space-y-3">
-      {(isHr && (requests.length > 0 || wfhRequests.length > 0)) && (
+      {(isHr && (requests.length > 0 || wfhRequests.length > 0 || regularisationRequests.length > 0)) && (
         <div className="flex flex-wrap items-center gap-2 mb-1">
           <input
             type="text"
@@ -78,7 +91,9 @@ export default function ApprovalsList({
 
       {nothingToShow ? (
         <div className="bg-[var(--bg-elevated)]/40 border border-[var(--border)] rounded-xl p-6 text-center text-[var(--text-muted)] text-sm">
-          {requests.length === 0 && wfhRequests.length === 0 ? 'No pending requests right now.' : 'No requests match your filters.'}
+          {requests.length === 0 && wfhRequests.length === 0 && regularisationRequests.length === 0
+            ? 'No pending requests right now.'
+            : 'No requests match your filters.'}
         </div>
       ) : (
         <>
@@ -94,6 +109,18 @@ export default function ApprovalsList({
               )}
               {filteredWfh.map((r) => (
                 <WfhApprovalCard key={r.id} request={r} canApprove={canApprove} />
+              ))}
+            </div>
+          )}
+          {filteredRegularisations.length > 0 && (
+            <div className="space-y-3">
+              {(filtered.length > 0 || filteredWfh.length > 0) && (
+                <h3 className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wide pt-2">
+                  Regularisation Requests
+                </h3>
+              )}
+              {filteredRegularisations.map((r) => (
+                <RegularisationApprovalCard key={r.id} request={r} canApprove={canApprove} />
               ))}
             </div>
           )}

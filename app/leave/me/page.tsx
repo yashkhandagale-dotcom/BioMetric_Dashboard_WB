@@ -8,6 +8,7 @@ import PersonalAttendanceReport from '@/components/leave/PersonalAttendanceRepor
 import LeaveBalanceCards from '@/components/leave/LeaveBalanceCards';
 import LeaveHistoryTable, { LeaveHistoryRow } from '@/components/leave/LeaveHistoryTable';
 import WfhPanel from '@/components/leave/WfhPanel';
+import MyAttendanceExceptions from '@/components/leave/MyAttendanceExceptions';
 
 type HistoryRow = {
   id: string;
@@ -108,6 +109,8 @@ export default async function LeaveMeHome() {
           <LeaveBalanceCards balances={balances} />
         </div>
       </div>
+
+      <MyAttendanceExceptions />
 
       <WfhPanel />
 

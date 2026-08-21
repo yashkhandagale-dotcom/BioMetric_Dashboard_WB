@@ -11,7 +11,6 @@ import { createClient } from '@/lib/supabase/client';
 // lib/supabase/client.ts's comment for why that was, and why it's fixed
 // now. /leave/login still exists as a redirect here for old links (see
 // that file), so bookmarks/emails keep working.
-//
 // After sign-in, look up the employees row (employee record is now the
 // one source of truth for role, for both apps) and send the person to
 // their role's home route — same ROLE_HOME → homeRouteForRole mapping

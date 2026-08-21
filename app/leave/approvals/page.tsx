@@ -3,10 +3,12 @@ import { createLeaveClient } from '@/lib/leaveSupabase/server';
 import { getCurrentEmployee } from '@/lib/leaveSupabase/getCurrentEmployee';
 import { getEmployeeBalanceBreakdown } from '@/lib/leaveSupabase/getEmployeeBalances';
 import { getManagedEmployeeIds } from '@/lib/leaveSupabase/organization';
+import { listRegularisationsForEmployees } from '@/lib/leaveSupabase/regularisation';
 import { PendingApprovalRequest } from '@/components/leave/ApprovalCard';
 import ApprovalsList from '@/components/leave/ApprovalsList';
 import LeavePageHeader from '@/components/leave/LeavePageHeader';
 import { PendingWfhRequest } from '@/components/leave/WfhApprovalCard';
+import { PendingRegularisationRequest } from '@/components/leave/RegularisationApprovalCard';
 
 type PendingRow = {
   id: string;
@@ -145,6 +147,34 @@ export default async function LeaveApprovalsHome() {
       appliedOn: r.applied_on,
     }));
 
+  // Part C, §C.2 — pending, EMPLOYEE-initiated regularisation requests
+  // join the same approvals queue, scoped identically. Manager-
+  // unilateral regularisations (createRegularisation, status='approved'
+  // from birth) never show up here — there's nothing pending about
+  // them.
+  let regularisationEmployeeIds: string[] = [];
+  if (isHr) {
+    const { data: allEmployees } = await supabase.from('employees').select('id');
+    regularisationEmployeeIds = (allEmployees ?? []).map((e) => e.id);
+  } else if (isManager) {
+    regularisationEmployeeIds = managedIds;
+  } else if (isLead) {
+    const { data: reports } = await supabase.from('employees').select('id').eq('reporting_lead_id', employee.id);
+    regularisationEmployeeIds = (reports ?? []).map((r) => r.id);
+  }
+
+  const { rows: regularisationRows } = await listRegularisationsForEmployees(supabase, regularisationEmployeeIds);
+  const regularisationRequests: PendingRegularisationRequest[] = regularisationRows
+    .filter((r) => r.status === 'pending')
+    .map((r) => ({
+      id: r.id,
+      employeeName: r.employeeName,
+      employeeCode: r.employeeCode,
+      date: r.date,
+      reason: r.reason,
+      createdAt: r.createdAt,
+    }));
+
   // Current balance snapshot per request (B1) — reuses
   // getEmployeeBalanceBreakdown (A3's addition to getEmployeeBalances.ts),
   // no new balance math. One call per distinct employee in the queue
@@ -186,9 +216,9 @@ export default async function LeaveApprovalsHome() {
         title={
           <span className="flex items-center gap-2">
             Pending Approvals
-            {(requests.length + wfhRequests.length) > 0 && (
+            {(requests.length + wfhRequests.length + regularisationRequests.length) > 0 && (
               <span className="inline-flex items-center justify-center bg-amber-500 text-white text-xs font-bold rounded-full min-w-[1.4rem] h-[1.4rem] px-1.5">
-                {requests.length + wfhRequests.length}
+                {requests.length + wfhRequests.length + regularisationRequests.length}
               </span>
             )}
           </span>
@@ -202,7 +232,14 @@ export default async function LeaveApprovalsHome() {
         </div>
       )}
 
-      <ApprovalsList requests={requests} wfhRequests={wfhRequests} isHr={isHr} canApprove={canApprove} canRemind={canRemind} />
+      <ApprovalsList
+        requests={requests}
+        wfhRequests={wfhRequests}
+        regularisationRequests={regularisationRequests}
+        isHr={isHr}
+        canApprove={canApprove}
+        canRemind={canRemind}
+      />
     </div>
   );
 }
