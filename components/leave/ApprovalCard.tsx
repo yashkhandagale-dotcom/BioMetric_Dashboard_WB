@@ -20,26 +20,29 @@ export type PendingApprovalRequest = {
   reason: string;
   isLwpOverride: boolean;
   lwpOverrideReason: string | null;
-  // Current balance for this specific leave type, so the manager sees
-  // the number this approval would draw down — reuses
-  // getEmployeeBalancesByFY's pivot, no new balance math (B1).
   currentBalance: number | null;
 };
 
-function formatDateRange(start: string, end: string) {
-  return start === end ? start : `${start} → ${end}`;
+function formatDate(dateStr: string) {
+  const d = new Date(dateStr);
+  if (Number.isNaN(d.getTime())) return dateStr;
+
+  return d.toLocaleDateString(undefined, {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  });
 }
 
-// B1/B2 — one card per pending request. Approve/Reject POST to the
-// dedicated routes (which delegate to applyLeavePolicyAndMutateBalance
-// with source: 'manager_approval' / 'manager_reject') and then
-// router.refresh() so the queue re-fetches server-side and the acted-on
-// card disappears.
-//
-// Button set depends on the acting role: hr_super_admin (HR Admin) is
-// remind-only (can't approve/reject — matches the API's own 403 for that
-// role), everyone else who lands on this page (manager/lead/hr) approves
-// or rejects directly and doesn't get a remind action.
+function formatDateRange(start: string, end: string) {
+  return start === end
+    ? formatDate(start)
+    : `${formatDate(start)} → ${formatDate(end)}`;
+}
+
+const FIELD_LABEL_CLASS =
+  'text-[10px] font-medium uppercase tracking-wide text-[var(--text-muted)]';
+
 export default function ApprovalCard({
   request,
   canApprove,
@@ -50,6 +53,7 @@ export default function ApprovalCard({
   canRemind: boolean;
 }) {
   const router = useRouter();
+
   const [rejecting, setRejecting] = useState(false);
   const [confirmingApprove, setConfirmingApprove] = useState(false);
   const [confirmingReject, setConfirmingReject] = useState(false);
@@ -61,18 +65,22 @@ export default function ApprovalCard({
   async function handleRemind() {
     setLoading(true);
     setError(null);
+
     try {
       const res = await fetch('/api/leave/remind', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ leave_request_id: request.id }),
       });
+
       const text = await res.text();
       const body = text ? JSON.parse(text) : {};
+
       if (!res.ok) {
         setError(body.error || 'Could not send a reminder.');
         return;
       }
+
       setReminderSent(true);
     } catch {
       setError('Could not reach the server — check your connection and retry.');
@@ -85,14 +93,21 @@ export default function ApprovalCard({
     setConfirmingApprove(false);
     setLoading(true);
     setError(null);
+
     try {
-      const res = await fetch(`/api/leave/approvals/${request.id}/approve`, { method: 'POST' });
+      const res = await fetch(
+        `/api/leave/approvals/${request.id}/approve`,
+        { method: 'POST' }
+      );
+
       const text = await res.text();
       const body = text ? JSON.parse(text) : {};
+
       if (!res.ok) {
         setError(body.error || 'Could not approve this request.');
         return;
       }
+
       router.refresh();
     } catch {
       setError('Could not reach the server — check your connection and retry.');
@@ -103,24 +118,33 @@ export default function ApprovalCard({
 
   async function handleReject() {
     setConfirmingReject(false);
+
     if (!comment.trim()) {
       setError('A short comment is required to reject.');
       return;
     }
+
     setLoading(true);
     setError(null);
+
     try {
-      const res = await fetch(`/api/leave/approvals/${request.id}/reject`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ comment }),
-      });
+      const res = await fetch(
+        `/api/leave/approvals/${request.id}/reject`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ comment }),
+        }
+      );
+
       const text = await res.text();
       const body = text ? JSON.parse(text) : {};
+
       if (!res.ok) {
         setError(body.error || 'Could not reject this request.');
         return;
       }
+
       router.refresh();
     } catch {
       setError('Could not reach the server — check your connection and retry.');
@@ -130,65 +154,94 @@ export default function ApprovalCard({
   }
 
   return (
-    <div className="bg-[var(--bg-elevated)]/40 border border-[var(--border)] rounded-xl p-4 space-y-3">
+    <div className="h-full flex flex-col bg-[var(--bg-elevated)]/40 border border-[var(--border)] rounded-xl p-4 transition-colors hover:border-[var(--text-muted)]/30">
+      {/* Header */}
       <div className="flex items-start justify-between gap-3">
         <div>
-          <p className="text-[var(--text-primary)] font-medium text-sm">{request.employeeName}</p>
-          <p className="text-[var(--text-muted)] text-xs">{request.employeeCode} · {request.department}</p>
+          <p className="text-[var(--text-primary)] font-medium text-sm">
+            {request.employeeName}
+          </p>
+
+          <p className="text-[var(--text-muted)] text-xs mt-0.5">
+            {request.employeeCode} · {request.department}
+          </p>
         </div>
+
         {request.isLwpOverride && <ViolationBadge count={1} />}
       </div>
 
-      <div className="grid grid-cols-2 gap-3 text-xs">
+      {/* Stats */}
+      <div className="grid grid-cols-2 gap-3 text-xs mt-3.5">
         <div>
-          <p className="text-[var(--text-muted)]">Leave Type</p>
-          <p className="text-[var(--text-primary)] font-medium">{request.leaveTypeLabel}</p>
-        </div>
-        <div>
-          <p className="text-[var(--text-muted)]">Dates</p>
-          <p className="text-[var(--text-primary)] font-medium">
-            {formatDateRange(request.startDate, request.endDate)}
-            {request.isHalfDay && ` (${request.halfDaySession ?? 'half day'})`}
+          <p className={FIELD_LABEL_CLASS}>Leave Type</p>
+          <p className="text-[var(--text-primary)] font-medium mt-1">
+            {request.leaveTypeLabel}
           </p>
         </div>
+
         <div>
-          <p className="text-[var(--text-muted)]">Days Requested</p>
-          <p className="text-[var(--text-primary)] font-medium">{request.totalDays}</p>
+          <p className={FIELD_LABEL_CLASS}>Dates</p>
+          <p className="text-[var(--text-primary)] font-medium mt-1">
+            {formatDateRange(request.startDate, request.endDate)}
+            {request.isHalfDay &&
+              ` (${request.halfDaySession ?? 'half day'})`}
+          </p>
         </div>
+
         <div>
-          <p className="text-[var(--text-muted)]">Current Balance ({request.leaveTypeCode})</p>
-          <p className="text-[var(--text-primary)] font-medium">
-            {request.currentBalance !== null ? request.currentBalance.toFixed(1) : '—'}
+          <p className={FIELD_LABEL_CLASS}>Days Requested</p>
+          <p className="text-[var(--text-primary)] font-medium mt-1">
+            {request.totalDays}
+          </p>
+        </div>
+
+        <div>
+          <p className={FIELD_LABEL_CLASS}>
+            Balance ({request.leaveTypeCode})
+          </p>
+
+          <p className="text-[var(--text-primary)] font-medium mt-1">
+            {request.currentBalance !== null
+              ? request.currentBalance.toFixed(1)
+              : '—'}
           </p>
         </div>
       </div>
 
+      {/* LWP Banner */}
       {request.isLwpOverride && request.lwpOverrideReason && (
-        <p className="text-amber-700 dark:text-amber-300 text-xs bg-amber-900/20 border border-amber-500/30 rounded-lg px-3 py-2">
+        <p className="mt-3.5 text-amber-700 dark:text-amber-300 text-xs bg-amber-500/10 border border-amber-500/30 rounded-lg px-3 py-2 leading-relaxed">
           {request.lwpOverrideReason}
         </p>
       )}
 
-      <div>
-        <p className="text-[var(--text-muted)] text-xs">Reason</p>
-        <p className="text-[var(--text-primary)] text-sm">{request.reason}</p>
+      {/* Reason */}
+      <div className="mt-3.5">
+        <p className={FIELD_LABEL_CLASS}>Reason</p>
+
+        <p className="text-[var(--text-primary)] text-sm mt-1 leading-relaxed">
+          {request.reason}
+        </p>
       </div>
 
+      {/* Error */}
       {error && (
-        <div className="bg-red-900/30 border border-red-500/30 text-red-700 dark:text-red-300 text-xs rounded-lg px-3 py-2">
+        <div className="mt-3.5 bg-red-500/10 border border-red-500/30 text-red-700 dark:text-red-300 text-xs rounded-lg px-3 py-2">
           {error}
         </div>
       )}
 
+      {/* Actions */}
       {rejecting ? (
-        <div className="space-y-2">
+        <div className="mt-auto pt-3.5 space-y-2 border-t border-[var(--border)]">
           <textarea
             value={comment}
             onChange={(e) => setComment(e.target.value)}
             rows={2}
             placeholder="Reason for rejecting (required)…"
-            className="w-full bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)]"
+            className="w-full bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)] outline-none transition-shadow focus:ring-2 focus:ring-[var(--accent)]/30 focus:border-[var(--accent)]"
           />
+
           <div className="flex gap-2">
             <button
               type="button"
@@ -198,9 +251,14 @@ export default function ApprovalCard({
             >
               {loading ? 'Rejecting…' : 'Confirm Reject'}
             </button>
+
             <button
               type="button"
-              onClick={() => { setRejecting(false); setComment(''); setError(null); }}
+              onClick={() => {
+                setRejecting(false);
+                setComment('');
+                setError(null);
+              }}
               className="text-[var(--text-muted)] hover:text-[var(--text-primary)] text-sm px-3 py-2"
             >
               Cancel
@@ -208,7 +266,7 @@ export default function ApprovalCard({
           </div>
         </div>
       ) : (
-        <div className="flex gap-2">
+        <div className="mt-auto flex gap-2 pt-3.5 border-t border-[var(--border)]">
           {canApprove && (
             <>
               <button
@@ -219,6 +277,7 @@ export default function ApprovalCard({
               >
                 {loading ? 'Approving…' : 'Approve'}
               </button>
+
               <button
                 type="button"
                 onClick={() => setRejecting(true)}
@@ -229,6 +288,7 @@ export default function ApprovalCard({
               </button>
             </>
           )}
+
           {canRemind && (
             <button
               type="button"
@@ -243,7 +303,7 @@ export default function ApprovalCard({
         </div>
       )}
 
-      {/* Feedback item #10 — confirmation popup before approve/reject. */}
+      {/* Approve Confirmation */}
       {confirmingApprove && (
         <ConfirmDialog
           title="Approve this leave request?"
@@ -254,6 +314,8 @@ export default function ApprovalCard({
           onCancel={() => setConfirmingApprove(false)}
         />
       )}
+
+      {/* Reject Confirmation */}
       {confirmingReject && (
         <ConfirmDialog
           title="Reject this leave request?"

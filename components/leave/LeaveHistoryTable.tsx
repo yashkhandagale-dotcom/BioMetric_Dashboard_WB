@@ -40,16 +40,86 @@ function todayYMD() {
 }
 
 const STATUS_STYLE: Record<string, string> = {
-  pending: 'bg-amber-500/20 text-amber-700 dark:text-amber-300',
-  approved: 'bg-emerald-500/20 text-emerald-700 dark:text-emerald-300',
-  auto_lwp: 'bg-emerald-500/20 text-emerald-700 dark:text-emerald-300',
-  rejected: 'bg-red-500/20 text-red-700 dark:text-red-300',
-  cancelled: 'bg-[var(--text-muted)]/20 text-[var(--text-muted)]',
+  pending: 'bg-amber-500/15 text-amber-700 dark:text-amber-300',
+  approved: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300',
+  auto_lwp: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300',
+  rejected: 'bg-red-500/15 text-red-700 dark:text-red-300',
+  cancelled: 'bg-[var(--text-muted)]/15 text-[var(--text-muted)]',
 };
 
 function statusLabel(status: string): string {
   if (status === 'auto_lwp') return 'Approved (LWP)';
   return status.charAt(0).toUpperCase() + status.slice(1);
+}
+
+// Small styled action button shared by the row-level actions below, so
+// Withdraw/Cancel, Reapply, and Correct/Reverse all read as the same
+// control family instead of three differently-weighted text links.
+function RowAction({
+  tone,
+  disabled,
+  title,
+  onClick,
+  children,
+}: {
+  tone: 'danger' | 'accent' | 'warn';
+  disabled?: boolean;
+  title?: string;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  const toneClass =
+    tone === 'danger'
+      ? 'text-red-600 dark:text-red-400 hover:bg-red-500/10'
+      : tone === 'warn'
+      ? 'text-amber-600 dark:text-amber-400 hover:bg-amber-500/10'
+      : 'text-[var(--accent)] hover:bg-[var(--accent)]/10';
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      title={title}
+      className={`text-xs font-medium rounded-md px-2 py-1 -mx-2 transition-colors disabled:opacity-40 disabled:hover:bg-transparent disabled:cursor-not-allowed ${toneClass}`}
+    >
+      {children}
+    </button>
+  );
+}
+
+// Shared modal shell (backdrop + header/body/footer chrome) so the two
+// modals this table can open — Cancel/Withdraw confirmation is handled
+// by ConfirmDialog, but the HR "Correct / Reverse" reason prompt lives
+// here — follow one consistent pattern rather than each inventing its
+// own spacing and border rhythm.
+function Modal({
+  onClose,
+  title,
+  description,
+  children,
+  footer,
+}: {
+  onClose: () => void;
+  title: string;
+  description?: string;
+  children: React.ReactNode;
+  footer: React.ReactNode;
+}) {
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
+      <div
+        className="bg-[var(--bg-surface)] border border-[var(--border)] rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="px-5 py-4 border-b border-[var(--border)]">
+          <h3 className="text-[var(--text-primary)] font-semibold text-sm">{title}</h3>
+          {description && <p className="text-[var(--text-muted)] text-xs mt-1 leading-relaxed">{description}</p>}
+        </div>
+        <div className="px-5 py-4">{children}</div>
+        <div className="px-5 py-4 flex justify-end gap-2 border-t border-[var(--border)]">{footer}</div>
+      </div>
+    </div>
+  );
 }
 
 // D3-2: columns are exactly employee, type, dates, days, half-day flag,
@@ -177,109 +247,127 @@ export default function LeaveHistoryTable({
     );
   }
 
+  const hasActionsColumn = showActions || hrCorrection;
+
   return (
-    <div className="bg-[var(--bg-elevated)]/40 border border-[var(--border)] rounded-xl overflow-x-auto">
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="text-left text-[var(--text-muted)] text-xs border-b border-[var(--border)]">
-            <th className="px-4 py-3">Employee</th>
-            <th className="px-4 py-3">Type</th>
-            <th className="px-4 py-3">Dates</th>
-            <th className="px-4 py-3 text-right">Days</th>
-            <th className="px-4 py-3">Status</th>
-            <th className="px-4 py-3">Half-day</th>
-            <th className="px-4 py-3">LWP override</th>
-            <th className="px-4 py-3">Applied On</th>
-            <th className="px-4 py-3">Recorded By</th>
-            {(showActions || hrCorrection) && <th className="px-4 py-3">Actions</th>}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((r) => (
-            <tr key={r.id} className="border-b border-[var(--border)] last:border-0">
-              <td className="px-4 py-2.5">
-                <p className="text-[var(--text-primary)]">{r.employeeName}</p>
-                <p className="text-[var(--text-muted)] text-xs">
-                  {r.employeeCode} · {r.department} · {r.office}
-                </p>
-              </td>
-              <td className="px-4 py-2.5 text-[var(--text-muted)]">{r.leaveTypeLabel}</td>
-              <td className="px-4 py-2.5 text-[var(--text-muted)]">{formatDateRange(r.startDate, r.endDate)}</td>
-              <td className="px-4 py-2.5 text-right text-[var(--text-muted)]">{r.totalDays.toFixed(2)}</td>
-              <td className="px-4 py-2.5">
-                <span className="inline-flex items-center gap-1">
-                  <span className={`text-[11px] font-medium rounded-full px-2 py-0.5 ${STATUS_STYLE[r.status] ?? 'bg-[var(--text-muted)]/20 text-[var(--text-muted)]'}`}>
-                    {r.status === 'cancelled' && r.correctedByName ? 'Reversed by HR' : statusLabel(r.status)}
-                  </span>
-                  {r.status === 'cancelled' && r.correctedByName && (
-                    <InfoTooltip
-                      title="Reversed by HR"
-                      description={`${r.correctedByName} reversed this record.${r.correctionReason ? ` Reason: ${r.correctionReason}` : ''}`}
-                    />
-                  )}
-                </span>
-              </td>
-              <td className="px-4 py-2.5 text-[var(--text-muted)]">
-                {r.isHalfDay ? (r.halfDaySession ?? 'Yes') : '—'}
-              </td>
-              <td className="px-4 py-2.5">
-                {r.isLwpOverride ? (
-                  <span className="text-amber-400 text-xs">Yes</span>
-                ) : (
-                  <span className="text-[var(--text-muted)] text-xs">—</span>
-                )}
-              </td>
-              <td className="px-4 py-2.5 text-[var(--text-muted)]">{new Date(r.appliedOn).toLocaleDateString()}</td>
-              <td className="px-4 py-2.5 text-[var(--text-muted)]">{r.recordedBy}</td>
-              {(showActions || hrCorrection) && (
-                <td className="px-4 py-2.5">
-                  <div className="flex flex-col gap-1 items-start">
-                    {(showActions || allowHrCancel) && (r.status === 'pending' || r.status === 'approved' || r.status === 'auto_lwp') && (() => {
-                      // Same "already started" rule the cancel API enforces
-                      // server-side (app/api/leave/requests/[id]/cancel/route.ts)
-                      // — a completed/in-progress approved leave can no
-                      // longer be cancelled. Disable the button up front
-                      // instead of letting it be clicked and fail.
-                      const alreadyStarted = r.status !== 'pending' && r.startDate <= todayYMD();
-                      return (
-                        <button
-                          type="button"
-                          onClick={() => setConfirmingId(r.id)}
-                          disabled={busyId === r.id || alreadyStarted}
-                          title={alreadyStarted ? 'This leave has already started — it can no longer be cancelled.' : undefined}
-                          className="text-red-600 dark:text-red-400 hover:underline text-xs font-medium disabled:opacity-40 disabled:no-underline disabled:cursor-not-allowed"
-                        >
-                          {r.status === 'pending' ? 'Withdraw' : 'Cancel'}
-                        </button>
-                      );
-                    })()}
-                    {showActions && r.status === 'rejected' && (
-                      <button
-                        type="button"
-                        onClick={() => handleReapply(r)}
-                        className="text-[var(--accent)] hover:underline text-xs font-medium"
-                      >
-                        Apply for another leave type
-                      </button>
-                    )}
-                    {hrCorrection && (r.status === 'approved' || r.status === 'auto_lwp') && (
-                      <button
-                        type="button"
-                        onClick={() => { setCorrectingId(r.id); setCorrectionReason(''); setRowError(null); }}
-                        disabled={busyId === r.id}
-                        className="text-amber-600 dark:text-amber-400 hover:underline text-xs font-medium disabled:opacity-50"
-                      >
-                        Correct / Reverse
-                      </button>
-                    )}
-                    {rowError?.id === r.id && <p className="text-red-500 text-[11px]">{rowError.message}</p>}
-                  </div>
-                </td>
-              )}
+    <div className="bg-[var(--bg-elevated)]/40 border border-[var(--border)] rounded-xl overflow-hidden">
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm border-separate border-spacing-0">
+          <thead>
+            <tr className="text-left text-[var(--text-muted)] text-xs uppercase tracking-wide">
+              <th className="px-4 py-3 font-medium">Employee</th>
+              <th className="px-4 py-3 font-medium">Type</th>
+              <th className="px-4 py-3 font-medium">Dates</th>
+              <th className="px-4 py-3 font-medium text-right">Days</th>
+              <th className="px-4 py-3 font-medium">Status</th>
+              <th className="px-4 py-3 font-medium">Half-day</th>
+              <th className="px-4 py-3 font-medium">LWP</th>
+              <th className="px-4 py-3 font-medium">Applied</th>
+              <th className="px-4 py-3 font-medium">Recorded by</th>
+              {hasActionsColumn && <th className="px-4 py-3 font-medium">Actions</th>}
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.id} className="hover:bg-[var(--bg-elevated)]/60 transition-colors">
+                <td className="px-4 py-3 border-t border-[var(--border)]">
+                  <p className="text-[var(--text-primary)] font-medium">{r.employeeName}</p>
+                  <p className="text-[var(--text-muted)] text-xs mt-0.5">
+                    {r.employeeCode} · {r.department} · {r.office}
+                  </p>
+                </td>
+                <td className="px-4 py-3 border-t border-[var(--border)] text-[var(--text-muted)]">{r.leaveTypeLabel}</td>
+                <td className="px-4 py-3 border-t border-[var(--border)] text-[var(--text-muted)] whitespace-nowrap">
+                  {formatDateRange(r.startDate, r.endDate)}
+                </td>
+                <td className="px-4 py-3 border-t border-[var(--border)] text-right tabular-nums text-[var(--text-primary)]">
+                  {r.totalDays.toFixed(2)}
+                </td>
+                <td className="px-4 py-3 border-t border-[var(--border)]">
+                  <span className="inline-flex items-center gap-1">
+                    <span
+                      className={`text-[11px] font-medium rounded-full px-2 py-0.5 whitespace-nowrap ${
+                        STATUS_STYLE[r.status] ?? 'bg-[var(--text-muted)]/15 text-[var(--text-muted)]'
+                      }`}
+                    >
+                      {r.status === 'cancelled' && r.correctedByName ? 'Reversed by HR' : statusLabel(r.status)}
+                    </span>
+                    {r.status === 'cancelled' && r.correctedByName && (
+                      <InfoTooltip
+                        title="Reversed by HR"
+                        description={`${r.correctedByName} reversed this record.${r.correctionReason ? ` Reason: ${r.correctionReason}` : ''}`}
+                      />
+                    )}
+                  </span>
+                </td>
+                <td className="px-4 py-3 border-t border-[var(--border)] text-[var(--text-muted)]">
+                  {r.isHalfDay ? (r.halfDaySession ?? 'Yes') : '—'}
+                </td>
+                <td className="px-4 py-3 border-t border-[var(--border)]">
+                  {r.isLwpOverride ? (
+                    <span className="text-amber-600 dark:text-amber-400 text-xs font-medium">Yes</span>
+                  ) : (
+                    <span className="text-[var(--text-muted)] text-xs">—</span>
+                  )}
+                </td>
+                <td className="px-4 py-3 border-t border-[var(--border)] text-[var(--text-muted)] whitespace-nowrap">
+                  {new Date(r.appliedOn).toLocaleDateString()}
+                </td>
+                <td className="px-4 py-3 border-t border-[var(--border)] text-[var(--text-muted)]">{r.recordedBy}</td>
+                {hasActionsColumn && (
+                  <td className="px-4 py-3 border-t border-[var(--border)]">
+                    <div className="flex flex-col items-start gap-1">
+                      {(showActions || allowHrCancel) &&
+                        (r.status === 'pending' || r.status === 'approved' || r.status === 'auto_lwp') &&
+                        (() => {
+                          // Same "already started" rule the cancel API enforces
+                          // server-side (app/api/leave/requests/[id]/cancel/route.ts)
+                          // — a completed/in-progress approved leave can no
+                          // longer be cancelled. Disable the button up front
+                          // instead of letting it be clicked and fail.
+                          const alreadyStarted = r.status !== 'pending' && r.startDate <= todayYMD();
+                          return (
+                            <RowAction
+                              tone="danger"
+                              disabled={busyId === r.id || alreadyStarted}
+                              title={
+                                alreadyStarted
+                                  ? 'This leave has already started — it can no longer be cancelled.'
+                                  : undefined
+                              }
+                              onClick={() => setConfirmingId(r.id)}
+                            >
+                              {r.status === 'pending' ? 'Withdraw' : 'Cancel'}
+                            </RowAction>
+                          );
+                        })()}
+                      {showActions && r.status === 'rejected' && (
+                        <RowAction tone="accent" onClick={() => handleReapply(r)}>
+                          Apply for another leave type
+                        </RowAction>
+                      )}
+                      {hrCorrection && (r.status === 'approved' || r.status === 'auto_lwp') && (
+                        <RowAction
+                          tone="warn"
+                          disabled={busyId === r.id}
+                          onClick={() => {
+                            setCorrectingId(r.id);
+                            setCorrectionReason('');
+                            setRowError(null);
+                          }}
+                        >
+                          Correct / Reverse
+                        </RowAction>
+                      )}
+                      {rowError?.id === r.id && <p className="text-red-500 text-[11px] leading-snug">{rowError.message}</p>}
+                    </div>
+                  </td>
+                )}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
 
       {/* Feedback item #10 — confirmation popup before a destructive action. */}
       {confirmingId && (
@@ -295,37 +383,14 @@ export default function LeaveHistoryTable({
 
       {/* HR "Correct / Reverse" — needs a mandatory free-text reason,
           which ConfirmDialog doesn't collect, so this is its own small
-          modal rather than reusing it. */}
+          modal, built on the shared Modal shell above. */}
       {correctingId && (
-        <div
-          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm"
-          onClick={() => { setCorrectingId(null); setCorrectionReason(''); }}
-        >
-          <div
-            className="bg-[var(--bg-surface)] border border-[var(--border)] rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="px-5 py-4 border-b border-[var(--border)]">
-              <h3 className="text-[var(--text-primary)] font-semibold text-sm">Correct / reverse this leave record?</h3>
-              <p className="text-[var(--text-muted)] text-xs mt-1">
-                This credits the debited days back to the employee&apos;s balance and marks the record as reversed
-                by HR — for a record that&apos;s already approved (or finished) but was wrong. A reason is required
-                and is visible to the employee.
-              </p>
-            </div>
-            <div className="px-5 py-4">
-              <label className="block text-xs text-[var(--text-muted)] mb-1">Reason</label>
-              <textarea
-                autoFocus
-                value={correctionReason}
-                onChange={(e) => setCorrectionReason(e.target.value)}
-                rows={3}
-                placeholder="e.g. Employee actually attended that day — marked in error."
-                className="w-full bg-[var(--bg-elevated)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)]"
-              />
-              {rowError?.id === correctingId && <p className="text-red-500 text-[11px] mt-1">{rowError.message}</p>}
-            </div>
-            <div className="px-5 py-4 flex justify-end gap-2 border-t border-[var(--border)]">
+        <Modal
+          onClose={() => { setCorrectingId(null); setCorrectionReason(''); }}
+          title="Correct / reverse this leave record?"
+          description="This credits the debited days back to the employee's balance and marks the record as reversed by HR — for a record that's already approved (or finished) but was wrong. A reason is required and is visible to the employee."
+          footer={
+            <>
               <button
                 type="button"
                 onClick={() => { setCorrectingId(null); setCorrectionReason(''); }}
@@ -341,9 +406,20 @@ export default function LeaveHistoryTable({
               >
                 {busyId === correctingId ? 'Reversing…' : 'Yes, reverse it'}
               </button>
-            </div>
-          </div>
-        </div>
+            </>
+          }
+        >
+          <label className="block text-xs text-[var(--text-muted)] mb-1">Reason</label>
+          <textarea
+            autoFocus
+            value={correctionReason}
+            onChange={(e) => setCorrectionReason(e.target.value)}
+            rows={3}
+            placeholder="e.g. Employee actually attended that day — marked in error."
+            className="w-full bg-[var(--bg-elevated)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)]"
+          />
+          {rowError?.id === correctingId && <p className="text-red-500 text-[11px] mt-1">{rowError.message}</p>}
+        </Modal>
       )}
     </div>
   );

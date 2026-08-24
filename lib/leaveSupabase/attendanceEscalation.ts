@@ -121,6 +121,7 @@ export async function getMyUnmarkedAttendanceExceptions(
     })),
   ];
 
+
   const { data: upserted, error } = await service
     .from('attendance_exceptions')
     .upsert(rows, { onConflict: 'employee_id,exception_date', ignoreDuplicates: false })

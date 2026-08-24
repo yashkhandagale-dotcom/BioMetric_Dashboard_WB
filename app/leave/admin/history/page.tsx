@@ -58,6 +58,27 @@ export default function LeaveTrackerPage() {
   const [error, setError] = useState<string | null>(null);
 
   const [recordLeaveOpen, setRecordLeaveOpen] = useState(false);
+  // HR Admin (hr_super_admin) is remind-only — recording leave is a
+  // plain-HR action (see the matching 403 in
+  // app/api/leave/employees/requests/route.ts). This page is a client
+  // component top-to-bottom, so it can't receive role as a
+  // server-rendered prop the way most other /leave/** pages do; fetched
+  // once here via the small /api/leave/me endpoint instead. Defaults to
+  // false (button hidden) until the fetch resolves, rather than
+  // flashing the button on for HR Admin for a moment.
+  const [canRecordLeave, setCanRecordLeave] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/leave/me')
+      .then((res) => res.json())
+      .then((body) => {
+        if (!cancelled) setCanRecordLeave(body?.employee?.role === 'hr');
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // ── Calendar-specific state ─────────────────────────────────────────
   const [monthKey, setMonthKey] = useState(currentMonthKey());
@@ -260,20 +281,22 @@ export default function LeaveTrackerPage() {
       <LeavePageHeader
         title="Leave Tracker"
         actions={
-          <div className="text-right">
-            <button
-              type="button"
-              onClick={() => setRecordLeaveOpen(true)}
-              className="bg-[var(--accent)] hover:bg-[var(--accent)]/90 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
-            >
-              + Record Leave
-            </button>
-            {!(view === 'table' && tab === 'history') && (
-              <p className="text-[11px] text-[var(--text-muted)] mt-1 max-w-[220px]">
-                For any employee. To act on a row already listed below, use that row&apos;s own action instead.
-              </p>
-            )}
-          </div>
+          canRecordLeave ? (
+            <div className="text-right">
+              <button
+                type="button"
+                onClick={() => setRecordLeaveOpen(true)}
+                className="bg-[var(--accent)] hover:bg-[var(--accent)]/90 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+              >
+                + Record Leave
+              </button>
+              {!(view === 'table' && tab === 'history') && (
+                <p className="text-[11px] text-[var(--text-muted)] mt-1 max-w-[220px]">
+                  For any employee. To act on a row already listed below, use that row&apos;s own action instead.
+                </p>
+              )}
+            </div>
+          ) : undefined
         }
       />
 
@@ -367,6 +390,7 @@ export default function LeaveTrackerPage() {
                 setCalendarRefreshSignal((s) => s + 1);
               }}
               onViewInHistory={viewEmployeeInHistory}
+              canRecordLeave={canRecordLeave}
             />
           )}
         </>
@@ -592,7 +616,7 @@ export default function LeaveTrackerPage() {
         </>
       )}
 
-      {recordLeaveOpen && (
+      {recordLeaveOpen && canRecordLeave && (
         <RecordLeaveDrawer
           onClose={() => setRecordLeaveOpen(false)}
           onSuccess={() => {

@@ -1,4 +1,5 @@
 ﻿import { redirect } from 'next/navigation';
+import { ClipboardCheck, AlertCircle } from 'lucide-react';
 import { createLeaveClient } from '@/lib/leaveSupabase/server';
 import { getCurrentEmployee } from '@/lib/leaveSupabase/getCurrentEmployee';
 import { getEmployeeBalanceBreakdown } from '@/lib/leaveSupabase/getEmployeeBalances';
@@ -24,7 +25,6 @@ type PendingRow = {
   employees: { full_name: string; employee_code: string; department: string; reporting_lead_id: string | null } | null;
   leave_types: { code: string; display_name: string } | null;
 };
-
 
 // B1 — real approval queue: one card per pending request from the
 // logged-in manager's DIRECT reports only (reporting_manager_id, no
@@ -113,11 +113,18 @@ export default async function LeaveApprovalsHome() {
     employees: { full_name: string; employee_code: string; department: string; reporting_lead_id: string | null } | null;
   };
 
+  // NOTE: explicit FK name required here (mirrors leave_requests above) —
+  // wfh_requests apparently has more than one FK pointing at employees
+  // (e.g. employee_id and an approver/reviewer column), so a bare
+  // `employees!inner` embed is ambiguous to PostgREST and throws at
+  // query time. Confirm the exact constraint name against your schema
+  // (`wfh_requests_employee_id_fkey` is a guess based on the
+  // leave_requests naming convention) if this still errors.
   let wfhQuery = supabase
     .from('wfh_requests')
     .select(
       `id, start_date, end_date, is_half_day, half_day_session, reason, applied_on,
-       employees!inner ( full_name, employee_code, department, reporting_lead_id )`
+       employees!wfh_requests_employee_id_fkey!inner ( full_name, employee_code, department, reporting_lead_id )`
     )
     .eq('status', 'pending')
     .order('start_date', { ascending: true });
@@ -130,7 +137,7 @@ export default async function LeaveApprovalsHome() {
       : wfhQuery.eq('employee_id', '00000000-0000-0000-0000-000000000000');
   }
 
-  const { data: pendingWfh } = await wfhQuery.returns<PendingWfhRow[]>();
+  const { data: pendingWfh, error: wfhError } = await wfhQuery.returns<PendingWfhRow[]>();
 
   const wfhRequests: PendingWfhRequest[] = (pendingWfh ?? [])
     .filter((r) => r.employees)
@@ -210,15 +217,26 @@ export default async function LeaveApprovalsHome() {
     };
   });
 
+  const totalPending = requests.length + wfhRequests.length + regularisationRequests.length;
+
+  // Raw Postgres/PostgREST error text (relationship names, constraint
+  // names, etc.) is an implementation detail, not something a manager
+  // reading this page should see — log it server-side for debugging and
+  // show a plain, actionable message in the UI instead.
+  if (error) console.error('[LeaveApprovalsHome] leave_requests query failed:', error);
+  if (wfhError) console.error('[LeaveApprovalsHome] wfh_requests query failed:', wfhError);
+  const anyLoadError = error || wfhError;
+
   return (
-    <div className="max-w-3xl space-y-6">
+    <div className="max-w-5xl space-y-6">
       <LeavePageHeader
+        icon={<ClipboardCheck className="h-5 w-5" />}
         title={
           <span className="flex items-center gap-2">
             Pending Approvals
-            {(requests.length + wfhRequests.length + regularisationRequests.length) > 0 && (
+            {totalPending > 0 && (
               <span className="inline-flex items-center justify-center bg-amber-500 text-white text-xs font-bold rounded-full min-w-[1.4rem] h-[1.4rem] px-1.5">
-                {requests.length + wfhRequests.length + regularisationRequests.length}
+                {totalPending}
               </span>
             )}
           </span>
@@ -226,9 +244,16 @@ export default async function LeaveApprovalsHome() {
         description={isHr ? 'All pending requests org-wide.' : 'Your direct reports\u2019 pending requests.'}
       />
 
-      {error && (
-        <div className="bg-red-900/30 border border-red-500/30 text-red-700 dark:text-red-300 text-sm rounded-xl px-4 py-3 mb-4">
-          Could not load pending requests: {error.message}
+      {anyLoadError && (
+        <div className="flex items-start gap-2 text-sm rounded-xl px-4 py-3 border bg-red-500/10 border-red-500/30 text-red-700 dark:text-red-300">
+          <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+          <p>
+            {error && wfhError
+              ? 'Could not load some pending leave and WFH requests. Please refresh, or contact support if this persists.'
+              : error
+                ? 'Could not load pending leave requests. Please refresh, or contact support if this persists.'
+                : 'Could not load pending WFH requests. Please refresh, or contact support if this persists.'}
+          </p>
         </div>
       )}
 

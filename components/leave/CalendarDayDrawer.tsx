@@ -18,12 +18,18 @@ export default function CalendarDayDrawer({
   onClose,
   onResolved,
   onViewInHistory,
+  // HR Admin (hr_super_admin) is remind-only — recording leave on an
+  // employee's behalf is a plain-HR action. Defaults true so every
+  // existing caller keeps its current behavior unless it explicitly
+  // passes false.
+  canRecordLeave = true,
 }: {
   date: string;
   entries: CalendarDayEntry[];
   onClose: () => void;
   onResolved: () => void;
   onViewInHistory: (employeeId: string) => void;
+  canRecordLeave?: boolean;
 }) {
   const [recordFor, setRecordFor] = useState<CalendarDayEntry | null>(null);
 
@@ -101,7 +107,7 @@ export default function CalendarDayDrawer({
               </div>
 
               <div className="flex items-center gap-3 mt-2">
-                {entry.status === 'unrecorded' && (
+                {entry.status === 'unrecorded' && canRecordLeave && (
                   <button
                     type="button"
                     onClick={() => setRecordFor(entry)}

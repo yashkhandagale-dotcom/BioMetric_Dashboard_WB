@@ -22,8 +22,10 @@ import {
   PanelLeftOpen,
   CalendarPlus,
   Home,
+  CalendarClock,
 } from 'lucide-react';
 import LeaveThemeSync from './LeaveThemeSync';
+import NotificationBell from './NotificationBell';
 import ApplyLeaveDrawer from './ApplyLeaveDrawer';
 import WfhApplyDrawer from './WfhApplyDrawer';
 import type { ApplySubmitResult, ApplyLeaveInitialValues } from './ApplyLeaveForm';
@@ -60,7 +62,13 @@ function navGroups(role: LeaveRole, pendingApprovalsCount: number): NavGroup[] {
 
   const groups: NavGroup[] = [];
   if (showPersonal) {
-    groups.push({ label: 'Personal', items: [{ href: '/leave/me', label: 'My Leave', icon: Wallet, exact: true }] });
+    groups.push({
+      label: 'Personal',
+      items: [
+        { href: '/leave/me', label: 'My Leave', icon: Wallet, exact: true },
+        { href: '/leave/attendance', label: 'Attendance', icon: CalendarClock },
+      ],
+    });
   }
 
   if (isApprover) {
@@ -432,6 +440,7 @@ export default function LeaveShell({
           </button>
           <div className={`flex items-center gap-2 ${collapsed ? 'flex-col' : ''}`}>
             <div className={collapsed ? '' : 'flex-1 min-w-0'}>{UserMenu}</div>
+            <NotificationBell collapsed={collapsed} />
             <LeaveThemeSync />
           </div>
         </div>
@@ -475,6 +484,7 @@ export default function LeaveShell({
                 </button>
               </>
             )}
+            <NotificationBell collapsed={false} />
             <LeaveThemeSync />
             <div className="relative">
               <button

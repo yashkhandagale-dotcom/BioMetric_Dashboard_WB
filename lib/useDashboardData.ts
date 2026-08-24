@@ -518,6 +518,7 @@ export function useDashboardData(
       const totalEffectiveMinsForAvg = presentRecsWithDuration.reduce(
         (sum, r) => sum + (effectiveMinutes(durationToMinutes(r.duration)) ?? 0), 0
       );
+
       const avgMins = presentRecsWithDuration.length > 0
         ? Math.round(totalEffectiveMinsForAvg / presentRecsWithDuration.length) : 0;
       emp.avgHoursWorked = minutesToHHMM(avgMins);
@@ -544,7 +545,7 @@ export function useDashboardData(
       emp.outTimeDeviation = stdDevMinutes(outTimes);
 
       emp.dayWiseLateEarly = presentRecs
-        .map(r => ({
+        .map(r => ({   
           date: r.date,
           inTime: r.inTime,
           outTime: r.outTime,

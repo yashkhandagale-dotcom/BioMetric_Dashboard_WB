@@ -1,20 +1,26 @@
 'use client';
 
 import { useState } from 'react';
+import { AlertCircle } from 'lucide-react';
 
 export type WfhSubmitResult = { id: string };
 
 export type WfhApplyInitialValues = {
   startDate?: string;
   endDate?: string;
-  isHalfDay?: boolean;
-  halfDaySession?: 'AM' | 'PM';
   reason?: string;
 };
 
 function todayYMD() {
   return new Date().toISOString().slice(0, 10);
 }
+
+// Shared field styling — matches ApplyLeaveForm.tsx so every leave-related
+// form in this app looks like it belongs to the same design system.
+const FIELD_CLASS =
+  'w-full bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)] outline-none transition-shadow focus:ring-2 focus:ring-[var(--accent)]/30 focus:border-[var(--accent)] disabled:opacity-50';
+
+const LABEL_CLASS = 'block text-xs font-medium text-[var(--text-muted)] mb-1.5';
 
 // Extracted from WfhPanel's old inline form so it can be driven from a
 // slide-over drawer (WfhApplyDrawer) the same way ApplyLeaveForm is
@@ -24,6 +30,9 @@ function todayYMD() {
 // WFH is by definition planned ahead of time, so — same reasoning as
 // Planned Leave — both date fields get a `min` of today; the calendar
 // picker itself won't let you pick a day that's already passed.
+//
+// No half-day option: WFH is granted per full day only, so this form
+// only ever collects a start/end date range and a reason.
 export default function WfhApplyForm({
   onSuccess,
   initialValues,
@@ -33,8 +42,6 @@ export default function WfhApplyForm({
 }) {
   const [startDate, setStartDate] = useState(initialValues?.startDate ?? '');
   const [endDate, setEndDate] = useState(initialValues?.endDate ?? '');
-  const [isHalfDay, setIsHalfDay] = useState(initialValues?.isHalfDay ?? false);
-  const [halfDaySession, setHalfDaySession] = useState<'AM' | 'PM'>(initialValues?.halfDaySession ?? 'AM');
   const [reason, setReason] = useState(initialValues?.reason ?? '');
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
@@ -43,12 +50,16 @@ export default function WfhApplyForm({
 
   async function handleApply(e: React.FormEvent) {
     e.preventDefault();
-    if (!startDate || !reason.trim()) {
-      setFormError('Start date and reason are required.');
+    if (!startDate || !endDate || !reason.trim()) {
+      setFormError('Start date, end date, and reason are required.');
       return;
     }
-    if (startDate < min || (!isHalfDay && endDate && endDate < min)) {
+    if (startDate < min || endDate < min) {
       setFormError('WFH is a planned request — it cannot be applied for a past date.');
+      return;
+    }
+    if (endDate < startDate) {
+      setFormError('End date cannot be before the start date.');
       return;
     }
     setSubmitting(true);
@@ -57,13 +68,7 @@ export default function WfhApplyForm({
       const res = await fetch('/api/leave/wfh', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          startDate,
-          endDate: isHalfDay ? startDate : endDate || startDate,
-          isHalfDay,
-          halfDaySession: isHalfDay ? halfDaySession : undefined,
-          reason,
-        }),
+        body: JSON.stringify({ startDate, endDate, reason }),
       });
       const body = await res.json();
       if (!res.ok) {
@@ -79,60 +84,54 @@ export default function WfhApplyForm({
   }
 
   return (
-    <form onSubmit={handleApply} className="space-y-3">
+    <form onSubmit={handleApply} className="space-y-4">
       <div className="grid grid-cols-2 gap-3">
         <div>
-          <label className="block text-xs text-[var(--text-muted)] mb-1">Start date</label>
+          <label className={LABEL_CLASS}>Start date</label>
           <input
             type="date"
             value={startDate}
             min={min}
             onChange={(e) => setStartDate(e.target.value)}
-            className="w-full bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)]"
+            className={FIELD_CLASS}
             required
           />
         </div>
         <div>
-          <label className="block text-xs text-[var(--text-muted)] mb-1">End date</label>
+          <label className={LABEL_CLASS}>End date</label>
           <input
             type="date"
-            value={isHalfDay ? startDate : endDate}
+            value={endDate}
             min={startDate || min}
-            disabled={isHalfDay}
             onChange={(e) => setEndDate(e.target.value)}
-            className="w-full bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)] disabled:opacity-50"
+            className={FIELD_CLASS}
+            required
           />
         </div>
       </div>
-      <label className="flex items-center gap-2 text-sm text-[var(--text-muted)]">
-        <input type="checkbox" checked={isHalfDay} onChange={(e) => setIsHalfDay(e.target.checked)} />
-        Half day
-      </label>
-      {isHalfDay && (
-        <select
-          value={halfDaySession}
-          onChange={(e) => setHalfDaySession(e.target.value as 'AM' | 'PM')}
-          className="bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)]"
-        >
-          <option value="AM">AM</option>
-          <option value="PM">PM</option>
-        </select>
-      )}
+
       <div>
-        <label className="block text-xs text-[var(--text-muted)] mb-1">Reason</label>
+        <label className={LABEL_CLASS}>Reason</label>
         <textarea
           value={reason}
           onChange={(e) => setReason(e.target.value)}
           rows={3}
-          className="w-full bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)]"
+          className={FIELD_CLASS}
           required
         />
       </div>
-      {formError && <p className="text-red-500 text-xs">{formError}</p>}
+
+      {formError && (
+        <div className="flex items-start gap-2 text-xs rounded-lg px-3 py-2.5 border bg-red-500/10 border-red-500/30 text-red-700 dark:text-red-300">
+          <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+          <p>{formError}</p>
+        </div>
+      )}
+
       <button
         type="submit"
         disabled={submitting}
-        className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+        className="bg-[var(--accent)] hover:bg-[var(--accent)]/90 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
       >
         {submitting ? 'Submitting…' : 'Apply for WFH'}
       </button>

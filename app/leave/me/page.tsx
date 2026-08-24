@@ -8,7 +8,6 @@ import PersonalAttendanceReport from '@/components/leave/PersonalAttendanceRepor
 import LeaveBalanceCards from '@/components/leave/LeaveBalanceCards';
 import LeaveHistoryTable, { LeaveHistoryRow } from '@/components/leave/LeaveHistoryTable';
 import WfhPanel from '@/components/leave/WfhPanel';
-import MyAttendanceExceptions from '@/components/leave/MyAttendanceExceptions';
 
 type HistoryRow = {
   id: string;
@@ -100,22 +99,19 @@ export default async function LeaveMeHome() {
         role={employee.role}
       />
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 mb-5">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
         <div className="lg:col-span-2">
           <PersonalAttendanceReport />
         </div>
         <div>
-          <h2 className="text-sm font-semibold text-[var(--text-primary)] mb-3">Leave Balances</h2>
           <LeaveBalanceCards balances={balances} />
         </div>
       </div>
 
-      <MyAttendanceExceptions />
-
       <WfhPanel />
 
-      <div>
-        <h2 className="text-sm font-semibold text-[var(--text-primary)] mb-3">My Leave History</h2>
+      <div className="space-y-3">
+        <h2 className="text-sm font-semibold text-[var(--text-primary)]">My Leave History</h2>
         <LeaveHistoryTable rows={history} showActions />
       </div>
     </div>
