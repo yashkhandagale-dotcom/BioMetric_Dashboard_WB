@@ -11,7 +11,8 @@ import {
   BarChart3,
   ShieldAlert,
   Building2,
-  KeyRound,
+  // KeyRound only used by the now-hidden "Create Login" nav item — see
+  // this file's commented-out entry further down.
   Users,
   ArrowLeft,
   ChevronDown,
@@ -92,7 +93,16 @@ function navGroups(role: LeaveRole, pendingApprovalsCount: number): NavGroup[] {
         { href: '/leave/admin/violations', label: 'Violations', icon: ShieldAlert },
         { href: '/leave/admin/organization', label: 'Organization', icon: Building2 },
         { href: '/leave/admin/config', label: 'Leave Configuration', icon: Settings },
-        { href: '/leave/admin/bulk-logins', label: 'Create Login', icon: KeyRound },
+        // "Create Login" nav item hidden per HR's request — the
+        // Acknowledge & Set Up flow (NewJoinersPanel on /leave/admin)
+        // now links a login automatically for anyone who signed in
+        // with Google, and Add Employee (also hidden, same reasoning —
+        // see app/leave/admin/page.tsx) covers the rest. The page
+        // itself at /leave/admin/bulk-logins is untouched and still
+        // fully functional if navigated to directly — this only
+        // removes it from the sidebar. Re-add the line below to bring
+        // it back:
+        // { href: '/leave/admin/bulk-logins', label: 'Create Login', icon: KeyRound },
       ],
     });
   }

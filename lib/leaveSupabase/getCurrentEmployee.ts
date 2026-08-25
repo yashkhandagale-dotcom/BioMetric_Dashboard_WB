@@ -13,6 +13,12 @@ export interface CurrentEmployee {
   reporting_lead_id: string | null;
   reporting_manager_id: string | null;
   must_change_password: boolean;
+  // Sprint — Google OAuth (see app/api/auth/callback/route.ts /
+  // 0016_google_oauth_and_directory.sql). null until the person has been
+  // through the post-login onboarding confirmation screen once.
+  profile_confirmed_at: string | null;
+  avatar_url: string | null;
+  auth_provider: 'password' | 'google';
 }
 
 // Sprint A — role-aware auth.
@@ -49,7 +55,7 @@ export async function getCurrentEmployee(): Promise<CurrentEmployee | null> {
   const { data: employee, error } = await supabase
     .from('employees')
     .select(
-      'id, full_name, employee_code, email, role, department, office, reporting_lead_id, reporting_manager_id, must_change_password'
+      'id, full_name, employee_code, email, role, department, office, reporting_lead_id, reporting_manager_id, must_change_password, profile_confirmed_at, avatar_url, auth_provider'
     )
     .eq('auth_user_id', user.id)
     .maybeSingle();
@@ -85,4 +91,30 @@ export function homeRouteForRole(role: EmployeeRole): string {
     default:
       return '/leave/me';
   }
+}
+
+// Simplified onboarding flow: a Google sign-in with no employees row yet
+// isn't necessarily a rejection anymore — app/api/auth/callback/route.ts
+// creates a pending_employee_signups row for it instead (see
+// 0017_pending_signups_and_probation.sql) and lets them in. Every
+// /leave/**/layout.tsx guard's `if (!employee) redirect(...)` branch
+// calls this first to tell "genuinely not authenticated / not
+// recognized at all" apart from "authenticated, Google-verified, just
+// waiting on HR" — the latter goes to the holding page
+// (app/leave/pending/page.tsx) instead of back to /login, so the person
+// isn't bounced in a loop after they already successfully signed in.
+export async function getPendingSignupRedirect(): Promise<string | null> {
+  const supabase = await createLeaveClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return null;
+
+  const { data } = await supabase
+    .from('pending_employee_signups')
+    .select('id')
+    .eq('auth_user_id', user.id)
+    .maybeSingle();
+
+  return data ? '/leave/pending' : null;
 }

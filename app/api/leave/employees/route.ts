@@ -63,6 +63,18 @@ export async function POST(req: NextRequest) {
     reporting_manager_id,
     managed_departments, // string[] — only used when role === 'manager'
     notice_period_days,
+    // Simplified onboarding — see 0017_pending_signups_and_probation.sql
+    // and app/leave/pending/page.tsx. When set, this employee is being
+    // created as the "Acknowledge" step for someone who already signed
+    // in with Google (components/leave/NewJoinersPanel.tsx) rather than
+    // a bare Add Employee. See below for how that changes what happens
+    // on success.
+    pending_signup_id,
+    // Optional per-employee override of leave_policy_config.
+    // probation_unlock_months — see that column's comment in the
+    // migration and lib/leaveSupabase/applyLeavePolicyAndMutateBalance.ts
+    // for where it's actually read.
+    probation_months,
   } = body;
 
   if (!employee_code || !full_name || !email || !role || !department || !office || !date_of_joining) {
@@ -70,6 +82,31 @@ export async function POST(req: NextRequest) {
   }
 
   const service = createLeaveServiceClient();
+
+  // If this is an Ack (pending_signup_id present), the person already
+  // has a real Supabase Auth session from signing in with Google —
+  // pull the auth_user_id/email straight from that row rather than
+  // trusting the submitted email, so there's no way to accidentally
+  // link the wrong account. must be *validated* here, not assumed
+  // by the client — this route is HR-authorized, not self-service.
+  let pendingAuthUserId: string | null = null;
+  if (pending_signup_id) {
+    const { data: pending, error: pendingFetchError } = await service
+      .from('pending_employee_signups')
+      .select('id, auth_user_id, email')
+      .eq('id', pending_signup_id)
+      .maybeSingle();
+    if (pendingFetchError) {
+      return NextResponse.json({ error: pendingFetchError.message }, { status: 400 });
+    }
+    if (!pending) {
+      return NextResponse.json(
+        { error: 'This sign-in is no longer pending — it may have already been acknowledged, or the person needs to sign in again.' },
+        { status: 404 }
+      );
+    }
+    pendingAuthUserId = pending.auth_user_id;
+  }
 
   // Hierarchy fields are role-gated the same way the profile PATCH route
   // gates them — see app/api/leave/employees/[id]/profile/route.ts for
@@ -89,12 +126,27 @@ export async function POST(req: NextRequest) {
       reporting_manager_id: role === 'manager' ? reporting_manager_id || null : null,
       notice_period_days: notice_period_days || 30,
       employment_status: 'probation',
+      probation_months: probation_months || null,
+      // Ack path: link immediately — this person already proved they
+      // control this email via Google, no separate first-login linking
+      // step needed. Plain Add Employee path: leave null, exactly as
+      // before — that person links on their own first sign-in (see
+      // app/api/auth/callback/route.ts).
+      auth_user_id: pendingAuthUserId,
+      auth_provider: pendingAuthUserId ? 'google' : 'password',
     })
     .select()
     .single();
 
   if (insertError) {
     return NextResponse.json({ error: insertError.message }, { status: 400 });
+  }
+
+  if (pending_signup_id) {
+    // Best-effort cleanup — the employee row is already created and
+    // linked at this point regardless, so a failure here is surfaced as
+    // a warning, not rolled back into an error.
+    await service.from('pending_employee_signups').delete().eq('id', pending_signup_id);
   }
 
   if (role === 'manager' && Array.isArray(managed_departments) && managed_departments.length > 0) {

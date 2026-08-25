@@ -1,7 +1,8 @@
 ﻿'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { ChevronLeft, ChevronRight, Inbox } from 'lucide-react';
 import ConfirmDialog from '../ConfirmDialog';
 import InfoTooltip from '../InfoTooltip';
 import type { ApplyLeaveInitialValues } from './ApplyLeaveForm';
@@ -39,12 +40,21 @@ function todayYMD() {
   return new Date().toISOString().slice(0, 10);
 }
 
+function initials(name: string) {
+  return name
+    .split(' ')
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase())
+    .join('');
+}
+
 const STATUS_STYLE: Record<string, string> = {
-  pending: 'bg-amber-500/15 text-amber-700 dark:text-amber-300',
-  approved: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300',
-  auto_lwp: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300',
-  rejected: 'bg-red-500/15 text-red-700 dark:text-red-300',
-  cancelled: 'bg-[var(--text-muted)]/15 text-[var(--text-muted)]',
+  pending: 'bg-amber-50 dark:bg-amber-500/15 text-amber-800 dark:text-amber-300',
+  approved: 'bg-emerald-50 dark:bg-emerald-500/15 text-emerald-700 dark:text-emerald-300',
+  auto_lwp: 'bg-emerald-50 dark:bg-emerald-500/15 text-emerald-700 dark:text-emerald-300',
+  rejected: 'bg-red-50 dark:bg-red-500/15 text-red-700 dark:text-red-300',
+  cancelled: 'bg-[var(--bg-surface)] text-[var(--text-muted)]',
 };
 
 function statusLabel(status: string): string {
@@ -122,11 +132,14 @@ function Modal({
   );
 }
 
-// D3-2: columns are exactly employee, type, dates, days, half-day flag,
-// LWP-override, applied-on, recorded-by — the list from the Sprint
-// Tracker's Acceptance Criteria for this file, nothing added.
+// D3-2: every field from the Sprint Tracker's Acceptance Criteria for
+// this file is still surfaced — employee, type, dates, days, half-day
+// flag, LWP-override, applied-on, recorded-by — just laid out as a card
+// instead of a table row. Cards + client-side pagination mirror
+// AbsenteesPanel.tsx / HalfDayPanel.tsx's layout so the Leave Tracker's
+// admin views read as one consistent product.
 //
-// showActions (feedback items #7, #10, #12) — opt-in Actions column, on
+// showActions (feedback items #7, #10, #12) — opt-in Actions section, on
 // by default (only /leave/me passes it; /leave/team stays read-only per
 // its own header comment, so it omits the prop and keeps the old
 // behavior unchanged). "Cancel/Withdraw" covers a still-pending OR an
@@ -173,6 +186,16 @@ export default function LeaveHistoryTable({
   const [rowError, setRowError] = useState<{ id: string; message: string } | null>(null);
   const [correctingId, setCorrectingId] = useState<string | null>(null);
   const [correctionReason, setCorrectionReason] = useState('');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(8);
+
+  // Rows arrive pre-filtered from the parent (search/department/office
+  // filters live upstream) — a new rows array means the result set
+  // changed, so drop back to page 1 rather than risk landing on an
+  // out-of-range empty page.
+  useEffect(() => {
+    setPage(1);
+  }, [rows]);
 
   function refresh() {
     if (onChanged) onChanged();
@@ -241,132 +264,192 @@ export default function LeaveHistoryTable({
 
   if (rows.length === 0) {
     return (
-      <div className="bg-[var(--bg-elevated)]/40 border border-[var(--border)] rounded-xl px-4 py-10 text-center text-[var(--text-muted)] text-sm">
-        No leave records match the current filters.
+      <div className="bg-[var(--bg-elevated)]/40 border border-[var(--border)] rounded-xl px-4 py-14 flex flex-col items-center gap-2 text-center">
+        <Inbox size={26} className="text-[var(--text-muted)]" />
+        <p className="text-[var(--text-muted)] text-sm">No leave records match the current filters.</p>
       </div>
     );
   }
 
   const hasActionsColumn = showActions || hrCorrection;
+  const pageCount = Math.max(1, Math.ceil(rows.length / pageSize));
+  const currentPage = Math.min(page, pageCount);
+  const paged = rows.slice((currentPage - 1) * pageSize, currentPage * pageSize);
 
   return (
-    <div className="bg-[var(--bg-elevated)]/40 border border-[var(--border)] rounded-xl overflow-hidden">
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm border-separate border-spacing-0">
-          <thead>
-            <tr className="text-left text-[var(--text-muted)] text-xs uppercase tracking-wide">
-              <th className="px-4 py-3 font-medium">Employee</th>
-              <th className="px-4 py-3 font-medium">Type</th>
-              <th className="px-4 py-3 font-medium">Dates</th>
-              <th className="px-4 py-3 font-medium text-right">Days</th>
-              <th className="px-4 py-3 font-medium">Status</th>
-              <th className="px-4 py-3 font-medium">Half-day</th>
-              <th className="px-4 py-3 font-medium">LWP</th>
-              <th className="px-4 py-3 font-medium">Applied</th>
-              <th className="px-4 py-3 font-medium">Recorded by</th>
-              {hasActionsColumn && <th className="px-4 py-3 font-medium">Actions</th>}
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((r) => (
-              <tr key={r.id} className="hover:bg-[var(--bg-elevated)]/60 transition-colors">
-                <td className="px-4 py-3 border-t border-[var(--border)]">
-                  <p className="text-[var(--text-primary)] font-medium">{r.employeeName}</p>
-                  <p className="text-[var(--text-muted)] text-xs mt-0.5">
-                    {r.employeeCode} · {r.department} · {r.office}
-                  </p>
-                </td>
-                <td className="px-4 py-3 border-t border-[var(--border)] text-[var(--text-muted)]">{r.leaveTypeLabel}</td>
-                <td className="px-4 py-3 border-t border-[var(--border)] text-[var(--text-muted)] whitespace-nowrap">
-                  {formatDateRange(r.startDate, r.endDate)}
-                </td>
-                <td className="px-4 py-3 border-t border-[var(--border)] text-right tabular-nums text-[var(--text-primary)]">
-                  {r.totalDays.toFixed(2)}
-                </td>
-                <td className="px-4 py-3 border-t border-[var(--border)]">
-                  <span className="inline-flex items-center gap-1">
-                    <span
-                      className={`text-[11px] font-medium rounded-full px-2 py-0.5 whitespace-nowrap ${
-                        STATUS_STYLE[r.status] ?? 'bg-[var(--text-muted)]/15 text-[var(--text-muted)]'
-                      }`}
-                    >
-                      {r.status === 'cancelled' && r.correctedByName ? 'Reversed by HR' : statusLabel(r.status)}
-                    </span>
-                    {r.status === 'cancelled' && r.correctedByName && (
-                      <InfoTooltip
-                        title="Reversed by HR"
-                        description={`${r.correctedByName} reversed this record.${r.correctionReason ? ` Reason: ${r.correctionReason}` : ''}`}
-                      />
-                    )}
+    <div>
+      <p className="text-xs text-[var(--text-muted)] mb-3">
+        {rows.length} leave record{rows.length === 1 ? '' : 's'}
+      </p>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3 gap-3 items-stretch">
+        {paged.map((r) => {
+          const alreadyStarted = r.status !== 'pending' && r.startDate <= todayYMD();
+          const showCancel = (showActions || allowHrCancel) && (r.status === 'pending' || r.status === 'approved' || r.status === 'auto_lwp');
+          const showReapply = showActions && r.status === 'rejected';
+          const showCorrect = hrCorrection && (r.status === 'approved' || r.status === 'auto_lwp');
+
+          return (
+            <div
+              key={r.id}
+              className="h-full flex flex-col gap-3 bg-[var(--bg-elevated)]/40 border border-[var(--border)] rounded-xl p-4 hover:border-[var(--accent)]/40 transition-colors"
+            >
+              <div className="flex items-start justify-between gap-2">
+                <div className="flex items-start gap-3 min-w-0">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--accent)]/15 text-[var(--accent)] text-xs font-semibold">
+                    {initials(r.employeeName)}
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-[var(--text-primary)] text-sm font-medium truncate">{r.employeeName}</p>
+                    <p className="text-[var(--text-muted)] text-xs truncate mt-0.5">
+                      {r.employeeCode} · {r.department} · {r.office}
+                    </p>
+                  </div>
+                </div>
+                <span className="inline-flex items-center gap-1 shrink-0">
+                  <span
+                    className={`text-[11px] font-medium rounded-full px-2 py-0.5 whitespace-nowrap ${
+                      STATUS_STYLE[r.status] ?? 'bg-[var(--text-muted)]/15 text-[var(--text-muted)]'
+                    }`}
+                  >
+                    {r.status === 'cancelled' && r.correctedByName ? 'Reversed by HR' : statusLabel(r.status)}
                   </span>
-                </td>
-                <td className="px-4 py-3 border-t border-[var(--border)] text-[var(--text-muted)]">
-                  {r.isHalfDay ? (r.halfDaySession ?? 'Yes') : '—'}
-                </td>
-                <td className="px-4 py-3 border-t border-[var(--border)]">
-                  {r.isLwpOverride ? (
-                    <span className="text-amber-600 dark:text-amber-400 text-xs font-medium">Yes</span>
-                  ) : (
-                    <span className="text-[var(--text-muted)] text-xs">—</span>
+                  {r.status === 'cancelled' && r.correctedByName && (
+                    <InfoTooltip
+                      title="Reversed by HR"
+                      description={`${r.correctedByName} reversed this record.${r.correctionReason ? ` Reason: ${r.correctionReason}` : ''}`}
+                    />
                   )}
-                </td>
-                <td className="px-4 py-3 border-t border-[var(--border)] text-[var(--text-muted)] whitespace-nowrap">
-                  {new Date(r.appliedOn).toLocaleDateString()}
-                </td>
-                <td className="px-4 py-3 border-t border-[var(--border)] text-[var(--text-muted)]">{r.recordedBy}</td>
-                {hasActionsColumn && (
-                  <td className="px-4 py-3 border-t border-[var(--border)]">
-                    <div className="flex flex-col items-start gap-1">
-                      {(showActions || allowHrCancel) &&
-                        (r.status === 'pending' || r.status === 'approved' || r.status === 'auto_lwp') &&
-                        (() => {
-                          // Same "already started" rule the cancel API enforces
-                          // server-side (app/api/leave/requests/[id]/cancel/route.ts)
-                          // — a completed/in-progress approved leave can no
-                          // longer be cancelled. Disable the button up front
-                          // instead of letting it be clicked and fail.
-                          const alreadyStarted = r.status !== 'pending' && r.startDate <= todayYMD();
-                          return (
-                            <RowAction
-                              tone="danger"
-                              disabled={busyId === r.id || alreadyStarted}
-                              title={
-                                alreadyStarted
-                                  ? 'This leave has already started — it can no longer be cancelled.'
-                                  : undefined
-                              }
-                              onClick={() => setConfirmingId(r.id)}
-                            >
-                              {r.status === 'pending' ? 'Withdraw' : 'Cancel'}
-                            </RowAction>
-                          );
-                        })()}
-                      {showActions && r.status === 'rejected' && (
-                        <RowAction tone="accent" onClick={() => handleReapply(r)}>
-                          Apply for another leave type
-                        </RowAction>
-                      )}
-                      {hrCorrection && (r.status === 'approved' || r.status === 'auto_lwp') && (
-                        <RowAction
-                          tone="warn"
-                          disabled={busyId === r.id}
-                          onClick={() => {
-                            setCorrectingId(r.id);
-                            setCorrectionReason('');
-                            setRowError(null);
-                          }}
-                        >
-                          Correct / Reverse
-                        </RowAction>
-                      )}
-                      {rowError?.id === r.id && <p className="text-red-500 text-[11px] leading-snug">{rowError.message}</p>}
-                    </div>
-                  </td>
-                )}
-              </tr>
-            ))}
-          </tbody>
-        </table>
+                </span>
+              </div>
+
+              <div className="flex items-center justify-between gap-3 bg-[var(--bg-surface)]/60 rounded-lg px-3 py-2">
+                <div className="min-w-0">
+                  <p className="text-[var(--text-primary)] text-sm font-medium truncate">{r.leaveTypeLabel}</p>
+                  <p className="text-[var(--text-muted)] text-xs mt-0.5 whitespace-nowrap">
+                    {formatDateRange(r.startDate, r.endDate)}
+                  </p>
+                </div>
+                <p className="shrink-0 text-right">
+                  <span className="text-[var(--text-primary)] text-lg font-semibold tabular-nums">
+                    {r.totalDays.toFixed(2)}
+                  </span>
+                  <span className="text-[10px] text-[var(--text-muted)] ml-1">days</span>
+                </p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-x-3 gap-y-2">
+                <div>
+                  <p className="text-[10px] text-[var(--text-muted)] uppercase tracking-wide">Half-day</p>
+                  <p className="text-xs text-[var(--text-primary)] mt-0.5">
+                    {r.isHalfDay ? (r.halfDaySession ?? 'Yes') : '—'}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-[10px] text-[var(--text-muted)] uppercase tracking-wide">LWP</p>
+                  <p
+                    className={`text-xs mt-0.5 ${
+                      r.isLwpOverride ? 'text-amber-600 dark:text-amber-400 font-medium' : 'text-[var(--text-primary)]'
+                    }`}
+                  >
+                    {r.isLwpOverride ? 'Yes' : '—'}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-[10px] text-[var(--text-muted)] uppercase tracking-wide">Applied</p>
+                  <p className="text-xs text-[var(--text-primary)] mt-0.5">
+                    {new Date(r.appliedOn).toLocaleDateString()}
+                  </p>
+                </div>
+                <div className="min-w-0">
+                  <p className="text-[10px] text-[var(--text-muted)] uppercase tracking-wide">Recorded by</p>
+                  <p className="text-xs text-[var(--text-primary)] mt-0.5 truncate">{r.recordedBy}</p>
+                </div>
+              </div>
+
+              {hasActionsColumn && (showCancel || showReapply || showCorrect || rowError?.id === r.id) && (
+                <div className="flex flex-col items-start gap-1 mt-auto pt-2 border-t border-[var(--border)]">
+                  {showCancel && (
+                    <RowAction
+                      tone="danger"
+                      disabled={busyId === r.id || alreadyStarted}
+                      title={alreadyStarted ? 'This leave has already started — it can no longer be cancelled.' : undefined}
+                      onClick={() => setConfirmingId(r.id)}
+                    >
+                      {r.status === 'pending' ? 'Withdraw' : 'Cancel'}
+                    </RowAction>
+                  )}
+                  {showReapply && (
+                    <RowAction tone="accent" onClick={() => handleReapply(r)}>
+                      Apply for another leave type
+                    </RowAction>
+                  )}
+                  {showCorrect && (
+                    <RowAction
+                      tone="warn"
+                      disabled={busyId === r.id}
+                      onClick={() => {
+                        setCorrectingId(r.id);
+                        setCorrectionReason('');
+                        setRowError(null);
+                      }}
+                    >
+                      Correct / Reverse
+                    </RowAction>
+                  )}
+                  {rowError?.id === r.id && <p className="text-red-500 text-[11px] leading-snug">{rowError.message}</p>}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="flex items-center justify-between gap-3 flex-wrap mt-4">
+        <div className="flex items-center gap-2 text-xs text-[var(--text-muted)]">
+          <span>Cards per page</span>
+          <select
+            value={pageSize}
+            onChange={(e) => {
+              setPageSize(Number(e.target.value));
+              setPage(1);
+            }}
+            className="bg-[var(--bg-elevated)] border border-[var(--border)] rounded-lg px-2 py-1 text-xs text-[var(--text-primary)]"
+          >
+            <option value={8}>8</option>
+            <option value={16}>16</option>
+            <option value={32}>32</option>
+          </select>
+        </div>
+
+        <div className="flex items-center gap-3 text-xs text-[var(--text-muted)]">
+          <span>
+            {(currentPage - 1) * pageSize + 1}–{Math.min(currentPage * pageSize, rows.length)} of {rows.length}
+          </span>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={currentPage === 1}
+              aria-label="Previous page"
+              className="p-1.5 rounded-lg border border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--text-primary)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >
+              <ChevronLeft size={14} />
+            </button>
+            <span className="text-[var(--text-primary)] px-1">
+              {currentPage} / {pageCount}
+            </span>
+            <button
+              type="button"
+              onClick={() => setPage((p) => Math.min(pageCount, p + 1))}
+              disabled={currentPage === pageCount}
+              aria-label="Next page"
+              className="p-1.5 rounded-lg border border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--text-primary)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            >
+              <ChevronRight size={14} />
+            </button>
+          </div>
+        </div>
       </div>
 
       {/* Feedback item #10 — confirmation popup before a destructive action. */}

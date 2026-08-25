@@ -8,6 +8,7 @@ import { updateSession } from '@/lib/supabase/middleware';
 // lib/supabase/middleware.ts) so signing in once is enough for both the
 // Dashboard and the Leave Tracker — no more separate /leave/login.
 //
+//
 // Role (hr / hr_super_admin / manager / lead / employee) comes from the
 // `employees` table, keyed by `auth_user_id`. What each role can reach:
 //   - hr / hr_super_admin : full Dashboard ('/') + full Leave Tracker

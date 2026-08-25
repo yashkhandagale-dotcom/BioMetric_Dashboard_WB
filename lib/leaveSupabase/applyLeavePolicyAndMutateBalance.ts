@@ -261,7 +261,7 @@ export async function previewLeavePolicy(
 
   const { data: employee, error: empError } = await service
     .from('employees')
-    .select('id, office, date_of_joining, employment_status, date_of_exit, notice_period_days')
+    .select('id, office, date_of_joining, employment_status, date_of_exit, notice_period_days, probation_months')
     .eq('id', employeeId)
     .single();
   if (empError || !employee) {
@@ -314,7 +314,10 @@ export async function previewLeavePolicy(
     const autoLwpReason = getAutoLwpConversionReason(
       employee as EmployeeForConversionCheck,
       startDate,
-      config.probationUnlockMonths
+      // Per-employee override — see 0017_pending_signups_and_probation.sql's
+      // employees.probation_months comment. Falls back to the company
+      // default when unset, exactly as before.
+      employee.probation_months ?? config.probationUnlockMonths
     );
     if (autoLwpReason) {
       notes.push(`${autoLwpReason} — this will be recorded as Leave Without Pay, not ${leaveType.code}.`);
@@ -377,7 +380,7 @@ async function createAndMaybeApprove(
 
   const { data: employee, error: empError } = await service
     .from('employees')
-    .select('id, employee_code, office, full_name, date_of_joining, employment_status, date_of_exit, notice_period_days')
+    .select('id, employee_code, office, full_name, date_of_joining, employment_status, date_of_exit, notice_period_days, probation_months')
     .eq('id', employeeId)
     .single();
   if (empError || !employee) {
@@ -449,7 +452,8 @@ async function createAndMaybeApprove(
     autoLwpReason = getAutoLwpConversionReason(
       employee as EmployeeForConversionCheck,
       startDate,
-      config.probationUnlockMonths
+      // Same per-employee override as the other call site above.
+      employee.probation_months ?? config.probationUnlockMonths
     );
   }
   if (autoLwpReason) {
