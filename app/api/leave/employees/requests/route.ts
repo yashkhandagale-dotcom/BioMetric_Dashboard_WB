@@ -45,12 +45,15 @@ export async function POST(req: NextRequest) {
     .select('role')
     .eq('auth_user_id', user.id)
     .maybeSingle();
-  if (!actingEmployee || actingEmployee.role !== 'hr') {
-    return NextResponse.json(
-      { error: 'HR Admin can only send reminders — recording leave is an HR action.' },
-      { status: 403 }
-    );
-  }
+  if (
+  !actingEmployee ||
+  !['hr', 'hr_super_admin'].includes(actingEmployee.role)
+) {
+  return NextResponse.json(
+    { error: 'You do not have permission to record leave.' },
+    { status: 403 }
+  );
+}
 
   const body = await req.json();
   const {
