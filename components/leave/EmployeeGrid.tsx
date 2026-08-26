@@ -1,15 +1,15 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
 import EmployeeCard, { EmployeeWithBalances } from './EmployeeCard';
 
-// All employees currently render at once — fine for a handful of
-// people, but it means every biometric-CSV onboarding just makes this
-// page take longer to paint. Load a fixed page size up front and grow
-// it a page at a time instead, same "Load more" pattern used for long
-// lists elsewhere rather than infinite-scroll (keeps position/scrollbar
-// predictable when filters change).
-const PAGE_SIZE = 30;
+// Numbered pagination + page-size selector — same pattern as
+// AbsenteesPanel.tsx / HalfDayPanel.tsx on the Leave Tracker page, so
+// HR gets one consistent paging control across every grid instead of
+// this page's old "Load more" button being the odd one out.
+const PAGE_SIZE_OPTIONS = [9, 18, 30, 60] as const;
+const DEFAULT_PAGE_SIZE = 30;
 
 const STATUS_OPTIONS = [
   { value: 'probation', label: 'Probation' },
@@ -35,7 +35,8 @@ export default function EmployeeGrid({
   const [department, setDepartment] = useState('');
   const [office, setOffice] = useState('');
   const [status, setStatus] = useState('');
-  const [visibleCount, setVisibleCount] = useState(PAGE_SIZE);
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(DEFAULT_PAGE_SIZE);
 
   // D4: real per-employee violation counts for ViolationBadge.
   const [violationCounts, setViolationCounts] = useState<Record<string, number>>({});
@@ -85,15 +86,16 @@ export default function EmployeeGrid({
 
   const hasActiveFilters = !!(search || department || office || status);
 
-  // Reset back to one page whenever the filtered set changes — otherwise
-  // "Load more" from a previous, larger filter would silently carry over
-  // and dump everything on screen the moment a filter narrows the list.
+  // Any change to filters or page size can shrink the result set below
+  // the current page — reset to page 1 rather than showing an
+  // out-of-range empty page (same guard AbsenteesPanel.tsx uses).
   useEffect(() => {
-    setVisibleCount(PAGE_SIZE);
-  }, [search, department, office, status]);
+    setPage(1);
+  }, [search, department, office, status, pageSize]);
 
-  const visible = filtered.slice(0, visibleCount);
-  const remaining = filtered.length - visible.length;
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const currentPage = Math.min(page, pageCount);
+  const visible = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize);
 
   return (
     <div className="space-y-4">
@@ -175,17 +177,50 @@ export default function EmployeeGrid({
               />
             ))}
           </div>
-          {remaining > 0 && (
-            <div className="flex justify-center pt-2">
-              <button
-                type="button"
-                onClick={() => setVisibleCount((c) => c + PAGE_SIZE)}
-                className="text-sm font-medium text-[var(--text-primary)] border border-[var(--border)] hover:border-[var(--accent)] hover:text-[var(--accent)] rounded-lg px-4 py-2 transition-colors"
+
+          <div className="flex items-center justify-between gap-3 flex-wrap mt-4">
+            <div className="flex items-center gap-2 text-xs text-[var(--text-muted)]">
+              <span>Cards per page</span>
+              <select
+                value={pageSize}
+                onChange={(e) => setPageSize(Number(e.target.value))}
+                className="bg-[var(--bg-elevated)] border border-[var(--border)] rounded-lg px-2 py-1 text-xs text-[var(--text-primary)]"
               >
-                Load {Math.min(PAGE_SIZE, remaining)} more ({remaining} left)
-              </button>
+                {PAGE_SIZE_OPTIONS.map((n) => (
+                  <option key={n} value={n}>{n}</option>
+                ))}
+              </select>
             </div>
-          )}
+
+            <div className="flex items-center gap-3 text-xs text-[var(--text-muted)]">
+              <span>
+                {(currentPage - 1) * pageSize + 1}–{Math.min(currentPage * pageSize, filtered.length)} of {filtered.length}
+              </span>
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  disabled={currentPage === 1}
+                  aria-label="Previous page"
+                  className="p-1.5 rounded-lg border border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--text-primary)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  <ChevronLeft size={14} />
+                </button>
+                <span className="text-[var(--text-primary)] px-1">
+                  {currentPage} / {pageCount}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setPage((p) => Math.min(pageCount, p + 1))}
+                  disabled={currentPage === pageCount}
+                  aria-label="Next page"
+                  className="p-1.5 rounded-lg border border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--text-primary)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  <ChevronRight size={14} />
+                </button>
+              </div>
+            </div>
+          </div>
         </>
       )}
     </div>

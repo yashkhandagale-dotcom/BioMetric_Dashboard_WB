@@ -47,7 +47,13 @@ export async function PUT(req: NextRequest) {
 
   const body = await req.json();
   const { policyConfig, leaveTypeUpdates } = body as {
-    policyConfig?: { probationUnlockMonths?: number; noticePeriodDefaultDays?: number };
+    policyConfig?: {
+      probationUnlockMonths?: number;
+      noticePeriodDefaultDays?: number;
+      reminderIntervalHours?: number;
+      finalReminderDay?: number;
+      manualReminderCooldownHours?: number;
+    };
     leaveTypeUpdates?: LeaveTypeConfigUpdate[];
   };
 

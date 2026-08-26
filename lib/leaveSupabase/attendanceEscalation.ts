@@ -9,6 +9,7 @@ import {
 import { createEmployeeRegularisationRequest } from './regularisation';
 import type { TrackerLeaveTypeCode } from './leaveTypeMap';
 import { getAttendanceExceptionsAllPending } from '../attendanceExceptions';
+import { getLeavePolicyConfig } from './leaveConfig';
 
 // =====================================================================
 // attendanceEscalation — MASTER_PLAN_CONSOLIDATED.md Part C.
@@ -20,6 +21,17 @@ import { getAttendanceExceptionsAllPending } from '../attendanceExceptions';
 //     (§C.5's "hybrid reminder delivery").
 //   ackEscalationToLwp — HR's ACK action, gated on reminder_count >= 3,
 //     always converts to LWP (§C.4).
+//
+// Reminder cadence (added on top of the original design, per HR
+// feedback): every call to sendEscalationReminder passes a `trigger` —
+// 'immediate' (fired the moment a target first becomes unmarked/pending,
+// bypasses all gating since there's nothing to gate against yet),
+// 'automatic' (the daily cron sweep, gated on leave_policy_config's
+// reminder_interval_hours — default 48h), or 'manual' (HR's "Remind"
+// button, gated on manual_reminder_cooldown_hours — default 24h). Either
+// gate is bypassed on the configured final_reminder_day (default the
+// 25th) for any target whose relevant date falls on or before that day
+// of the month — see checkReminderGate below.
 //
 // The manager-rejection auto-LWP hooks (§C.5's "rejecting IS a
 // decision — no reminder wait needed") live in
@@ -188,6 +200,23 @@ export async function ensureAttendanceExceptionRows(
     .in('target_id', ids);
   const countById = new Map((reminders ?? []).map((r) => [r.target_id, r.reminder_count]));
 
+  // A row with no escalation_reminders entry yet has never been
+  // reminded about — this is the moment it first becomes "unmarked" as
+  // far as this app can observe it, so fire the immediate reminder
+  // right now rather than waiting for the next cron sweep. Fire-and-
+  // forget in parallel; a failure here just means the automatic sweep
+  // picks it up on its normal cadence instead, so it isn't awaited into
+  // the panel's loading state.
+  const brandNewIds = ids.filter((id) => !countById.has(id));
+  if (brandNewIds.length > 0) {
+    Promise.all(
+      brandNewIds.map((id) => sendEscalationReminder(service, 'attendance_exception_unmarked', id, 'immediate'))
+    ).catch(() => {
+      // Best-effort — the daily automatic sweep is the fallback.
+    });
+    for (const id of brandNewIds) countById.set(id, 1);
+  }
+
   for (const r of upserted) {
     result.set(exceptionKey(r.employee_id, r.exception_date), { id: r.id, reminderCount: countById.get(r.id) ?? 0 });
   }
@@ -315,42 +344,122 @@ export interface SendEscalationReminderResult {
   ok: boolean;
   error?: string;
   reminderCount?: number;
+  /** True when this send happened because of the guaranteed
+   *  final-reminder-day rule rather than the normal interval/cooldown. */
+  isFinalReminder?: boolean;
+}
+
+export type EscalationReminderTrigger = 'immediate' | 'automatic' | 'manual';
+
+function hoursBetween(a: Date, b: Date): number {
+  return Math.abs(a.getTime() - b.getTime()) / (1000 * 60 * 60);
+}
+
+function fmtHours(h: number): string {
+  if (h < 1) return `${Math.max(1, Math.round(h * 60))}m`;
+  return `${h.toFixed(1)}h`;
+}
+
+// ---------------------------------------------------------------------
+// checkReminderGate — decides whether this call to sendEscalationReminder
+// is actually allowed to send right now, given who/what triggered it.
+//
+//   - 'immediate': only valid the very first time (reminder_count === 0
+//     already implied by the caller — see ensureAttendanceExceptionRows'
+//     new-row detection) — never gated, since there's nothing to
+//     compare against yet.
+//   - final-reminder-day override: if today is leave_policy_config's
+//     final_reminder_day, and relevantDate falls on or before that day
+//     of its own month/year, a reminder is guaranteed today regardless
+//     of the interval/cooldown below — but only once per calendar day
+//     per target (last_final_reminder_on guards this).
+//   - 'automatic' (cron sweep): needs last_reminder_at to be null or at
+//     least reminder_interval_hours old.
+//   - 'manual' (HR "Remind" button): needs last_reminder_at to be null
+//     or at least manual_reminder_cooldown_hours old.
+// ---------------------------------------------------------------------
+async function checkReminderGate(
+  service: SupabaseClient,
+  trigger: EscalationReminderTrigger,
+  relevantDate: string | null,
+  existing: { last_reminder_at: string | null; last_final_reminder_on: string | null } | null | undefined
+): Promise<{ allowed: boolean; isFinal: boolean; error?: string }> {
+  if (trigger === 'immediate') return { allowed: true, isFinal: false };
+
+  const { config } = await getLeavePolicyConfig(service);
+  const now = new Date();
+  const todayStr = now.toISOString().slice(0, 10);
+
+  if (relevantDate) {
+    const d = new Date(`${relevantDate}T00:00:00Z`);
+    const isSameMonth = d.getUTCFullYear() === now.getUTCFullYear() && d.getUTCMonth() === now.getUTCMonth();
+    const isFinalReminderDay = now.getUTCDate() === config.finalReminderDay;
+    const dueOnOrBeforeFinalDay = d.getUTCDate() <= config.finalReminderDay;
+    const alreadySentFinalToday = existing?.last_final_reminder_on === todayStr;
+    if (isSameMonth && isFinalReminderDay && dueOnOrBeforeFinalDay && !alreadySentFinalToday) {
+      return { allowed: true, isFinal: true };
+    }
+  }
+
+  if (!existing?.last_reminder_at) return { allowed: true, isFinal: false };
+
+  const gapHours = trigger === 'manual' ? config.manualReminderCooldownHours : config.reminderIntervalHours;
+  const elapsed = hoursBetween(now, new Date(existing.last_reminder_at));
+  if (elapsed >= gapHours) return { allowed: true, isFinal: false };
+
+  if (trigger === 'manual') {
+    return {
+      allowed: false,
+      isFinal: false,
+      error: `Please wait — the last reminder for this went out ${fmtHours(elapsed)} ago. HR can send another after ${gapHours}h (in ~${fmtHours(gapHours - elapsed)}).`,
+    };
+  }
+  return { allowed: false, isFinal: false, error: `Not due yet (last sent ${fmtHours(elapsed)} ago, interval is ${gapHours}h).` };
 }
 
 async function bumpEscalationReminder(
   service: SupabaseClient,
   targetType: EscalationTargetType,
-  targetId: string
-): Promise<{ reminderCount: number | null; error: string | null }> {
+  targetId: string,
+  trigger: EscalationReminderTrigger,
+  relevantDate: string | null
+): Promise<{ reminderCount: number | null; isFinal: boolean; error: string | null }> {
   const { data: existing } = await service
     .from('escalation_reminders')
-    .select('id, reminder_count, acked_at')
+    .select('id, reminder_count, acked_at, last_reminder_at, last_final_reminder_on')
     .eq('target_type', targetType)
     .eq('target_id', targetId)
     .maybeSingle();
 
   if (existing?.acked_at) {
-    return { reminderCount: existing.reminder_count, error: 'This has already been converted to LWP — no further reminders needed.' };
+    return { reminderCount: existing.reminder_count, isFinal: false, error: 'This has already been converted to LWP — no further reminders needed.' };
+  }
+
+  const gate = await checkReminderGate(service, trigger, relevantDate, existing);
+  if (!gate.allowed) {
+    return { reminderCount: existing?.reminder_count ?? 0, isFinal: false, error: gate.error ?? 'Not due yet.' };
   }
 
   const nextCount = (existing?.reminder_count ?? 0) + 1;
-  const { error } = await service.from('escalation_reminders').upsert(
-    {
-      target_type: targetType,
-      target_id: targetId,
-      reminder_count: nextCount,
-      last_reminder_at: new Date().toISOString(),
-    },
-    { onConflict: 'target_type,target_id' }
-  );
-  if (error) return { reminderCount: null, error: error.message };
-  return { reminderCount: nextCount, error: null };
+  const now = new Date();
+  const patch: Record<string, unknown> = {
+    target_type: targetType,
+    target_id: targetId,
+    reminder_count: nextCount,
+    last_reminder_at: now.toISOString(),
+  };
+  if (gate.isFinal) patch.last_final_reminder_on = now.toISOString().slice(0, 10);
+
+  const { error } = await service.from('escalation_reminders').upsert(patch, { onConflict: 'target_type,target_id' });
+  if (error) return { reminderCount: null, isFinal: false, error: error.message };
+  return { reminderCount: nextCount, isFinal: gate.isFinal, error: null };
 }
 
 export async function sendEscalationReminder(
   service: SupabaseClient,
   targetType: EscalationTargetType,
-  targetId: string
+  targetId: string,
+  trigger: EscalationReminderTrigger = 'manual'
 ): Promise<SendEscalationReminderResult> {
   if (targetType === 'attendance_exception_unmarked') {
     const { data: exception } = await service
@@ -363,18 +472,24 @@ export async function sendEscalationReminder(
       return { ok: false, error: 'This day is no longer unmarked — nothing to remind about.' };
     }
 
-    const { reminderCount, error } = await bumpEscalationReminder(service, targetType, targetId);
-    if (error) return { ok: false, error };
+    const { reminderCount, isFinal, error } = await bumpEscalationReminder(
+      service,
+      targetType,
+      targetId,
+      trigger,
+      exception.exception_date
+    );
+    if (error) return { ok: false, error, reminderCount: reminderCount ?? undefined };
 
     await insertLeaveNotification(service, {
       recipient_employee_id: exception.employee_id,
       type: 'leave_reminder',
-      title: 'Reminder: please resolve your flagged attendance day',
-      body: `${exception.exception_date} is still unmarked. Go to My Leave to record it as a missed punch, an actual half day, or request regularisation.`,
+      title: isFinal ? 'Final reminder: please resolve your flagged attendance day' : 'Reminder: please resolve your flagged attendance day',
+      body: `${exception.exception_date} is still unmarked. Go to My Leave to record it as a missed punch, an actual half day, or request regularisation.${isFinal ? ' This is the final reminder before it may be converted to Leave Without Pay.' : ''}`,
       leave_request_id: null,
     });
 
-    return { ok: true, reminderCount: reminderCount ?? undefined };
+    return { ok: true, reminderCount: reminderCount ?? undefined, isFinalReminder: isFinal };
   }
 
   // Stage B — pending manager approval. Reminds the manager (the
@@ -395,18 +510,26 @@ export async function sendEscalationReminder(
     });
     if (!approverId) return { ok: false, error: 'No approver is configured for this employee.' };
 
-    const { reminderCount, error } = await bumpEscalationReminder(service, targetType, targetId);
-    if (error) return { ok: false, error };
+    const { reminderCount, isFinal, error } = await bumpEscalationReminder(
+      service,
+      targetType,
+      targetId,
+      trigger,
+      request.start_date
+    );
+    if (error) return { ok: false, error, reminderCount: reminderCount ?? undefined };
 
     await insertLeaveNotification(service, {
       recipient_employee_id: approverId,
       type: 'leave_reminder',
-      title: `Reminder: ${emp?.full_name ?? 'an employee'}'s half-day request is waiting on you`,
-      body: `A half-day request for ${request.start_date} is still pending your decision.`,
+      title: isFinal
+        ? `Final reminder: ${emp?.full_name ?? 'an employee'}'s half-day request is waiting on you`
+        : `Reminder: ${emp?.full_name ?? 'an employee'}'s half-day request is waiting on you`,
+      body: `A half-day request for ${request.start_date} is still pending your decision.${isFinal ? ' This is the final reminder before it may be converted to Leave Without Pay.' : ''}`,
       leave_request_id: request.id,
     });
 
-    return { ok: true, reminderCount: reminderCount ?? undefined };
+    return { ok: true, reminderCount: reminderCount ?? undefined, isFinalReminder: isFinal };
   }
 
   // regularisation_pending
@@ -425,18 +548,26 @@ export async function sendEscalationReminder(
   });
   if (!approverId) return { ok: false, error: 'No approver is configured for this employee.' };
 
-  const { reminderCount, error } = await bumpEscalationReminder(service, targetType, targetId);
-  if (error) return { ok: false, error };
+  const { reminderCount, isFinal, error } = await bumpEscalationReminder(
+    service,
+    targetType,
+    targetId,
+    trigger,
+    reg.regularised_date
+  );
+  if (error) return { ok: false, error, reminderCount: reminderCount ?? undefined };
 
   await insertLeaveNotification(service, {
     recipient_employee_id: approverId,
     type: 'leave_reminder',
-    title: `Reminder: ${emp?.full_name ?? 'an employee'}'s regularisation request is waiting on you`,
-    body: `A regularisation request for ${reg.regularised_date} is still pending your decision.`,
+    title: isFinal
+      ? `Final reminder: ${emp?.full_name ?? 'an employee'}'s regularisation request is waiting on you`
+      : `Reminder: ${emp?.full_name ?? 'an employee'}'s regularisation request is waiting on you`,
+    body: `A regularisation request for ${reg.regularised_date} is still pending your decision.${isFinal ? ' This is the final reminder before it may be converted to Leave Without Pay.' : ''}`,
     leave_request_id: null,
   });
 
-  return { ok: true, reminderCount: reminderCount ?? undefined };
+  return { ok: true, reminderCount: reminderCount ?? undefined, isFinalReminder: isFinal };
 }
 
 // ---------------------------------------------------------------------
@@ -567,10 +698,12 @@ export { applyAutoLwpForRejectedRegularisation } from './applyLeavePolicyAndMuta
 // ---------------------------------------------------------------------
 // Sweep — called by the daily cron job (see app/api/leave/admin/jobs)
 // to find every due target across both stages and fire
-// sendEscalationReminder for it. "Due" here just means "still open" —
-// the reminder itself is what advances reminder_count; there is no
-// separate cooldown window beyond "once per cron run," matching the
-// existing pending-leave-reminders job's own once-per-day cadence.
+// sendEscalationReminder('automatic') for it. "Due" is now enforced by
+// checkReminderGate above (reminder_interval_hours since last_reminder_at,
+// or the final_reminder_day override) rather than "once per cron run" —
+// sendEscalationReminder itself decides whether today's sweep pass
+// actually sends anything for a given target, so running the sweep more
+// than once a day (e.g. a retried cron) is still safe and won't double-send.
 // ---------------------------------------------------------------------
 export interface EscalationSweepResult {
   targetType: EscalationTargetType;
@@ -588,7 +721,7 @@ export async function runEscalationSweep(service: SupabaseClient): Promise<Escal
     .eq('resolution', 'pending')
     .is('employee_choice', null);
   for (const row of unmarked ?? []) {
-    const outcome = await sendEscalationReminder(service, 'attendance_exception_unmarked', row.id);
+    const outcome = await sendEscalationReminder(service, 'attendance_exception_unmarked', row.id, 'automatic');
     results.push({
       targetType: 'attendance_exception_unmarked',
       targetId: row.id,
@@ -604,7 +737,7 @@ export async function runEscalationSweep(service: SupabaseClient): Promise<Escal
     .not('leave_request_id', 'is', null);
   for (const row of pendingHalfDays ?? []) {
     if (!row.leave_request_id) continue;
-    const outcome = await sendEscalationReminder(service, 'leave_request_pending', row.leave_request_id);
+    const outcome = await sendEscalationReminder(service, 'leave_request_pending', row.leave_request_id, 'automatic');
     results.push({
       targetType: 'leave_request_pending',
       targetId: row.leave_request_id,
@@ -620,7 +753,7 @@ export async function runEscalationSweep(service: SupabaseClient): Promise<Escal
     .not('regularisation_id', 'is', null);
   for (const row of pendingRegularisations ?? []) {
     if (!row.regularisation_id) continue;
-    const outcome = await sendEscalationReminder(service, 'regularisation_pending', row.regularisation_id);
+    const outcome = await sendEscalationReminder(service, 'regularisation_pending', row.regularisation_id, 'automatic');
     results.push({
       targetType: 'regularisation_pending',
       targetId: row.regularisation_id,

@@ -227,6 +227,37 @@ export async function notifyLeaveEvent(service: SupabaseClient, event: LeaveEven
   await insertNotifications(service, rows);
 }
 
+async function checkManualReminderCooldown(
+  service: SupabaseClient,
+  input: LeaveReminderInput
+): Promise<{ allowed: boolean; error?: string }> {
+  const { getLeavePolicyConfig } = await import('./leaveConfig');
+  const { config } = await getLeavePolicyConfig(service);
+
+  let query = service
+    .from('notifications')
+    .select('created_at')
+    .eq('type', 'leave_reminder')
+    .order('created_at', { ascending: false })
+    .limit(1);
+  query = input.mode === 'pending_request'
+    ? query.eq('leave_request_id', input.requestId)
+    : query.eq('recipient_employee_id', input.employeeId).is('leave_request_id', null);
+
+  const { data } = await query;
+  const last = data?.[0]?.created_at;
+  if (!last) return { allowed: true };
+
+  const elapsedHours = (Date.now() - new Date(last).getTime()) / (1000 * 60 * 60);
+  if (elapsedHours >= config.manualReminderCooldownHours) return { allowed: true };
+
+  const remaining = config.manualReminderCooldownHours - elapsedHours;
+  return {
+    allowed: false,
+    error: `Please wait — a reminder for this was already sent ${elapsedHours < 1 ? `${Math.round(elapsedHours * 60)}m` : `${elapsedHours.toFixed(1)}h`} ago. Try again in ~${remaining < 1 ? `${Math.round(remaining * 60)}m` : `${remaining.toFixed(1)}h`}.`,
+  };
+}
+
 // =====================================================================
 // sendLeaveReminder — "Send Reminder" action from the Pending Approvals
 // queue and from the Leave Tracker's Absentees/Half Day tabs.
@@ -244,10 +275,22 @@ export type LeaveReminderInput =
   | { mode: 'pending_request'; requestId: string }
   | { mode: 'missing_application'; employeeId: string; date: string };
 
+// `trigger` mirrors attendanceEscalation.ts's EscalationReminderTrigger:
+// 'manual' (HR's "Send Reminder" button on ApprovalCard.tsx) is gated on
+// leave_policy_config's manual_reminder_cooldown_hours (default 24h) so
+// HR can't spam the same request; 'automatic' (the daily
+// pending-leave-reminders cron) keeps its existing once-per-day dedup
+// in app/api/leave/admin/jobs, unaffected by this gate.
 export async function sendLeaveReminder(
   service: SupabaseClient,
-  input: LeaveReminderInput
+  input: LeaveReminderInput,
+  trigger: 'manual' | 'automatic' = 'automatic'
 ): Promise<{ ok: boolean; error?: string }> {
+  if (trigger === 'manual') {
+    const cooldown = await checkManualReminderCooldown(service, input);
+    if (!cooldown.allowed) return { ok: false, error: cooldown.error };
+  }
+
   if (input.mode === 'pending_request') {
     const { data: request } = await service
       .from('leave_requests')

@@ -30,8 +30,8 @@ export async function POST(req: NextRequest) {
   }
 
   const service = createLeaveServiceClient();
-  const result = await sendEscalationReminder(service, targetType, targetId);
+  const result = await sendEscalationReminder(service, targetType, targetId, 'manual');
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 });
 
-  return NextResponse.json({ ok: true, reminderCount: result.reminderCount });
+  return NextResponse.json({ ok: true, reminderCount: result.reminderCount, isFinalReminder: result.isFinalReminder });
 }

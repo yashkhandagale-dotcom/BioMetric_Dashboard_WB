@@ -53,7 +53,7 @@ export async function POST(req: NextRequest) {
     if (!isHr && approverId !== actingEmployee.id) {
       return NextResponse.json({ error: 'You can only send reminders for your own direct reports' }, { status: 403 });
     }
-    const result = await sendLeaveReminder(service, { mode: 'pending_request', requestId: leave_request_id });
+    const result = await sendLeaveReminder(service, { mode: 'pending_request', requestId: leave_request_id }, 'manual');
     if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 });
     return NextResponse.json({ ok: true });
   }
@@ -69,7 +69,7 @@ export async function POST(req: NextRequest) {
     if (!isHr && approverId !== actingEmployee.id) {
       return NextResponse.json({ error: 'You can only send reminders for your own direct reports' }, { status: 403 });
     }
-    const result = await sendLeaveReminder(service, { mode: 'missing_application', employeeId: employee_id, date });
+    const result = await sendLeaveReminder(service, { mode: 'missing_application', employeeId: employee_id, date }, 'manual');
     if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 });
     return NextResponse.json({ ok: true });
   }

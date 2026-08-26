@@ -15,6 +15,11 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 export interface LeavePolicyConfig {
   probationUnlockMonths: number;
   noticePeriodDefaultDays: number;
+  // Reminder scheduling (migration 0018) — see attendanceEscalation.ts's
+  // sendEscalationReminder for how these three are actually applied.
+  reminderIntervalHours: number; // automated sweep cadence, default 48
+  finalReminderDay: number; // day-of-month guaranteed final nudge, default 25
+  manualReminderCooldownHours: number; // HR "Remind" button gate, default 24
 }
 
 export interface NoticeTier {
@@ -39,18 +44,30 @@ export async function getLeavePolicyConfig(
 ): Promise<{ config: LeavePolicyConfig; error: string | null }> {
   const { data, error } = await supabase
     .from('leave_policy_config')
-    .select('probation_unlock_months, notice_period_default_days')
+    .select('probation_unlock_months, notice_period_default_days, reminder_interval_hours, final_reminder_day, manual_reminder_cooldown_hours')
     .eq('id', 1)
     .single();
   if (error || !data) {
     // Same defaults the old hardcoded lib/leavePolicy.ts used — a missing
     // config row should degrade to the old behavior, not break the app.
-    return { config: { probationUnlockMonths: 4, noticePeriodDefaultDays: 30 }, error: error?.message ?? null };
+    return {
+      config: {
+        probationUnlockMonths: 4,
+        noticePeriodDefaultDays: 30,
+        reminderIntervalHours: 48,
+        finalReminderDay: 25,
+        manualReminderCooldownHours: 24,
+      },
+      error: error?.message ?? null,
+    };
   }
   return {
     config: {
       probationUnlockMonths: data.probation_unlock_months,
       noticePeriodDefaultDays: data.notice_period_default_days,
+      reminderIntervalHours: data.reminder_interval_hours ?? 48,
+      finalReminderDay: data.final_reminder_day ?? 25,
+      manualReminderCooldownHours: data.manual_reminder_cooldown_hours ?? 24,
     },
     error: null,
   };
@@ -64,6 +81,9 @@ export async function updateLeavePolicyConfig(
   const patch: Record<string, unknown> = { updated_at: new Date().toISOString(), updated_by: updatedBy };
   if (updates.probationUnlockMonths !== undefined) patch.probation_unlock_months = updates.probationUnlockMonths;
   if (updates.noticePeriodDefaultDays !== undefined) patch.notice_period_default_days = updates.noticePeriodDefaultDays;
+  if (updates.reminderIntervalHours !== undefined) patch.reminder_interval_hours = updates.reminderIntervalHours;
+  if (updates.finalReminderDay !== undefined) patch.final_reminder_day = updates.finalReminderDay;
+  if (updates.manualReminderCooldownHours !== undefined) patch.manual_reminder_cooldown_hours = updates.manualReminderCooldownHours;
   const { error } = await supabase.from('leave_policy_config').update(patch).eq('id', 1);
   return { error: error?.message ?? null };
 }

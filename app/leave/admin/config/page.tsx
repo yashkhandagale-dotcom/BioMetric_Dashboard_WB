@@ -18,7 +18,13 @@ import LeavePageHeader from '@/components/leave/LeavePageHeader';
 // knobs, and fn_check_planned_leave_notice's PL tiers) plus item #4's
 // per-leave-type weekly alert thresholds. Same 'use client' + self-
 // fetch pattern as the neighboring Organization admin page.
-type PolicyConfig = { probationUnlockMonths: number; noticePeriodDefaultDays: number };
+type PolicyConfig = {
+  probationUnlockMonths: number;
+  noticePeriodDefaultDays: number;
+  reminderIntervalHours: number;
+  finalReminderDay: number;
+  manualReminderCooldownHours: number;
+};
 type NoticeTier = { maxDays: number | null; noticeDays: number };
 type LeaveTypeConfig = {
   id: string;
@@ -214,6 +220,58 @@ export default function LeaveConfigPage() {
               className="w-full bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/40 focus:border-[var(--accent)] transition-colors"
             />
             <p className="text-[var(--text-muted)] text-xs mt-1">Used when an employee's own notice_period_days isn't set.</p>
+          </div>
+        </div>
+      </div>
+
+      {/* Reminder scheduling — how often the unmarked-attendance /
+         pending-approval escalation reminders fire (automated + manual),
+         and the guaranteed month-end final nudge. */}
+      <div className="bg-[var(--bg-elevated)]/40 border border-[var(--border)] rounded-xl p-4 space-y-4">
+        <h2 className="flex items-center gap-2 text-sm font-semibold text-[var(--text-primary)]">
+          <SlidersHorizontal size={15} className="text-[var(--accent)]" />
+          Reminder Scheduling
+        </h2>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div>
+            <label className="block text-xs text-[var(--text-muted)] mb-1">Automated reminder interval (hours)</label>
+            <input
+              type="number"
+              min={1}
+              value={config?.reminderIntervalHours ?? 48}
+              onChange={(e) => setConfig((c) => (c ? { ...c, reminderIntervalHours: Number(e.target.value) } : c))}
+              className="w-full bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/40 focus:border-[var(--accent)] transition-colors"
+            />
+            <p className="text-[var(--text-muted)] text-xs mt-1">
+              How often the daily sweep re-nudges an open item (unmarked day, pending half-day, pending regularisation). First reminder still fires immediately when the item first goes unmarked.
+            </p>
+          </div>
+          <div>
+            <label className="block text-xs text-[var(--text-muted)] mb-1">Final reminder day of month</label>
+            <input
+              type="number"
+              min={1}
+              max={28}
+              value={config?.finalReminderDay ?? 25}
+              onChange={(e) => setConfig((c) => (c ? { ...c, finalReminderDay: Number(e.target.value) } : c))}
+              className="w-full bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/40 focus:border-[var(--accent)] transition-colors"
+            />
+            <p className="text-[var(--text-muted)] text-xs mt-1">
+              For any leave/exception dated on or before this day, a final reminder is guaranteed on this day of that month — regardless of the interval above.
+            </p>
+          </div>
+          <div>
+            <label className="block text-xs text-[var(--text-muted)] mb-1">Manual reminder cooldown (hours)</label>
+            <input
+              type="number"
+              min={1}
+              value={config?.manualReminderCooldownHours ?? 24}
+              onChange={(e) => setConfig((c) => (c ? { ...c, manualReminderCooldownHours: Number(e.target.value) } : c))}
+              className="w-full bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/40 focus:border-[var(--accent)] transition-colors"
+            />
+            <p className="text-[var(--text-muted)] text-xs mt-1">
+              How long HR must wait after a reminder (automated or manual) before clicking "Remind" again on the same item.
+            </p>
           </div>
         </div>
       </div>

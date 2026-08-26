@@ -3,9 +3,10 @@ import { createLeaveClient, createLeaveServiceClient } from '@/lib/leaveSupabase
 import { getFYStartYear } from '@/lib/leaveSupabase/fyHelpers';
 import { sendLeaveReminder } from '@/lib/leaveSupabase/notifyLeaveEvent';
 import { runLeaveThresholdCheck } from '@/lib/leaveSupabase/thresholdCheck';
+import { runEscalationSweep } from '@/lib/leaveSupabase/attendanceEscalation';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
-const JOBS = ['probation-accrual', 'annual-reset', 'pending-leave-reminders', 'leave-threshold-check'] as const;
+const JOBS = ['probation-accrual', 'annual-reset', 'pending-leave-reminders', 'leave-threshold-check', 'attendance-escalation-sweep'] as const;
 type Job = (typeof JOBS)[number];
 
 // D7-1: these two SQL functions already exist (schema.sql migration
@@ -207,7 +208,7 @@ async function runPendingLeaveReminders(service: SupabaseClient, asOf: Date) {
       continue;
     }
 
-    const outcome = await sendLeaveReminder(service, { mode: 'pending_request', requestId: req.id });
+    const outcome = await sendLeaveReminder(service, { mode: 'pending_request', requestId: req.id }, 'automatic');
     results.push({ requestId: req.id, sent: outcome.ok, reason: outcome.ok ? 'Reminder sent' : outcome.error ?? 'Unknown error' });
   }
 
@@ -224,12 +225,25 @@ async function runLeaveThresholdCheckJob(service: SupabaseClient, asOf: Date) {
   return { job: 'leave-threshold-check', alertedCount: results.filter((r) => r.alerted).length, results };
 }
 
+// Wires runEscalationSweep (lib/leaveSupabase/attendanceEscalation.ts) —
+// the automated half of the "unmark leave" reminder flow (§C.5's hybrid
+// delivery, same escalation_reminders counter the manual "Remind now"
+// button uses). vercel.json has scheduled this job's path since the
+// escalation feature shipped, but it was never actually added to the
+// JOBS list below, so the daily cron 404'd silently and only manual
+// reminders were ever going out. Fixed as of this change.
+async function runAttendanceEscalationSweepJob(service: SupabaseClient) {
+  const results = await runEscalationSweep(service);
+  return { job: 'attendance-escalation-sweep', sentCount: results.filter((r) => r.sent).length, results };
+}
+
 async function runJob(job: Job) {
   const service = createLeaveServiceClient();
   const now = new Date();
   if (job === 'probation-accrual') return runProbationAccrual(service, now);
   if (job === 'annual-reset') return runAnnualReset(service, now);
   if (job === 'pending-leave-reminders') return runPendingLeaveReminders(service, now);
+  if (job === 'attendance-escalation-sweep') return runAttendanceEscalationSweepJob(service);
   return runLeaveThresholdCheckJob(service, now);
 }
 
