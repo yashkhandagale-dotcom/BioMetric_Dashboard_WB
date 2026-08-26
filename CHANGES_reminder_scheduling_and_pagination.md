@@ -214,6 +214,33 @@ Let me know if you'd like a reset script for anything that looks wrong
 here — I didn't run one automatically since I can't see your data and
 don't want to guess at which rows are legitimate.
 
+## 13. The real remaining bottleneck — unbounded default date range
+
+**This is very likely why the table view was still hanging even after
+fix #12.** It's a separate issue from the reminder storm — it exists
+even with reminders working perfectly.
+
+`app/leave/admin/history/page.tsx` (the Leave Tracker page — Absentees /
+Half Day / History tabs) initialized its date filters to empty strings.
+Empty dates mean "scan the entire uploaded attendance history": every
+table involved (`attendance_records`, `leave_requests`,
+`workforce_events`, `custom_holidays`, `attendance_exceptions`) gets
+paginated through 1000 rows at a time, sequentially, from your very
+first uploaded biometric record through today. For any company with
+more than a couple months of attendance data, that's a lot of
+sequential round trips — and it ran **by default, every time the page
+loaded, before anyone touched a filter.** This matches "I have to choose
+dates to get that data" exactly.
+
+Fixed by defaulting the Absentees/Half Day tabs to a rolling **60-day
+window** instead of unbounded history. A "View full history (may take
+longer to load)" link is still there for the (rarer) case of digging
+into older backlog, with a "← Back to last 60 days" link to return.
+
+This is the fix most likely to resolve the hang you're still seeing —
+the item 12 fix (reminder storm) was real and necessary, but this
+unbounded-scan issue is probably the bigger piece of it.
+
 ## What you need to do
 
 1. **Run migration `supabase/migrations/0018_reminder_scheduling_config.sql`

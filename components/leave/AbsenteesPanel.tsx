@@ -3,20 +3,27 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertCircle, ChevronLeft, ChevronRight, Inbox } from 'lucide-react';
 import type { AbsenteeCandidate } from '@/lib/attendanceExceptions';
+import RecordLeaveDrawer from './RecordLeaveDrawer';
+import type { SubmitResult } from './RecordLeaveForm';
 
 // Absentees panel — lives inside the "Absentees" tab of the Leave
 // Tracker (app/leave/admin/history/page.tsx).
 //
-// Part C (MASTER_PLAN_CONSOLIDATED.md §C.4) removed HR's direct-
-// resolution power here — there is no more "Record Leave" button.
 // Resolving one of these days (missed punch / actual half day /
-// regularise) is now exclusively the EMPLOYEE's own call, made from
-// /leave/me (see components/leave/MyAttendanceExceptions.tsx). HR's
-// only actions on an unresolved row are:
+// regularise) is normally the EMPLOYEE's own call, made from /leave/me
+// (see components/leave/MyAttendanceExceptions.tsx). HR's actions on an
+// unresolved row here are:
 //   - Remind: nudges the employee to respond (Stage A of the §C.5
 //     escalation — see lib/leaveSupabase/attendanceEscalation.ts).
-//   - ACK → LWP: available once reminder_count reaches 3, converts the
-//     day straight to Leave Without Pay.
+//   - Record Leave: HR records the actual leave for this employee/day
+//     (opens the same RecordLeaveDrawer used elsewhere), then the day
+//     is marked resolved as recorded by HR. This replaced the old
+//     "ACK -> auto-convert to LWP" action — HR no longer force-converts
+//     an unresolved day to Leave Without Pay after 3 reminders; instead
+//     HR records whatever the leave actually was, same as any other
+//     manually-recorded leave, and it's attributed to HR (see
+//     app/api/leave/attendance/resolve/route.ts's 'leave_recorded'
+//     action). Available any time — not gated on reminder count.
 //
 // Date handling: this app's attendance_records come from batch CSV
 // uploads, so there is no dependable "today". `date` is the single-day
@@ -73,10 +80,11 @@ export default function AbsenteesPanel({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [remindingKey, setRemindingKey] = useState<string | null>(null);
-  const [ackingKey, setAckingKey] = useState<string | null>(null);
   const [remindingAll, setRemindingAll] = useState(false);
   const [bulkResult, setBulkResult] = useState<string | null>(null);
   const [refreshSignal, setRefreshSignal] = useState(0);
+  // Which row's "Record Leave" drawer is currently open, if any.
+  const [recordLeaveFor, setRecordLeaveFor] = useState<{ employeeId: string; employeeName: string; date: string } | null>(null);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(9);
   // Ticks every 20s purely to re-render cooldown countdowns/re-enable
@@ -212,20 +220,26 @@ export default function AbsenteesPanel({
     }
   }
 
-  async function ackToLwp(employeeId: string, forDate: string) {
-    const key = `${employeeId}-${forDate}`;
-    const target = escalation.get(`${employeeId}__${forDate}`);
-    if (!target) return;
-    setAckingKey(key);
+  // Called once RecordLeaveForm (inside the drawer) has successfully
+  // created the leave_request — marks this attendance_exceptions row
+  // resolved ('leave_recorded', attributed to the acting HR employee)
+  // so it drops out of this list, matching what CalendarDayDrawer's own
+  // "Record leave" action already does.
+  async function handleLeaveRecorded(result: SubmitResult) {
+    if (!recordLeaveFor) return;
     try {
-      const res = await fetch('/api/leave/attendance/ack', {
+      await fetch('/api/leave/attendance/resolve', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ targetType: 'attendance_exception_unmarked', targetId: target.id }),
+        body: JSON.stringify({
+          employee_id: recordLeaveFor.employeeId,
+          date: recordLeaveFor.date,
+          action: 'leave_recorded',
+          leave_request_id: result.leave_request.id,
+        }),
       });
-      if (res.ok) setRefreshSignal((s) => s + 1);
     } finally {
-      setAckingKey(null);
+      setRefreshSignal((s) => s + 1);
     }
   }
 
@@ -420,9 +434,7 @@ export default function AbsenteesPanel({
                       Unmarked
                     </span>
                     {reminderCount > 0 && (
-                      <span className="text-[10px] text-[var(--text-muted)]">
-                        {reminderCount} reminder{reminderCount === 1 ? '' : 's'} sent
-                      </span>
+                      <span className="text-[10px] text-[var(--text-muted)]">Reminder sent</span>
                     )}
                   </div>
 
@@ -449,12 +461,11 @@ export default function AbsenteesPanel({
                     </button>
                     <button
                       type="button"
-                      onClick={() => ackToLwp(r.employeeId, r.date)}
-                      disabled={!target || reminderCount < 3 || ackingKey === key}
-                      title={reminderCount < 3 ? `ACK is available after 3 reminders (currently ${reminderCount})` : 'Convert this day to Leave Without Pay'}
-                      className="flex-1 text-xs bg-red-600 hover:bg-red-700 disabled:bg-[var(--bg-elevated)] disabled:text-[var(--text-muted)] text-white font-medium px-2.5 py-1.5 rounded-lg transition-colors disabled:cursor-not-allowed"
+                      onClick={() => setRecordLeaveFor({ employeeId: r.employeeId, employeeName: r.employeeName, date: r.date })}
+                      title="Record the actual leave for this employee/day"
+                      className="flex-1 text-xs bg-emerald-600 hover:bg-emerald-500 text-white font-medium px-2.5 py-1.5 rounded-lg transition-colors"
                     >
-                      {ackingKey === key ? 'Converting…' : 'ACK → LWP'}
+                      Record Leave
                     </button>
                   </div>
                 </div>
@@ -509,6 +520,16 @@ export default function AbsenteesPanel({
             </div>
           </div>
         </>
+      )}
+
+      {recordLeaveFor && (
+        <RecordLeaveDrawer
+          employeeId={recordLeaveFor.employeeId}
+          employeeName={recordLeaveFor.employeeName}
+          presetDate={recordLeaveFor.date}
+          onClose={() => setRecordLeaveFor(null)}
+          onSuccess={handleLeaveRecorded}
+        />
       )}
     </div>
   );

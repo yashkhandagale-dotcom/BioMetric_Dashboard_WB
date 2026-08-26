@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, ChevronLeft, ChevronRight, Inbox } from 'lucide-react';
 import type { HalfDayCandidate } from '@/lib/attendanceExceptions';
+import RecordLeaveDrawer from './RecordLeaveDrawer';
+import type { SubmitResult } from './RecordLeaveForm';
 
 // Half Day panel — lives inside the "Half Days" tab of the Leave Tracker
 // (app/leave/admin/history/page.tsx). Mirrors AbsenteesPanel's shape but
@@ -12,11 +14,14 @@ import type { HalfDayCandidate } from '@/lib/attendanceExceptions';
 // times — that detail is the whole point of this tab, since "possible
 // half day" needs a human to look at the punches and decide.
 //
-// Part C (MASTER_PLAN_CONSOLIDATED.md §C.4) removed HR's direct-
-// resolution power here too — see AbsenteesPanel.tsx's header comment,
-// which applies identically: deciding what actually happened on a
-// flagged day is now the EMPLOYEE's call from /leave/me, not HR's.
-// HR's actions here are the same Remind / ACK → LWP pair.
+// See AbsenteesPanel.tsx's header comment, which applies identically:
+// deciding what actually happened on a flagged day is normally the
+// EMPLOYEE's call from /leave/me, not HR's. HR's actions here are the
+// same Remind / Record Leave pair AbsenteesPanel has — Record Leave
+// replaced the old "ACK -> auto-convert to LWP" action; see that file's
+// header comment for the full rationale. Here it opens the drawer with
+// the half-day toggle preset and locked on, matching what
+// CalendarDayDrawer already does for its 'unresolved_half_day' rows.
 //
 // Same date-range support as AbsenteesPanel: pass `endDate` (different
 // from `date`) to switch to period mode, which asks the API for the
@@ -57,10 +62,11 @@ export default function HalfDayPanel({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [remindingKey, setRemindingKey] = useState<string | null>(null);
-  const [ackingKey, setAckingKey] = useState<string | null>(null);
   const [remindingAll, setRemindingAll] = useState(false);
   const [bulkResult, setBulkResult] = useState<string | null>(null);
   const [refreshSignal, setRefreshSignal] = useState(0);
+  // Which row's "Record Leave" drawer is currently open, if any.
+  const [recordLeaveFor, setRecordLeaveFor] = useState<{ employeeId: string; employeeName: string; date: string } | null>(null);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(9);
   // See AbsenteesPanel's identical guard — prevents a slower, older
@@ -183,20 +189,25 @@ export default function HalfDayPanel({
     }
   }
 
-  async function ackToLwp(employeeId: string, forDate: string) {
-    const key = `${employeeId}-${forDate}`;
-    const target = escalation.get(`${employeeId}__${forDate}`);
-    if (!target) return;
-    setAckingKey(key);
+  // Called once RecordLeaveForm (inside the drawer) has successfully
+  // created the leave_request — marks this attendance_exceptions row
+  // resolved ('leave_recorded', attributed to the acting HR employee),
+  // same as AbsenteesPanel's identical handler.
+  async function handleLeaveRecorded(result: SubmitResult) {
+    if (!recordLeaveFor) return;
     try {
-      const res = await fetch('/api/leave/attendance/ack', {
+      await fetch('/api/leave/attendance/resolve', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ targetType: 'attendance_exception_unmarked', targetId: target.id }),
+        body: JSON.stringify({
+          employee_id: recordLeaveFor.employeeId,
+          date: recordLeaveFor.date,
+          action: 'leave_recorded',
+          leave_request_id: result.leave_request.id,
+        }),
       });
-      if (res.ok) setRefreshSignal((s) => s + 1);
     } finally {
-      setAckingKey(null);
+      setRefreshSignal((s) => s + 1);
     }
   }
 
@@ -397,9 +408,7 @@ export default function HalfDayPanel({
                       {r.reason}
                     </span>
                     {reminderCount > 0 && (
-                      <span className="text-[10px] text-[var(--text-muted)]">
-                        {reminderCount} reminder{reminderCount === 1 ? '' : 's'} sent
-                      </span>
+                      <span className="text-[10px] text-[var(--text-muted)]">Reminder sent</span>
                     )}
                   </div>
 
@@ -426,12 +435,11 @@ export default function HalfDayPanel({
                     </button>
                     <button
                       type="button"
-                      onClick={() => ackToLwp(r.employeeId, r.date)}
-                      disabled={!target || reminderCount < 3 || ackingKey === key}
-                      title={reminderCount < 3 ? `ACK is available after 3 reminders (currently ${reminderCount})` : 'Convert this day to Leave Without Pay'}
-                      className="flex-1 text-xs bg-red-600 hover:bg-red-700 disabled:bg-[var(--bg-elevated)] disabled:text-[var(--text-muted)] text-white font-medium px-2.5 py-1.5 rounded-lg transition-colors disabled:cursor-not-allowed"
+                      onClick={() => setRecordLeaveFor({ employeeId: r.employeeId, employeeName: r.employeeName, date: r.date })}
+                      title="Record the actual leave for this employee/day"
+                      className="flex-1 text-xs bg-emerald-600 hover:bg-emerald-500 text-white font-medium px-2.5 py-1.5 rounded-lg transition-colors"
                     >
-                      {ackingKey === key ? 'Converting…' : 'ACK → LWP'}
+                      Record Leave
                     </button>
                   </div>
                 </div>
@@ -486,6 +494,18 @@ export default function HalfDayPanel({
             </div>
           </div>
         </>
+      )}
+
+      {recordLeaveFor && (
+        <RecordLeaveDrawer
+          employeeId={recordLeaveFor.employeeId}
+          employeeName={recordLeaveFor.employeeName}
+          presetDate={recordLeaveFor.date}
+          presetIsHalfDay
+          lockHalfDay
+          onClose={() => setRecordLeaveFor(null)}
+          onSuccess={handleLeaveRecorded}
+        />
       )}
     </div>
   );
