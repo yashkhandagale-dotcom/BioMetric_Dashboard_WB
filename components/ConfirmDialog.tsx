@@ -30,7 +30,7 @@ export default function ConfirmDialog({
           </div>
         </div>
         {items && items.length > 0 && (
-          <div className="px-5 py-3 max-h-48 overflow-y-auto">
+          <div className="scroll-thin px-5 py-3 max-h-48 overflow-y-auto">
             <ul className="space-y-1">
               {items.map((it, i) => (
                 <li key={i} className="text-[var(--text-muted)] text-xs bg-[var(--bg-elevated)]/60 rounded-lg px-3 py-1.5">{it}</li>

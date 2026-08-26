@@ -84,7 +84,7 @@ export default function RecordLeaveDrawer({
             <X size={18} />
           </button>
         </div>
-        <div className="flex-1 overflow-y-auto p-5">
+        <div className="scroll-thin flex-1 overflow-y-auto p-5">
           <RecordLeaveForm
             presetEmployeeId={employeeId}
             presetDate={presetDate}

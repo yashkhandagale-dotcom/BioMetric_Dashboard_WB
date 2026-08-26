@@ -1,6 +1,7 @@
 ﻿'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { CheckCircle2, AlertTriangle, AlertCircle, Info } from 'lucide-react';
 
 const LEAVE_TYPES: { code: 'SL' | 'CL' | 'PL' | 'LWP'; label: string }[] = [
   { code: 'SL', label: 'Sick Leave' },
@@ -28,6 +29,18 @@ const EMPTY_PREVIEW: PreviewState = {
   loading: false, totalDays: null, notes: [], wouldBeLwp: false, currentBalance: null, error: null,
 };
 
+function todayYMD() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+// Shared field styling so every input/select/textarea in this form is
+// visually identical — including a real focus ring, which the previous
+// version had on none of them.
+const FIELD_CLASS =
+  'w-full bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)] outline-none transition-shadow focus:ring-2 focus:ring-[var(--accent)]/30 focus:border-[var(--accent)]';
+
+const LABEL_CLASS = 'block text-xs font-medium text-[var(--text-muted)] mb-1.5';
+
 // A5 — self-service version of RecordLeaveForm.tsx: same underlying
 // validation/POST contract (minus employee-picker, since it's always
 // "me"), plus action_plan (required for Planned, per schema) which
@@ -40,13 +53,72 @@ const EMPTY_PREVIEW: PreviewState = {
 // a dry run and surfaces the same warnings inline, before the employee
 // ever hits submit — so nobody finds out about a notice-period shortfall
 // or an LWP conversion only after the fact.
-export default function ApplyLeaveForm({ onSuccess }: { onSuccess?: (result: ApplySubmitResult) => void }) {
+// Feedback item #7 — "Reapply after rejection": prefills the form from
+// a just-rejected request (dates/half-day/reason carried over, leave
+// type deliberately NOT carried over — the whole point is picking a
+// DIFFERENT applicable type) when opened via LeaveHistoryTable's
+// "Apply for another leave type" action.
+export type ApplyLeaveInitialValues = {
+  startDate?: string;
+  endDate?: string;
+  isHalfDay?: boolean;
+  halfDaySession?: 'AM' | 'PM';
+  reason?: string;
+};
+
+function Banner({
+  tone,
+  title,
+  children,
+}: {
+  tone: 'success' | 'warning' | 'danger' | 'info';
+  title?: string;
+  children: React.ReactNode;
+}) {
+  const styles = {
+    success: {
+      wrap: 'bg-emerald-500/10 border-emerald-500/30 text-emerald-700 dark:text-emerald-300',
+      icon: CheckCircle2,
+    },
+    warning: {
+      wrap: 'bg-amber-500/10 border-amber-500/30 text-amber-700 dark:text-amber-300',
+      icon: AlertTriangle,
+    },
+    danger: {
+      wrap: 'bg-red-500/10 border-red-500/30 text-red-700 dark:text-red-300',
+      icon: AlertCircle,
+    },
+    info: {
+      wrap: 'bg-[var(--accent)]/10 border-[var(--accent)]/30 text-[var(--accent)]',
+      icon: Info,
+    },
+  }[tone];
+  const Icon = styles.icon;
+
+  return (
+    <div className={`flex items-start gap-2 text-xs rounded-lg px-3 py-2.5 border ${styles.wrap}`}>
+      <Icon className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+      <div className="space-y-1 min-w-0">
+        {title && <p className="font-medium">{title}</p>}
+        {children}
+      </div>
+    </div>
+  );
+}
+
+export default function ApplyLeaveForm({
+  onSuccess,
+  initialValues,
+}: {
+  onSuccess?: (result: ApplySubmitResult) => void;
+  initialValues?: ApplyLeaveInitialValues;
+}) {
   const [leaveTypeCode, setLeaveTypeCode] = useState<'SL' | 'CL' | 'PL' | 'LWP'>('CL');
-  const [isHalfDay, setIsHalfDay] = useState(false);
-  const [halfDaySession, setHalfDaySession] = useState<'AM' | 'PM'>('AM');
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
-  const [reason, setReason] = useState('');
+  const [isHalfDay, setIsHalfDay] = useState(initialValues?.isHalfDay ?? false);
+  const [halfDaySession, setHalfDaySession] = useState<'AM' | 'PM'>(initialValues?.halfDaySession ?? 'AM');
+  const [startDate, setStartDate] = useState(initialValues?.startDate ?? '');
+  const [endDate, setEndDate] = useState(initialValues?.endDate ?? '');
+  const [reason, setReason] = useState(initialValues?.reason ?? '');
   const [actionPlan, setActionPlan] = useState('');
 
   const [error, setError] = useState<string | null>(null);
@@ -55,6 +127,13 @@ export default function ApplyLeaveForm({ onSuccess }: { onSuccess?: (result: App
 
   const [preview, setPreview] = useState<PreviewState>(EMPTY_PREVIEW);
   const previewSeq = useRef(0);
+
+  // Planned Leave is, by definition, planned ahead of time — unlike
+  // Sick/Casual/LWP, which are routinely applied for after the fact
+  // (e.g. you were out sick yesterday and are only applying today), so
+  // the past-date restriction is scoped to PL only.
+  const isPlanned = leaveTypeCode === 'PL';
+  const minDate = isPlanned ? todayYMD() : undefined;
 
   useEffect(() => {
     const hasDates = isHalfDay ? !!startDate : !!startDate && !!endDate;
@@ -121,6 +200,10 @@ export default function ApplyLeaveForm({ onSuccess }: { onSuccess?: (result: App
       setError('An action plan is required for Planned leave.');
       return;
     }
+    if (isPlanned && minDate && (startDate < minDate || (!isHalfDay && endDate < minDate))) {
+      setError('Planned leave cannot be applied for a past date.');
+      return;
+    }
 
     setLoading(true);
     let res: Response;
@@ -164,31 +247,24 @@ export default function ApplyLeaveForm({ onSuccess }: { onSuccess?: (result: App
 
   return (
     <div className="space-y-4">
-      {error && (
-        <div className="bg-red-900/30 border border-red-500/30 text-red-700 dark:text-red-300 text-xs rounded-lg px-3 py-2">
-          {error}
-        </div>
-      )}
+      {error && <Banner tone="danger">{error}</Banner>}
 
       {result && (
         <div className="space-y-2">
-          <div className="bg-emerald-900/30 border border-emerald-500/30 text-emerald-700 dark:text-emerald-300 text-xs rounded-lg px-3 py-2">
+          <Banner tone="success">
             Submitted — {result.leave_request.total_days} day(s) requested. Sent for manager approval.
-          </div>
+          </Banner>
           {result.converted_to_lwp && (
-            <div className="bg-amber-900/30 border border-amber-500/30 text-amber-700 dark:text-amber-300 text-xs rounded-lg px-3 py-2">
-              This entry was auto-converted to Leave Without Pay (LWP) per policy.
-            </div>
+            <Banner tone="warning">This entry was auto-converted to Leave Without Pay (LWP) per policy.</Banner>
           )}
           {result.policy_notes.length > 0 && (
-            <div className="bg-amber-900/30 border border-amber-500/30 text-amber-700 dark:text-amber-300 text-xs rounded-lg px-3 py-2">
-              <p className="font-medium mb-1">This request violates policy — it will still be sent for approval:</p>
+            <Banner tone="warning" title="This request violates policy — it will still be sent for approval:">
               <ul className="list-disc pl-4 space-y-1">
                 {result.policy_notes.map((note, i) => (
                   <li key={i}>{note}</li>
                 ))}
               </ul>
-            </div>
+            </Banner>
           )}
         </div>
       )}
@@ -196,43 +272,70 @@ export default function ApplyLeaveForm({ onSuccess }: { onSuccess?: (result: App
       <form onSubmit={handleSubmit} className="space-y-4">
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="block text-xs text-[var(--text-muted)] mb-1">Leave Type</label>
+            <label className={LABEL_CLASS}>Leave Type</label>
             <select
               value={leaveTypeCode}
               onChange={(e) => setLeaveTypeCode(e.target.value as typeof leaveTypeCode)}
-              className="w-full bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)]"
+              className={FIELD_CLASS}
             >
               {LEAVE_TYPES.map((lt) => (
                 <option key={lt.code} value={lt.code}>{lt.label}</option>
               ))}
             </select>
           </div>
-          <div className="flex items-end pb-2">
-            <label className="flex items-center gap-2 text-sm text-[var(--text-muted)]">
-              <input type="checkbox" checked={isHalfDay} onChange={(e) => setIsHalfDay(e.target.checked)} />
-              Half day
-            </label>
+
+          {/* Matched height + baseline to the select beside it: same
+              label-then-control structure, so the two controls in this
+              row line up exactly instead of the toggle floating at a
+              different vertical position. */}
+          <div>
+            <label className={LABEL_CLASS}>Duration</label>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={isHalfDay}
+              onClick={() => setIsHalfDay((v) => !v)}
+              className={`w-full flex items-center justify-between gap-2 rounded-lg border px-3 py-2 text-sm transition-colors ${
+                isHalfDay
+                  ? 'border-[var(--accent)] bg-[var(--accent)]/10 text-[var(--accent)]'
+                  : 'border-[var(--border)] bg-[var(--bg-surface)] text-[var(--text-primary)]'
+              }`}
+            >
+              <span>{isHalfDay ? 'Half day' : 'Full day(s)'}</span>
+              <span
+                className={`relative inline-flex h-4 w-7 shrink-0 items-center rounded-full transition-colors ${
+                  isHalfDay ? 'bg-[var(--accent)]' : 'bg-[var(--border)]'
+                }`}
+              >
+                <span
+                  className={`inline-block h-3 w-3 transform rounded-full bg-white transition-transform ${
+                    isHalfDay ? 'translate-x-3.5' : 'translate-x-0.5'
+                  }`}
+                />
+              </span>
+            </button>
           </div>
         </div>
 
         {isHalfDay ? (
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs text-[var(--text-muted)] mb-1">Date</label>
+              <label className={LABEL_CLASS}>Date</label>
               <input
                 type="date"
                 value={startDate}
+                min={minDate}
                 onChange={(e) => setStartDate(e.target.value)}
-                className="w-full bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)]"
+                className={FIELD_CLASS}
                 required
               />
             </div>
             <div>
-              <label className="block text-xs text-[var(--text-muted)] mb-1">Session</label>
+              <label className={LABEL_CLASS}>Session</label>
               <select
                 value={halfDaySession}
                 onChange={(e) => setHalfDaySession(e.target.value as 'AM' | 'PM')}
-                className="w-full bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)]"
+                className={FIELD_CLASS}
               >
                 <option value="AM">AM</option>
                 <option value="PM">PM</option>
@@ -242,22 +345,24 @@ export default function ApplyLeaveForm({ onSuccess }: { onSuccess?: (result: App
         ) : (
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs text-[var(--text-muted)] mb-1">Start Date</label>
+              <label className={LABEL_CLASS}>Start Date</label>
               <input
                 type="date"
                 value={startDate}
+                min={minDate}
                 onChange={(e) => setStartDate(e.target.value)}
-                className="w-full bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)]"
+                className={FIELD_CLASS}
                 required
               />
             </div>
             <div>
-              <label className="block text-xs text-[var(--text-muted)] mb-1">End Date</label>
+              <label className={LABEL_CLASS}>End Date</label>
               <input
                 type="date"
                 value={endDate}
+                min={minDate ?? (startDate || undefined)}
                 onChange={(e) => setEndDate(e.target.value)}
-                className="w-full bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)]"
+                className={FIELD_CLASS}
                 required
               />
             </div>
@@ -265,25 +370,25 @@ export default function ApplyLeaveForm({ onSuccess }: { onSuccess?: (result: App
         )}
 
         <div>
-          <label className="block text-xs text-[var(--text-muted)] mb-1">Reason</label>
+          <label className={LABEL_CLASS}>Reason</label>
           <textarea
             value={reason}
             onChange={(e) => setReason(e.target.value)}
             rows={2}
-            className="w-full bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)]"
+            className={FIELD_CLASS}
             required
           />
         </div>
 
         {leaveTypeCode === 'PL' && (
           <div>
-            <label className="block text-xs text-[var(--text-muted)] mb-1">Action Plan (required for Planned leave)</label>
+            <label className={LABEL_CLASS}>Action Plan (required for Planned leave)</label>
             <textarea
               value={actionPlan}
               onChange={(e) => setActionPlan(e.target.value)}
               rows={2}
               placeholder="Who's covering your work while you're away, handover notes, etc."
-              className="w-full bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)]"
+              className={FIELD_CLASS}
               required
             />
           </div>
@@ -301,28 +406,22 @@ export default function ApplyLeaveForm({ onSuccess }: { onSuccess?: (result: App
           <p className="text-xs text-[var(--text-muted)]">{preview.error}</p>
         )}
         {!preview.loading && !preview.error && preview.totalDays !== null && (
-          <div className="space-y-1.5">
+          <div className="space-y-2">
             <p className="text-xs text-[var(--text-muted)]">
               {preview.totalDays} day(s) requested
               {preview.currentBalance !== null && ` · ${preview.currentBalance} day(s) of ${leaveTypeCode} remaining`}
             </p>
             {preview.notes.length > 0 && (
-              <div
-                className={`text-xs rounded-lg px-3 py-2 border ${
-                  preview.wouldBeLwp
-                    ? 'bg-red-900/20 border-red-500/30 text-red-700 dark:text-red-300'
-                    : 'bg-amber-900/20 border-amber-500/30 text-amber-700 dark:text-amber-300'
-                }`}
+              <Banner
+                tone={preview.wouldBeLwp ? 'danger' : 'warning'}
+                title={preview.wouldBeLwp ? 'Heads up — this will be Leave Without Pay:' : 'Heads up, per the leave policy:'}
               >
-                <p className="font-medium mb-1">
-                  {preview.wouldBeLwp ? 'Heads up — this will be Leave Without Pay:' : 'Heads up, per the leave policy:'}
-                </p>
                 <ul className="list-disc pl-4 space-y-1">
                   {preview.notes.map((note, i) => (
                     <li key={i}>{note}</li>
                   ))}
                 </ul>
-              </div>
+              </Banner>
             )}
           </div>
         )}
@@ -330,7 +429,7 @@ export default function ApplyLeaveForm({ onSuccess }: { onSuccess?: (result: App
         <button
           type="submit"
           disabled={loading}
-          className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+          className="bg-[var(--accent)] hover:bg-[var(--accent)]/90 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
         >
           {loading ? 'Submitting…' : 'Apply for Leave'}
         </button>

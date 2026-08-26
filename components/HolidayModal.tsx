@@ -74,7 +74,7 @@ export default function HolidayModal({ officeCode, year, readOnly, onClose, onSa
           </button>
         </div>
 
-        <div className="max-h-[360px] overflow-y-auto">
+        <div className="scroll-thin max-h-[360px] overflow-y-auto">
           {holidays.length === 0 ? (
             <div className="px-5 py-8 text-center text-[var(--text-muted)] text-sm">
               No office holiday calendar found for {year}, and no custom holidays added yet.

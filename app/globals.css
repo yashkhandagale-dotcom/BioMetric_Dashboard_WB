@@ -71,3 +71,58 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* Shared thin, theme-aware scrollbar — applied to every internally-scrolling
+   region (drawers, modals, sidebars, scoped lists) instead of each one
+   falling back to the browser's default scrollbar styling. Firefox uses the
+   scrollbar-width/scrollbar-color properties; Chrome/Edge/Safari use the
+   ::-webkit-scrollbar pseudo-elements. Both branches read the same tokens
+   so the scrollbar always matches the current theme. */
+.scroll-thin {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+.scroll-thin::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.scroll-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.scroll-thin::-webkit-scrollbar-thumb {
+  background-color: var(--border);
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+.scroll-thin::-webkit-scrollbar-thumb:hover {
+  background-color: var(--text-muted);
+  background-clip: content-box;
+}
+
+/* Pulsing ring used to draw the eye to a queue action the user hasn't
+   acted on yet (e.g. the top row's Acknowledge button in
+   NewJoinersPanel.tsx — only the first/oldest row gets this, not every
+   row in the list, so it stays a "look here" signal rather than visual
+   noise). Animates box-shadow only — never opacity — so the button
+   stays fully solid and readable throughout, unlike Tailwind's
+   animate-pulse which reads as "loading/disabled" rather than "look
+   here". */
+@keyframes pulse-attention {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.45); }
+  50% { box-shadow: 0 0 0 7px rgba(16, 185, 129, 0); }
+}
+
+.pulse-attention {
+  animation: pulse-attention 1.8s ease-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pulse-attention {
+    animation: none;
+  }
+}

@@ -3,15 +3,6 @@ import { createLeaveClient } from '@/lib/leaveSupabase/server';
 import { applyLeavePolicyAndMutateBalance } from '@/lib/leaveSupabase/applyLeavePolicyAndMutateBalance';
 import { getEffectiveApproverId } from '@/lib/leaveSupabase/organization';
 
-// B2 — Approve. The request's effective approver (department's manager,
-// or that employee's lead when the department has no manager assigned —
-// see getEffectiveApproverId) or HR (who can override anywhere per the
-// plan's role table) may approve it. Previously this checked
-// employees.reporting_manager_id directly, which is only ever populated
-// for manager-role employees (their own reporting chain) — never for a
-// regular employee/lead — so a manager's or lead's approve click always
-// 403'd even though the approvals queue (correctly scoped via
-// department_managers) showed them the request in the first place.
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const sessionClient = await createLeaveClient();
@@ -34,7 +25,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
   const { data: request } = await sessionClient
     .from('leave_requests')
-    .select('id, employee_id, employees!inner(department, reporting_lead_id)')
+    .select('id, employee_id, employees!leave_requests_employee_id_fkey!inner(department, reporting_lead_id)')
     .eq('id', id)
     .maybeSingle();
   if (!request) {
@@ -53,10 +44,6 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   }
 
   const result = await applyLeavePolicyAndMutateBalance({
-    // These fields are ignored by the manager_approval branch (it acts
-    // on existingRequestId), but the type requires them — mirroring how
-    // approveExistingRequest itself only reads existingRequestId/
-    // actingEmployeeId/approverRole for this source.
     employeeId: request.employee_id,
     leaveTypeCode: 'SL',
     startDate: '',

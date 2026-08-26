@@ -4,13 +4,16 @@ import { useState } from 'react';
 
 // One button, two modes, depending on whether this employee already has
 // a Supabase Auth account linked:
-//  - No login yet  -> "Create Login": HR types the initial password
-//    directly (email_confirm: true, no invite email — see
-//    .../create-login route's header comment). Replaces the old
-//    bulk-CSV-only path for the routine one-at-a-time case.
+//  - No login yet  -> "Create Login" — hidden from the UI (see below)
+//    now that the Acknowledge & Set Up flow (NewJoinersPanel) links a
+//    login automatically for anyone who signed in with Google, and the
+//    Add Employee form is the fallback for anyone who hasn't. The
+//    backing route (.../create-login) is untouched and still fully
+//    working — this only hides the button itself.
 //  - Has a login    -> "Reset Password": HR types a temporary password;
 //    the employee is forced to change it on next login (see
-//    .../reset-password route + must_change_password gate).
+//    .../reset-password route + must_change_password gate). Still
+//    shown — this one wasn't asked to be hidden.
 export default function EmployeeLoginButton({
   employeeId,
   employeeName,
@@ -25,6 +28,12 @@ export default function EmployeeLoginButton({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+
+  // "Create Login" hidden per HR's request — see this file's header
+  // comment. The route and all the state/logic below are left intact
+  // (just unreachable from here) so re-showing it later is a one-line
+  // revert of this one guard.
+  if (!hasLogin) return null;
 
   function close() {
     setOpen(false);

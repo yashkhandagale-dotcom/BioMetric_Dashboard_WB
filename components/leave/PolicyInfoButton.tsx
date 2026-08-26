@@ -55,7 +55,7 @@ export default function PolicyInfoButton() {
 
       {open && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-          <div className="bg-[var(--bg-surface)] border border-[var(--border)] rounded-xl w-full max-w-2xl max-h-[85vh] overflow-y-auto">
+          <div className="scroll-thin bg-[var(--bg-surface)] border border-[var(--border)] rounded-xl w-full max-w-2xl max-h-[85vh] overflow-y-auto">
             <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border)] sticky top-0 bg-[var(--bg-surface)]">
               <h3 className="text-[var(--text-primary)] font-semibold text-sm">Leave & Attendance Policy</h3>
               <button type="button" onClick={() => setOpen(false)} className="text-[var(--text-muted)] hover:text-[var(--text-primary)]">

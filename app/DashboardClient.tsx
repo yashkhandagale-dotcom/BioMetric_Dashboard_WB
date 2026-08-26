@@ -1,8 +1,8 @@
 'use client';
 import { useState, useEffect, useCallback, Suspense } from 'react';
+import { createPortal } from 'react-dom';
 import { useRouter, useSearchParams } from 'next/navigation';
-import Link from 'next/link';
-import { Upload, CheckCircle, Eye, ShieldX, Calendar, ClipboardList, Settings as SettingsIcon, X as XIcon, ArrowLeft } from 'lucide-react';
+import { CheckCircle, ShieldX, Calendar, X as XIcon } from 'lucide-react';
 import { AttendanceRecord, ColumnMapping, EmployeeSummary, UploadedMonth, Holiday, Thresholds, LeaveRecord } from '@/lib/types';
 import {
   getMapping, saveMapping, getRecords, saveRecords, addUploadedMonth, getUploadedMonths,
@@ -20,6 +20,7 @@ import UploadZone from '@/components/UploadZone';
 import ColumnMappingScreen from '@/components/ColumnMappingScreen';
 import ConfirmDialog from '@/components/ConfirmDialog';
 import KPICards from '@/components/KPICards';
+import OnLeaveTodayCard from '@/components/OnLeaveTodayCard';
 
 import EmployeeTable from '@/components/EmployeeTable';
 import {
@@ -35,19 +36,16 @@ import TeamComparisonPanel from '@/components/TeamComparisonPanel';
 import HolidayModal from '@/components/HolidayModal';
 import InsightsStrip from '@/components/InsightsStrip';
 import SettingsPanel from '@/components/SettingsPanel';
-import ThemeToggle from '@/components/ThemeToggle';
+import DashboardShell, { type DashboardSectionId } from '@/components/dashboard/DashboardShell';
 
-type AppState = 'upload' | 'mapping' | 'dashboard';
+// 'loading' is the initial render only — it exists so a login/refresh
+// never flashes the upload screen while we're still checking whether
+// data already exists. It's never re-entered after the initial fetch:
+// once we know the answer, we settle into 'upload' (genuinely empty)
+// or 'dashboard' (months found) and stay within {upload, mapping,
+// dashboard} for the rest of the session.
+type AppState = 'loading' | 'upload' | 'mapping' | 'dashboard';
 
-function syncThemeToServer(theme: 'dark' | 'light') {
-  fetch('/api/leave/theme', {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ theme }),
-  }).catch(() => {
-    // Non-blocking; theme still applies locally.
-  });
-}
 // Single-login pivot: 'team' is new — an authenticated manager/lead
 // hitting '/' directly (not via the legacy unauthenticated share-link
 // token, which stays 'manager'/'denied' exactly as before). Kept as a
@@ -136,65 +134,38 @@ function ManagerView({
     : [];
 
   return (
-    <div className="min-h-screen bg-[var(--bg-surface)] text-[var(--text-primary)]">
-      <header className="border-b border-[var(--border)] px-4 sm:px-6 py-4 flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center flex-shrink-0">
-            <span className="text-white text-xs font-bold">WB</span>
-          </div>
-          <div>
-            <h1 className="text-[var(--text-primary)] font-semibold text-sm">Attendance Dashboard</h1>
-            <p className="text-[var(--text-muted)] text-xs">
-              WonderBiz Technologies · {teamMode ? 'Team View' : 'Management View'}
-            </p>
-          </div>
-        </div>
-        <div className="flex items-center gap-2 flex-wrap">
-          {teamMode && (
-            <>
-              <ExportPanel uploadedMonths={uploadedMonths} thresholds={thresholds} restrictToEmployeeCodes={teamCodes ?? []} />
-              <Link
-                href="/leave/approvals"
-                className="flex items-center gap-1.5 bg-amber-600/20 border border-amber-500/30 text-amber-500 dark:text-amber-400 px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-amber-600/30 transition-colors"
-              >
-                Approve Team Leaves
-              </Link>
-              <Link
-                href="/leave/me"
-                className="text-[var(--text-muted)] hover:text-[var(--text-primary)] px-3 py-1.5 rounded-lg text-xs transition-colors"
-              >
-                My Leave
-              </Link>
-            </>
-          )}
-          <div className="flex items-center gap-2 bg-[var(--bg-elevated)] border border-[var(--border)] px-3 py-1.5 rounded-lg">
-            <Eye className="w-3.5 h-3.5 text-[var(--accent)] flex-shrink-0" />
-            <span className="text-[var(--text-muted)] text-xs">Read-only · {records.length.toLocaleString()} records</span>
-          </div>
-          <ThemeToggle onChange={syncThemeToServer} />
-        </div>
-      </header>
-      <main className="px-4 sm:px-6 py-6 max-w-7xl mx-auto space-y-6">
+    <DashboardShell
+      variant={teamMode ? 'team' : 'shared'}
+      availableSections={['overview', 'employees', 'departments']}
+      recordCount={records.length}
+      exportSlot={teamMode ? <ExportPanel uploadedMonths={uploadedMonths} thresholds={thresholds} restrictToEmployeeCodes={teamCodes ?? []} /> : undefined}
+    >
+      <div className="space-y-6">
         <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl px-4 py-3 text-sm text-blue-700 dark:text-blue-300">
           {teamMode
             ? "Read-only view, scoped to your team \u2014 upload and settings aren't available here, but you can export."
             : 'Read-only view — upload, export and settings are not available here.'}
         </div>
-        <KPICards kpi={kpi} thresholds={thresholds} />
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
-          <DailyTrendChart data={dailyTrend} />
-          <HoursDistributionChart data={hoursDistribution} allRecords={records} />
+        <div id="section-overview" className="space-y-6">
+          <KPICards kpi={kpi} thresholds={thresholds} />
+          <OnLeaveTodayCard />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
+            <DailyTrendChart data={dailyTrend} />
+            <HoursDistributionChart data={hoursDistribution} allRecords={records} />
+          </div>
         </div>
-        <DeptAttendanceChart
-          data={deptAttendance}
-          allRecords={records}
-          selectedDepts={teamDepartments.length === 1 ? teamDepartments : undefined}
-        />
-        <div className="bg-[var(--bg-elevated)]/30 rounded-xl border border-[var(--border)] p-4">
+        <div id="section-departments">
+          <DeptAttendanceChart
+            data={deptAttendance}
+            allRecords={records}
+            selectedDepts={teamDepartments.length === 1 ? teamDepartments : undefined}
+          />
+        </div>
+        <div id="section-employees" className="bg-[var(--bg-elevated)]/30 rounded-xl border border-[var(--border)] p-4">
           <h2 className="text-[var(--text-primary)] font-semibold text-sm mb-4">Employee Summary</h2>
           <EmployeeTable summaries={employeeSummaries} onEmployeeClick={setSelectedEmp} />
         </div>
-      </main>
+      </div>
       <EmployeePanel
         employee={selectedEmp}
         onClose={() => setSelectedEmp(null)}
@@ -203,7 +174,7 @@ function ManagerView({
         shiftStartMinutes={thresholds.shiftStartMinutes}
         shiftEndMinutes={thresholds.shiftEndMinutes}
       />
-    </div>
+    </DashboardShell>
   );
 }
 
@@ -212,7 +183,7 @@ function HRDashboard() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  const [appState, setAppState] = useState<AppState>('upload');
+  const [appState, setAppState] = useState<AppState>('loading');
   const [toast, setToast] = useState<Toast | null>(null);
   const [selectedEmp, setSelectedEmp] = useState<EmployeeSummary | null>(null);
   const [showSettings, setShowSettings] = useState(false);
@@ -324,7 +295,11 @@ function HRDashboard() {
   useEffect(() => {
     (async () => {
       const months = await getUploadedMonths();
-      if (months.length === 0) return;
+      if (months.length === 0) {
+        // Genuinely empty deployment — no flash, this is the real state.
+        setAppState('upload');
+        return;
+      }
       setUploadedMonths(months);
       const monthParam = searchParams.get('month');
       const officeParam = searchParams.get('office');
@@ -627,6 +602,17 @@ function HRDashboard() {
     return { min, max };
   })();
 
+  // What the From/To boxes actually display right now, INCLUDING the
+  // implied fallback — this is the thing that must be preserved when the
+  // other box changes. `dateFrom`/`dateTo` alone aren't enough: they're
+  // still null before the user has explicitly touched a box, even though
+  // the box is visibly showing impliedRange's min/max. Using the raw null
+  // check was the root cause of "changing From also changes To" — the
+  // effective value WAS already set (via the implied default), just not
+  // captured in state yet.
+  const effectiveDateFrom = dateFrom ?? impliedRange?.min ?? null;
+  const effectiveDateTo = dateTo ?? impliedRange?.max ?? null;
+
   const filteredSummaries = tableFilter === 'all' ? employeeSummaries
     : tableFilter === 'present' ? employeeSummaries.filter(e => e.presentDays > 0)
     : tableFilter === 'absent' ? employeeSummaries.filter(e => e.absentDays > 0)
@@ -664,8 +650,34 @@ function HRDashboard() {
     setDateTo(next);
   }
 
+  // Once there's actual uploaded data, the dashboard itself stays mounted
+  // and visible even while Upload/Mapping are open — those become a modal
+  // layered on top (same pattern as Settings/Holidays below), rather than
+  // replacing the whole page. Only the genuine first-run empty state (no
+  // data at all yet) still gets Upload as a full page, since there's no
+  // dashboard behind it to show.
+  const hasDashboardData = uploadedMonths.length > 0;
+
+  // Nav sections only exist once there's an actual dashboard rendered —
+  // before any data exists there's nothing to scroll to yet. The
+  // Comparison panels only render outside single-day view (see below).
+  const availableSections: DashboardSectionId[] = !hasDashboardData
+    ? []
+    : viewMode === 'single_day'
+      ? ['overview', 'employees', 'departments']
+      : ['overview', 'employees', 'departments', 'comparison'];
+
   return (
-    <div className="min-h-screen bg-[var(--bg-surface)] text-[var(--text-primary)]">
+    <DashboardShell
+      variant="hr"
+      availableSections={availableSections}
+      onSignOut={handleSignOut}
+      holidayCount={holidays.length}
+      onOpenHolidays={hasDashboardData && (holidays.length > 0 || !!currentOffice) ? () => setShowHolidayModal(true) : undefined}
+      onOpenSettings={hasDashboardData ? () => setShowSettings(true) : undefined}
+      onUpload={hasDashboardData ? () => setAppState('upload') : undefined}
+      exportSlot={hasDashboardData ? <ExportPanel uploadedMonths={uploadedMonths} thresholds={thresholds} /> : undefined}
+    >
       {toast && (
         <div className={`fixed top-4 right-4 left-4 sm:left-auto z-50 flex items-start gap-3 sm:max-w-md px-4 py-3 rounded-xl shadow-2xl border
           ${toast.type === 'success' ? 'bg-emerald-900/90 border-emerald-500/40 text-emerald-700 dark:text-emerald-200' : 'bg-red-900/90 border-red-500/40 text-red-700 dark:text-red-200'}`}>
@@ -674,90 +686,32 @@ function HRDashboard() {
         </div>
       )}
 
-      <header className="border-b border-[var(--border)] px-4 sm:px-6 py-4 flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center flex-shrink-0">
-            <span className="text-white text-xs font-bold">WB</span>
-          </div>
-          <div>
-            <h1 className="text-[var(--text-primary)] font-semibold text-sm">Attendance Dashboard</h1>
-            <p className="text-[var(--text-muted)] text-xs">WonderBiz Technologies · HR View</p>
-          </div>
-        </div>
-        {appState === 'dashboard' && (
-          <div className="flex items-center gap-2 flex-wrap">
-            {holidays.length > 0 && (
-              <button
-                onClick={() => setShowHolidayModal(true)}
-                className="flex items-center gap-1.5 bg-purple-600/20 border border-purple-500/30 text-purple-400 px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-purple-600/30 transition-colors"
-              >
-                <Calendar className="w-3.5 h-3.5" />
-                🗓 {holidays.length} Holiday{holidays.length !== 1 ? 's' : ''}
-              </button>
-            )}
-            {holidays.length === 0 && currentOffice && (
-              <button
-                onClick={() => setShowHolidayModal(true)}
-                className="flex items-center gap-1.5 text-[var(--text-muted)] hover:text-[var(--text-muted)] px-2 py-1.5 rounded-lg text-xs transition-colors"
-                title="Manage holidays"
-              >
-                <Calendar className="w-3.5 h-3.5" /> Holidays
-              </button>
-            )}
-            <button
-              onClick={() => setShowSettings(true)}
-              className="flex items-center gap-1.5 text-[var(--text-muted)] hover:text-[var(--text-muted)] px-2 py-1.5 rounded-lg text-xs transition-colors"
-              title="Settings"
-            >
-              <SettingsIcon className="w-3.5 h-3.5" /> Settings
-            </button>
-            <Link
-              href="/leave/admin"
-              className="flex items-center gap-1.5 bg-emerald-600/20 border border-emerald-500/30 text-emerald-400 px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-emerald-600/30 transition-colors"
-              title="Record and manage employee leave"
-            >
-              <ClipboardList className="w-3.5 h-3.5" /> Leave Tracker
-            </Link>
-            <ExportPanel uploadedMonths={uploadedMonths} thresholds={thresholds} />
-            <button onClick={() => setAppState('upload')}
-              className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">
-              <Upload className="w-4 h-4" /> Upload CSV
-            </button>
-            <button onClick={handleSignOut}
-              className="text-[var(--text-muted)] hover:text-[var(--text-muted)] px-2 py-1.5 rounded-lg text-xs transition-colors">
-              Sign out
-            </button>
-            <ThemeToggle onChange={syncThemeToServer} />
+      <div>
+        {appState === 'loading' && (
+          <div className="flex items-center justify-center py-24">
+            <div className="text-[var(--text-muted)] text-sm">Loading...</div>
           </div>
         )}
-      </header>
 
-      <main className="px-4 sm:px-6 py-6 max-w-7xl mx-auto">
-        {appState === 'upload' && (
+        {/* True first-run empty state — no dashboard exists yet, so Upload
+           renders full-page rather than as a modal (nothing to show behind it). */}
+        {!hasDashboardData && appState === 'upload' && (
           <div className="space-y-6">
-            <div className="flex justify-between items-center flex-wrap gap-2">
-              <button
-                onClick={() => setAppState('dashboard')}
-                className="inline-flex items-center gap-2 text-[var(--text-muted)] hover:text-[var(--text-primary)] bg-[var(--bg-elevated)]/70 border border-[var(--border)] px-3 py-2 rounded-lg text-sm transition-colors"
-              >
-                <ArrowLeft className="w-4 h-4" />
-                Back to dashboard
-              </button>
-              <div className="text-[var(--text-muted)] text-xs">Upload one or more biometric export CSVs to get started</div>
-            </div>
+            <div className="text-[var(--text-muted)] text-xs">Upload one or more biometric export CSVs to get started</div>
             <UploadZone onFiles={handleFiles} />
           </div>
         )}
-        {appState === 'mapping' && mappingQueue.length > 0 && (
+        {!hasDashboardData && appState === 'mapping' && mappingQueue.length > 0 && (
           <ColumnMappingScreen
             officeCode={mappingQueue[0].officeCode}
             csvHeaders={mappingQueue[0].headers}
             initialMapping={remapInitial}
             onSave={handleMappingSave}
-            onCancel={() => { setMappingQueue([]); setPendingBatch([]); setRemapInitial(undefined); setAppState(uploadedMonths.length > 0 ? 'dashboard' : 'upload'); }}
+            onCancel={() => { setMappingQueue([]); setPendingBatch([]); setRemapInitial(undefined); setAppState('upload'); }}
           />
         )}
-        {appState === 'dashboard' && (
+
+        {hasDashboardData && (
           <div className="space-y-6">
 
             {/* ── Filter Bar ─────────────────────────────────────────────── */}
@@ -775,7 +729,7 @@ function HRDashboard() {
                     type="date"
                     value={dateFrom ?? impliedRange?.min ?? ''}
                     min={minAvailableDate}
-                    max={dateTo ?? maxAvailableDate}
+                    max={effectiveDateTo ?? maxAvailableDate}
                     onChange={e => {
                       const v = e.target.value || null;
                       if (v && (v < minAvailableDate! || v > maxAvailableDate!)) {
@@ -783,10 +737,12 @@ function HRDashboard() {
                         return;
                       }
                                         setDateFrom(v);
-                      // Auto-set To = From for single-day selection if To not set
-                      if (v && !dateTo) setDateTo(v);
-                      // If From > To, reset To
-                      if (v && dateTo && v > dateTo) setDateTo(v);
+                      // If To is already showing a value — whether the user set it
+                      // explicitly or it's just the implied default for the current
+                      // month — lock that value in rather than letting it collapse
+                      // to match From. Only default To = From when there's truly
+                      // nothing shown for To yet.
+                      if (v) setDateTo(effectiveDateTo ?? v);
                     }}
                     className={`bg-transparent text-xs focus:outline-none w-28 sm:w-32 ${dateFrom ? 'text-[var(--text-primary)]' : 'text-[var(--text-muted)]'}`}
                     title={!dateFrom ? 'Auto-filled to match the data currently shown — pick a date to filter explicitly' : undefined}
@@ -796,7 +752,7 @@ function HRDashboard() {
                   <input
                     type="date"
                     value={dateTo ?? impliedRange?.max ?? ''}
-                    min={dateFrom ?? minAvailableDate}
+                    min={effectiveDateFrom ?? minAvailableDate}
                     max={maxAvailableDate}
                     onChange={e => {
                       const v = e.target.value || null;
@@ -805,8 +761,10 @@ function HRDashboard() {
                         return;
                       }
                                         setDateTo(v);
-                      // Auto-set From = To for single-day selection if From not set
-                      if (v && !dateFrom) setDateFrom(v);
+                      // Same fix mirrored for the From side — lock in whatever
+                      // From is currently showing (explicit or implied) instead
+                      // of letting it collapse to match the new To.
+                      if (v) setDateFrom(effectiveDateFrom ?? v);
                     }}
                     className={`bg-transparent text-xs focus:outline-none w-28 sm:w-32 ${dateTo ? 'text-[var(--text-primary)]' : 'text-[var(--text-muted)]'}`}
                     title={!dateTo ? 'Auto-filled to match the data currently shown — pick a date to filter explicitly' : undefined}
@@ -873,14 +831,19 @@ function HRDashboard() {
             )}
 
             {/* ── KPI Cards ──────────────────────────────────────────────── */}
-            <KPICards kpi={kpi} thresholds={thresholds} viewMode={viewMode} onCardClick={(f) => setTableFilter(f === tableFilter ? 'all' : f)} />
+            <div id="section-overview" className="space-y-6">
+              <KPICards kpi={kpi} thresholds={thresholds} viewMode={viewMode} onCardClick={(f) => setTableFilter(f === tableFilter ? 'all' : f)} />
+              {/* Feedback item #1 — pre-approved leave visibility, HR dashboard. */}
+              <OnLeaveTodayCard />
+            </div>
+
 
 
 
             {/* ── SINGLE DAY VIEW ─────────────────────────────────────────── */}
             {viewMode === 'single_day' && (
               <>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-start">
+                <div id="section-departments" className="grid grid-cols-1 md:grid-cols-3 gap-4 items-start">
                   <DayDeptAttendanceChart
                     data={dayDeptSnapshots}
                     onDeptClick={(dept) => focusDept(dept)}
@@ -921,7 +884,7 @@ function HRDashboard() {
                     canGoNext={canGoNextDay}
                   />
                 </div>
-                <div className="bg-[var(--bg-elevated)]/30 rounded-xl border border-[var(--border)] p-4">
+                <div id="section-employees" className="bg-[var(--bg-elevated)]/30 rounded-xl border border-[var(--border)] p-4">
                   <div className="flex items-center justify-between flex-wrap gap-2 mb-4">
                     <h2 className="text-[var(--text-primary)] font-semibold text-sm">
                       {selectedDepts.length === 1 ? `Team Members — ${selectedDepts[0]}` : `All Employees — ${dateFrom}`}
@@ -969,7 +932,7 @@ function HRDashboard() {
                 {/* Dept Attendance + Productivity Lost side by side, linked drill.
                     In comparison mode, show every department (dimming those not
                     selected) rather than only the selected ones. */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
+                <div id="section-departments" className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
                   <DeptAttendanceChart
                     data={isComparison ? allDeptAttendance : deptAttendance}
                     allRecords={isComparison ? allDeptRecords : filteredRecords}
@@ -1015,29 +978,31 @@ function HRDashboard() {
                   />
                 )}
 
-                {isComparison && departments.length >= 2 && (
-                  <TeamComparisonPanel
+                <div id="section-comparison" className="space-y-6">
+                  {isComparison && departments.length >= 2 && (
+                    <TeamComparisonPanel
+                      allRecords={filteredRecords}
+                      departments={departments}
+                      holidays={holidays}
+                      leaveRecords={leaveRecords}
+                      graceMinutes={thresholds.graceMinutes}
+                      shiftStartMinutes={thresholds.shiftStartMinutes}
+                      shiftEndMinutes={thresholds.shiftEndMinutes}
+                    />
+                  )}
+
+                  <EmployeeComparisonPanel
                     allRecords={filteredRecords}
-                    departments={departments}
-                    holidays={holidays}
+                    employeeSummaries={employeeSummaries}
                     leaveRecords={leaveRecords}
+                    holidays={holidays}
                     graceMinutes={thresholds.graceMinutes}
                     shiftStartMinutes={thresholds.shiftStartMinutes}
                     shiftEndMinutes={thresholds.shiftEndMinutes}
                   />
-                )}
-
-                <EmployeeComparisonPanel
-                  allRecords={filteredRecords}
-                  employeeSummaries={employeeSummaries}
-                  leaveRecords={leaveRecords}
-                  holidays={holidays}
-                  graceMinutes={thresholds.graceMinutes}
-                  shiftStartMinutes={thresholds.shiftStartMinutes}
-                  shiftEndMinutes={thresholds.shiftEndMinutes}
-                />
+                </div>
                 <InsightsStrip summaries={employeeSummaries} dailyTrend={dailyTrend} deptAttendance={deptAttendance} records={filteredRecords} selectedDepts={selectedDepts} />
-                <div className="bg-[var(--bg-elevated)]/30 rounded-xl border border-[var(--border)] p-4">
+                <div id="section-employees" className="bg-[var(--bg-elevated)]/30 rounded-xl border border-[var(--border)] p-4">
                   <div className="flex items-center justify-between flex-wrap gap-2 mb-4">
                     <h2 className="text-[var(--text-primary)] font-semibold text-sm">
                       Employee Summary
@@ -1056,7 +1021,53 @@ function HRDashboard() {
             )}
           </div>
         )}
-      </main>
+
+        {/* Upload / Mapping as a modal over the existing dashboard, rather
+           than replacing it — matches how Settings/Holidays already behave.
+           Portaled to <body> so it can't get trapped inside the sidebar's
+           own stacking context (the same bug that hit the Export dialog). */}
+        {hasDashboardData && (appState === 'upload' || appState === 'mapping') && typeof document !== 'undefined' && createPortal(
+          <div
+            className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+            onClick={() => setAppState('dashboard')}
+          >
+            <div
+              className="bg-[var(--bg-surface)] border border-[var(--border)] rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden max-h-[90vh] flex flex-col"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="px-5 py-4 border-b border-[var(--border)] flex items-start justify-between gap-3">
+                <div>
+                  <h3 className="text-[var(--text-primary)] font-semibold text-sm">
+                    {appState === 'mapping' ? 'Map Columns' : 'Upload CSV'}
+                  </h3>
+                  {appState === 'upload' && (
+                    <p className="text-[var(--text-muted)] text-xs mt-1">Upload one or more biometric export CSVs to add data.</p>
+                  )}
+                </div>
+                <button
+                  onClick={() => setAppState('dashboard')}
+                  className="text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors flex-shrink-0"
+                >
+                  <XIcon className="w-4 h-4" />
+                </button>
+              </div>
+              <div className="scroll-thin px-5 py-4 overflow-y-auto">
+                {appState === 'upload' && <UploadZone onFiles={handleFiles} />}
+                {appState === 'mapping' && mappingQueue.length > 0 && (
+                  <ColumnMappingScreen
+                    officeCode={mappingQueue[0].officeCode}
+                    csvHeaders={mappingQueue[0].headers}
+                    initialMapping={remapInitial}
+                    onSave={handleMappingSave}
+                    onCancel={() => { setMappingQueue([]); setPendingBatch([]); setRemapInitial(undefined); setAppState('dashboard'); }}
+                  />
+                )}
+              </div>
+            </div>
+          </div>,
+          document.body
+        )}
+      </div>
 
       <EmployeePanel
         employee={selectedEmp}
@@ -1106,7 +1117,7 @@ function HRDashboard() {
           onCancel={() => { setConflictMonths(null); setPendingBatch([]); setSkippedFiles([]); setAppState(uploadedMonths.length > 0 ? 'dashboard' : 'upload'); }}
         />
       )}
-    </div>
+    </DashboardShell>
   );
 }
 

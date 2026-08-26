@@ -1,7 +1,10 @@
 'use client';
 
-import AdjustBalanceButton from '@/app/leave/admin/AdjustBalanceButton';
-import EmployeeLoginButton from './EmployeeLoginButton';
+// AdjustBalanceButton and EmployeeLoginButton imports removed — both
+// buttons are hidden from this card per HR's request (see the commented
+// -out JSX further down for exactly what to restore). FnFCalculatorButton
+// and ViolationBadge are still used below, so those imports stay.
+import FnFCalculatorButton from '@/app/leave/admin/FnFCalculatorButton';
 import ViolationBadge from './ViolationBadge';
 
 // One flattened shape the grid renders from — employees table fields +
@@ -19,6 +22,9 @@ export type EmployeeWithBalances = {
   dateOfJoining: string;
   hasLogin?: boolean;
   email?: string | null;
+  // Section 10: Admin panel should show login status + how they log in.
+  authProvider?: 'password' | 'google';
+  lastLoginAt?: string | null;
   // Derived from the department's manager, not stored per-employee — see
   // supabase-leave/schema.sql's 006_department_managers.sql.
   effectiveManagerName?: string | null;
@@ -76,6 +82,24 @@ export default function EmployeeCard({
         <span className="text-[var(--text-muted)]">DOJ {employee.dateOfJoining}</span>
       </div>
 
+      {/* Section 3/10: an employee must be visible here with a clear
+          "Pending Registration" vs "Registered" state, even before
+          they've ever logged in — hasLogin already IS that signal
+          (auth_user_id set or not, see app/leave/admin/page.tsx), this
+          just surfaces it as text instead of only the button label
+          below. Last login + how they authenticate (password vs
+          Google) are the other two "Admin should be able to see"
+          columns from section 10. */}
+      <div className="flex items-center gap-2 text-[11px] text-[var(--text-muted)] flex-wrap">
+        <span className={employee.hasLogin ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}>
+          {employee.hasLogin ? 'Registered' : 'Login: Pending Registration'}
+        </span>
+        {employee.hasLogin && employee.authProvider === 'google' && <span>· Google</span>}
+        {employee.hasLogin && employee.lastLoginAt && (
+          <span>· Last login {new Date(employee.lastLoginAt).toLocaleDateString()}</span>
+        )}
+      </div>
+
       <div className="grid grid-cols-4 gap-2 text-center text-xs bg-[var(--bg-surface)]/50 rounded-lg py-2">
         <Balance label="SL" value={employee.SL} />
         <Balance label="CL" value={employee.CL} />
@@ -93,7 +117,12 @@ export default function EmployeeCard({
             not one per card plus a second centralized page. Adjust
             (status/role/hierarchy) stays here since it's genuinely
             per-employee, one-off editing — not a leave action. */}
-        <AdjustBalanceButton
+        {/* AdjustBalanceButton hidden per HR's request — component and
+            its route are untouched, this only removes it from the card.
+            To restore: re-add `import AdjustBalanceButton from
+            '@/app/leave/admin/AdjustBalanceButton';` above, and
+            un-comment the block below. */}
+        {/* <AdjustBalanceButton
           employeeId={employee.id}
           employeeName={employee.name}
           fyStartYear={fyStartYear}
@@ -103,12 +132,20 @@ export default function EmployeeCard({
           currentLeadId={employee.reportingLeadId}
           currentManagerId={employee.reportingManagerId}
           currentManagedDepartments={employee.managedDepartments ?? []}
-        />
-        <EmployeeLoginButton
+        /> */}
+        <FnFCalculatorButton employeeId={employee.id} employeeName={employee.name} />
+        {/* EmployeeLoginButton (Reset Password, since Create Login is
+            already gated off via that component's own `if (!hasLogin)
+            return null` — see EmployeeLoginButton.tsx) hidden per HR's
+            request. Route (.../reset-password) still works if called
+            directly. To restore: re-add `import EmployeeLoginButton
+            from './EmployeeLoginButton';` above, and un-comment the
+            block below. */}
+        {/* <EmployeeLoginButton
           employeeId={employee.id}
           employeeName={employee.name}
           hasLogin={!!employee.hasLogin}
-        />
+        /> */}
       </div>
     </div>
   );

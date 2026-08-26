@@ -1,11 +1,15 @@
 ﻿import { redirect } from 'next/navigation';
+import { ClipboardCheck, AlertCircle } from 'lucide-react';
 import { createLeaveClient } from '@/lib/leaveSupabase/server';
 import { getCurrentEmployee } from '@/lib/leaveSupabase/getCurrentEmployee';
 import { getEmployeeBalanceBreakdown } from '@/lib/leaveSupabase/getEmployeeBalances';
 import { getManagedEmployeeIds } from '@/lib/leaveSupabase/organization';
+import { listRegularisationsForEmployees } from '@/lib/leaveSupabase/regularisation';
 import { PendingApprovalRequest } from '@/components/leave/ApprovalCard';
 import ApprovalsList from '@/components/leave/ApprovalsList';
 import LeavePageHeader from '@/components/leave/LeavePageHeader';
+import { PendingWfhRequest } from '@/components/leave/WfhApprovalCard';
+import { PendingRegularisationRequest } from '@/components/leave/RegularisationApprovalCard';
 
 type PendingRow = {
   id: string;
@@ -21,7 +25,6 @@ type PendingRow = {
   employees: { full_name: string; employee_code: string; department: string; reporting_lead_id: string | null } | null;
   leave_types: { code: string; display_name: string } | null;
 };
-
 
 // B1 — real approval queue: one card per pending request from the
 // logged-in manager's DIRECT reports only (reporting_manager_id, no
@@ -68,7 +71,7 @@ export default async function LeaveApprovalsHome() {
       `
       id, employee_id, start_date, end_date, is_half_day, half_day_session,
       total_days, reason, is_lwp_override, lwp_override_reason,
-      employees!inner ( full_name, employee_code, department, reporting_lead_id ),
+      employees!leave_requests_employee_id_fkey!inner ( full_name, employee_code, department, reporting_lead_id ),
       leave_types ( code, display_name )
     `
     )
@@ -91,6 +94,93 @@ export default async function LeaveApprovalsHome() {
   const { data: pending, error } = await query.returns<PendingRow[]>();
 
   const rows = (pending ?? []).filter((r) => r.employees && r.leave_types);
+
+  // Feedback items #5/#6 — WFH requests join the same approvals queue,
+  // scoped with the exact same rules as leave above (department_managers
+  // for a manager, reporting_lead_id for a lead, org-wide for HR) since
+  // approval routing for WFH reuses the identical
+  // getEffectiveApproverId mechanism at write time — a Delivery-
+  // department employee's WFH already lands with the Delivery manager
+  // this way, no separate role needed.
+  type PendingWfhRow = {
+    id: string;
+    start_date: string;
+    end_date: string;
+    is_half_day: boolean;
+    half_day_session: string | null;
+    reason: string;
+    applied_on: string;
+    employees: { full_name: string; employee_code: string; department: string; reporting_lead_id: string | null } | null;
+  };
+
+  // NOTE: explicit FK name required here (mirrors leave_requests above) —
+  // wfh_requests apparently has more than one FK pointing at employees
+  // (e.g. employee_id and an approver/reviewer column), so a bare
+  // `employees!inner` embed is ambiguous to PostgREST and throws at
+  // query time. Confirm the exact constraint name against your schema
+  // (`wfh_requests_employee_id_fkey` is a guess based on the
+  // leave_requests naming convention) if this still errors.
+  let wfhQuery = supabase
+    .from('wfh_requests')
+    .select(
+      `id, start_date, end_date, is_half_day, half_day_session, reason, applied_on,
+       employees!wfh_requests_employee_id_fkey!inner ( full_name, employee_code, department, reporting_lead_id )`
+    )
+    .eq('status', 'pending')
+    .order('start_date', { ascending: true });
+
+  if (isLead) {
+    wfhQuery = wfhQuery.eq('employees.reporting_lead_id', employee.id);
+  } else if (isManager) {
+    wfhQuery = managedIds.length > 0
+      ? wfhQuery.in('employee_id', managedIds)
+      : wfhQuery.eq('employee_id', '00000000-0000-0000-0000-000000000000');
+  }
+
+  const { data: pendingWfh, error: wfhError } = await wfhQuery.returns<PendingWfhRow[]>();
+
+  const wfhRequests: PendingWfhRequest[] = (pendingWfh ?? [])
+    .filter((r) => r.employees)
+    .map((r) => ({
+      id: r.id,
+      employeeName: r.employees!.full_name,
+      employeeCode: r.employees!.employee_code,
+      department: r.employees!.department,
+      startDate: r.start_date,
+      endDate: r.end_date,
+      isHalfDay: r.is_half_day,
+      halfDaySession: r.half_day_session,
+      reason: r.reason,
+      appliedOn: r.applied_on,
+    }));
+
+  // Part C, §C.2 — pending, EMPLOYEE-initiated regularisation requests
+  // join the same approvals queue, scoped identically. Manager-
+  // unilateral regularisations (createRegularisation, status='approved'
+  // from birth) never show up here — there's nothing pending about
+  // them.
+  let regularisationEmployeeIds: string[] = [];
+  if (isHr) {
+    const { data: allEmployees } = await supabase.from('employees').select('id');
+    regularisationEmployeeIds = (allEmployees ?? []).map((e) => e.id);
+  } else if (isManager) {
+    regularisationEmployeeIds = managedIds;
+  } else if (isLead) {
+    const { data: reports } = await supabase.from('employees').select('id').eq('reporting_lead_id', employee.id);
+    regularisationEmployeeIds = (reports ?? []).map((r) => r.id);
+  }
+
+  const { rows: regularisationRows } = await listRegularisationsForEmployees(supabase, regularisationEmployeeIds);
+  const regularisationRequests: PendingRegularisationRequest[] = regularisationRows
+    .filter((r) => r.status === 'pending')
+    .map((r) => ({
+      id: r.id,
+      employeeName: r.employeeName,
+      employeeCode: r.employeeCode,
+      date: r.date,
+      reason: r.reason,
+      createdAt: r.createdAt,
+    }));
 
   // Current balance snapshot per request (B1) — reuses
   // getEmployeeBalanceBreakdown (A3's addition to getEmployeeBalances.ts),
@@ -127,15 +217,26 @@ export default async function LeaveApprovalsHome() {
     };
   });
 
+  const totalPending = requests.length + wfhRequests.length + regularisationRequests.length;
+
+  // Raw Postgres/PostgREST error text (relationship names, constraint
+  // names, etc.) is an implementation detail, not something a manager
+  // reading this page should see — log it server-side for debugging and
+  // show a plain, actionable message in the UI instead.
+  if (error) console.error('[LeaveApprovalsHome] leave_requests query failed:', error);
+  if (wfhError) console.error('[LeaveApprovalsHome] wfh_requests query failed:', wfhError);
+  const anyLoadError = error || wfhError;
+
   return (
-    <div className="max-w-3xl space-y-6">
+    <div className="max-w-5xl space-y-6">
       <LeavePageHeader
+        icon={<ClipboardCheck className="h-5 w-5" />}
         title={
           <span className="flex items-center gap-2">
             Pending Approvals
-            {requests.length > 0 && (
+            {totalPending > 0 && (
               <span className="inline-flex items-center justify-center bg-amber-500 text-white text-xs font-bold rounded-full min-w-[1.4rem] h-[1.4rem] px-1.5">
-                {requests.length}
+                {totalPending}
               </span>
             )}
           </span>
@@ -143,13 +244,27 @@ export default async function LeaveApprovalsHome() {
         description={isHr ? 'All pending requests org-wide.' : 'Your direct reports\u2019 pending requests.'}
       />
 
-      {error && (
-        <div className="bg-red-900/30 border border-red-500/30 text-red-700 dark:text-red-300 text-sm rounded-xl px-4 py-3 mb-4">
-          Could not load pending requests: {error.message}
+      {anyLoadError && (
+        <div className="flex items-start gap-2 text-sm rounded-xl px-4 py-3 border bg-red-500/10 border-red-500/30 text-red-700 dark:text-red-300">
+          <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+          <p>
+            {error && wfhError
+              ? 'Could not load some pending leave and WFH requests. Please refresh, or contact support if this persists.'
+              : error
+                ? 'Could not load pending leave requests. Please refresh, or contact support if this persists.'
+                : 'Could not load pending WFH requests. Please refresh, or contact support if this persists.'}
+          </p>
         </div>
       )}
 
-      <ApprovalsList requests={requests} isHr={isHr} canApprove={canApprove} canRemind={canRemind} />
+      <ApprovalsList
+        requests={requests}
+        wfhRequests={wfhRequests}
+        regularisationRequests={regularisationRequests}
+        isHr={isHr}
+        canApprove={canApprove}
+        canRemind={canRemind}
+      />
     </div>
   );
 }

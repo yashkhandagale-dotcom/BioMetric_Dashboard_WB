@@ -11,14 +11,26 @@ import {
   BarChart3,
   ShieldAlert,
   Building2,
-  KeyRound,
+  // KeyRound only used by the now-hidden "Create Login" nav item — see
+  // this file's commented-out entry further down.
   Users,
   ArrowLeft,
   ChevronDown,
   Lock,
   LogOut,
+  Settings,
+  PanelLeftClose,
+  PanelLeftOpen,
+  CalendarPlus,
+  Home,
+  CalendarClock,
 } from 'lucide-react';
 import LeaveThemeSync from './LeaveThemeSync';
+import NotificationBell from './NotificationBell';
+import ApplyLeaveDrawer from './ApplyLeaveDrawer';
+import WfhApplyDrawer from './WfhApplyDrawer';
+import type { ApplySubmitResult, ApplyLeaveInitialValues } from './ApplyLeaveForm';
+import type { WfhSubmitResult, WfhApplyInitialValues } from './WfhApplyForm';
 
 export type LeaveRole = 'employee' | 'lead' | 'manager' | 'hr' | 'hr_super_admin';
 
@@ -51,7 +63,13 @@ function navGroups(role: LeaveRole, pendingApprovalsCount: number): NavGroup[] {
 
   const groups: NavGroup[] = [];
   if (showPersonal) {
-    groups.push({ label: 'Personal', items: [{ href: '/leave/me', label: 'My Leave', icon: Wallet, exact: true }] });
+    groups.push({
+      label: 'Personal',
+      items: [
+        { href: '/leave/me', label: 'My Leave', icon: Wallet, exact: true },
+        { href: '/leave/attendance', label: 'Attendance', icon: CalendarClock },
+      ],
+    });
   }
 
   if (isApprover) {
@@ -74,7 +92,17 @@ function navGroups(role: LeaveRole, pendingApprovalsCount: number): NavGroup[] {
         { href: '/leave/admin/analytics', label: 'Analytics', icon: BarChart3 },
         { href: '/leave/admin/violations', label: 'Violations', icon: ShieldAlert },
         { href: '/leave/admin/organization', label: 'Organization', icon: Building2 },
-        { href: '/leave/admin/bulk-logins', label: 'Create Login', icon: KeyRound },
+        { href: '/leave/admin/config', label: 'Leave Configuration', icon: Settings },
+        // "Create Login" nav item hidden per HR's request — the
+        // Acknowledge & Set Up flow (NewJoinersPanel on /leave/admin)
+        // now links a login automatically for anyone who signed in
+        // with Google, and Add Employee (also hidden, same reasoning —
+        // see app/leave/admin/page.tsx) covers the rest. The page
+        // itself at /leave/admin/bulk-logins is untouched and still
+        // fully functional if navigated to directly — this only
+        // removes it from the sidebar. Re-add the line below to bring
+        // it back:
+        // { href: '/leave/admin/bulk-logins', label: 'Create Login', icon: KeyRound },
       ],
     });
   }
@@ -89,6 +117,37 @@ function isActive(pathname: string, item: NavItem) {
 function initials(name: string) {
   const parts = name.trim().split(/\s+/);
   return ((parts[0]?.[0] ?? '') + (parts[1]?.[0] ?? '')).toUpperCase() || 'U';
+}
+
+function NavLink({ item, pathname, collapsed }: { item: NavItem; pathname: string; collapsed: boolean }) {
+  const active = isActive(pathname, item);
+  const Icon = item.icon;
+  return (
+    <Link
+      href={item.href}
+      title={collapsed ? item.label : undefined}
+      className={`relative flex items-center gap-2 rounded-lg px-2.5 py-2 text-sm font-medium transition-colors ${
+        collapsed ? 'justify-center' : 'justify-between'
+      } ${
+        active ? 'bg-[var(--accent)] text-white' : 'text-[var(--text-primary)] hover:bg-[var(--bg-elevated)]'
+      }`}
+    >
+      <span className={`flex items-center ${collapsed ? '' : 'gap-2.5'}`}>
+        <Icon size={16} className={active ? 'text-white' : 'text-[var(--text-muted)]'} />
+        {!collapsed && item.label}
+      </span>
+      {!!item.badge && !collapsed && (
+        <span
+          className={`inline-flex min-w-[1.1rem] h-[1.1rem] items-center justify-center rounded-full px-1 text-[10px] font-bold ${
+            active ? 'bg-white/25 text-white' : 'bg-amber-500 text-white'
+          }`}
+        >
+          {item.badge}
+        </span>
+      )}
+      {!!item.badge && collapsed && <span className="absolute top-1 right-1 w-2 h-2 rounded-full bg-amber-500" />}
+    </Link>
+  );
 }
 
 const ROLE_LABEL: Record<LeaveRole, string> = {
@@ -115,9 +174,91 @@ export default function LeaveShell({
   const groups = navGroups(role, pendingApprovalsCount);
   const flatItems = groups.flatMap((g) => g.items);
   const canReturnToDashboard = role !== 'employee';
+  // hr_super_admin has no personal leave/WFH of their own — same
+  // condition navGroups() uses to decide whether to show the
+  // "Personal" nav group, reused here to decide whether to show the
+  // quick-apply actions.
+  const showPersonal = role !== 'hr_super_admin';
 
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+
+  // "Apply for Leave" / "Apply for WFH" — feedback item: these used to
+  // be a button buried in each page's own header/card (MeNavbar,
+  // WfhPanel), only reachable from /leave/me. Living here instead
+  // means they're one click away from any /leave/** page, and both
+  // still open as a popup (slide-over drawer), same as before.
+  const [applyLeaveOpen, setApplyLeaveOpen] = useState(false);
+  const [applyLeavePrefill, setApplyLeavePrefill] = useState<ApplyLeaveInitialValues | undefined>(undefined);
+  const [applyWfhOpen, setApplyWfhOpen] = useState(false);
+  const [applyWfhPrefill, setApplyWfhPrefill] = useState<WfhApplyInitialValues | undefined>(undefined);
+
+  // "Reapply" flows dispatch these same two custom events they always
+  // have (from LeaveHistoryTable and WfhPanel) — only the listener
+  // moved, from MeNavbar to here, so it keeps working now that the
+  // drawers themselves live at the shell level.
+  useEffect(() => {
+    function onLeaveReapply(e: Event) {
+      const detail = (e as CustomEvent<ApplyLeaveInitialValues>).detail;
+      setApplyLeavePrefill(detail);
+      setApplyLeaveOpen(true);
+    }
+    function onWfhReapply(e: Event) {
+      const detail = (e as CustomEvent<WfhApplyInitialValues>).detail;
+      setApplyWfhPrefill(detail);
+      setApplyWfhOpen(true);
+    }
+    window.addEventListener('leave:reapply', onLeaveReapply as EventListener);
+    window.addEventListener('wfh:reapply', onWfhReapply as EventListener);
+    return () => {
+      window.removeEventListener('leave:reapply', onLeaveReapply as EventListener);
+      window.removeEventListener('wfh:reapply', onWfhReapply as EventListener);
+    };
+  }, []);
+
+  function openApplyLeave() {
+    setApplyLeavePrefill(undefined);
+    setApplyLeaveOpen(true);
+  }
+  function closeApplyLeave() {
+    setApplyLeaveOpen(false);
+    setApplyLeavePrefill(undefined);
+  }
+  function handleApplyLeaveSuccess(_result: ApplySubmitResult) {
+    router.refresh();
+  }
+
+  function openApplyWfh() {
+    setApplyWfhPrefill(undefined);
+    setApplyWfhOpen(true);
+  }
+  function closeApplyWfh() {
+    setApplyWfhOpen(false);
+    setApplyWfhPrefill(undefined);
+  }
+  function handleApplyWfhSuccess(_result: WfhSubmitResult) {
+    router.refresh();
+    // WfhPanel (on /leave/me) fetches its own list client-side rather
+    // than via the server page, so router.refresh() alone won't update
+    // it — nudge it to refetch the same way it already listens for
+    // other cross-component signals.
+    window.dispatchEvent(new CustomEvent('wfh:applied'));
+  }
+
+  // Collapsed = icon-only rail, mirrors DashboardShell's identical
+  // pattern so both products behave the same way.
+  const [collapsed, setCollapsed] = useState(false);
+  useEffect(() => {
+    const stored = window.localStorage.getItem('leave-sidebar-collapsed');
+    if (stored === '1') setCollapsed(true);
+  }, []);
+  function toggleCollapsed() {
+    setCollapsed((prev) => {
+      const next = !prev;
+      window.localStorage.setItem('leave-sidebar-collapsed', next ? '1' : '0');
+      return next;
+    });
+  }
 
   useEffect(() => {
     function onClickAway(e: MouseEvent) {
@@ -138,20 +279,27 @@ export default function LeaveShell({
       <button
         type="button"
         onClick={() => setMenuOpen((v) => !v)}
-        className="flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left hover:bg-[var(--bg-elevated)] transition-colors"
+        title={collapsed ? employeeName : undefined}
+        className={`flex items-center rounded-lg text-left hover:bg-[var(--bg-elevated)] transition-colors ${
+          collapsed ? 'justify-center w-full py-1.5' : 'w-full gap-2.5 px-2 py-1.5'
+        }`}
       >
         <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[var(--accent)] text-xs font-semibold text-white">
           {initials(employeeName)}
         </span>
-        <span className="min-w-0 flex-1">
-          <span className="block truncate text-sm font-medium text-[var(--text-primary)]">{employeeName}</span>
-          <span className="block truncate text-[11px] text-[var(--text-muted)]">{ROLE_LABEL[role]}</span>
-        </span>
-        <ChevronDown size={14} className={`shrink-0 text-[var(--text-muted)] transition-transform ${menuOpen ? 'rotate-180' : ''}`} />
+        {!collapsed && (
+          <>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-sm font-medium text-[var(--text-primary)]">{employeeName}</span>
+              <span className="block truncate text-[11px] text-[var(--text-muted)]">{ROLE_LABEL[role]}</span>
+            </span>
+            <ChevronDown size={14} className={`shrink-0 text-[var(--text-muted)] transition-transform ${menuOpen ? 'rotate-180' : ''}`} />
+          </>
+        )}
       </button>
 
       {menuOpen && (
-        <div className="absolute bottom-full left-0 mb-2 w-full min-w-[190px] rounded-xl border border-[var(--border)] bg-[var(--bg-elevated)] p-1.5 shadow-xl z-50">
+        <div className={`absolute bottom-full mb-2 w-[190px] rounded-xl border border-[var(--border)] bg-[var(--bg-elevated)] p-1.5 shadow-xl z-50 ${collapsed ? 'left-0' : 'left-0 w-full min-w-[190px]'}`}>
           <Link
             href="/leave/change-password"
             onClick={() => setMenuOpen(false)}
@@ -180,72 +328,129 @@ export default function LeaveShell({
           this whole aside grow with page content) is what pins the header and the
           user-menu/theme-toggle footer in place — only the <nav> list in between
           scrolls, so switching light/dark never requires scrolling the page. */}
-      <aside className="hidden md:sticky md:top-0 md:flex h-screen w-64 shrink-0 flex-col border-r border-[var(--border)] bg-[var(--bg-elevated)]/40">
-        <div className="px-4 pt-5 pb-4">
-          <div className="flex items-center gap-2.5">
+      <aside
+        className={`hidden md:sticky md:top-0 md:flex h-screen shrink-0 flex-col border-r border-[var(--border)] bg-[var(--bg-elevated)]/40 transition-[width] duration-150 ${
+          collapsed ? 'w-16' : 'w-64'
+        }`}
+      >
+        <div className={`pt-5 pb-4 ${collapsed ? 'px-2' : 'px-4'}`}>
+          <div className={`flex items-center ${collapsed ? 'justify-center' : 'gap-2.5'}`}>
             <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[var(--accent)] text-sm font-bold text-white">
               L
             </span>
-            <div className="min-w-0">
-              <p className="truncate text-sm font-semibold text-[var(--text-primary)]">Leave Tracker</p>
-              <p className="truncate text-[11px] text-[var(--text-muted)]">WonderBiz Technologies</p>
-            </div>
+            {!collapsed && (
+              <div className="min-w-0">
+                <p className="truncate text-sm font-semibold text-[var(--text-primary)]">Leave Tracker</p>
+                <p className="truncate text-[11px] text-[var(--text-muted)]">WonderBiz Technologies</p>
+              </div>
+            )}
           </div>
           {canReturnToDashboard && (
             <Link
               href="/"
-              className="mt-4 flex items-center gap-1.5 rounded-lg border border-[var(--border)] px-2.5 py-1.5 text-xs font-medium text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:border-[var(--text-muted)] transition-colors w-fit"
+              title={collapsed ? 'Dashboard' : undefined}
+              className={`mt-4 flex items-center gap-1.5 rounded-lg border border-[var(--border)] text-xs font-medium text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:border-[var(--text-muted)] transition-colors ${
+                collapsed ? 'justify-center w-full py-1.5' : 'w-fit px-2.5 py-1.5'
+              }`}
             >
               <ArrowLeft size={12} />
-              Dashboard
+              {!collapsed && 'Dashboard'}
             </Link>
           )}
         </div>
 
-        <nav className="flex-1 overflow-y-auto px-3 py-2 space-y-5">
-          {groups.map((group) => (
-            <div key={group.label}>
-              <p className="px-2.5 pb-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--text-muted)]">
-                {group.label}
-              </p>
+        <nav className={`scroll-thin flex-1 overflow-y-auto py-2 space-y-5 ${collapsed ? 'px-2' : 'px-3'}`}>
+          {/* "My Leave" always comes first, then "Apply" (Leave / WFH —
+              opens the popup drawers, not a navigation link), then
+              everything else (Team, Organization-wide) in their usual
+              order. Personal is pulled out of `groups` and rendered
+              here explicitly instead of via the generic map below, so
+              Apply can sit directly under it regardless of what other
+              groups a given role has. */}
+          {groups
+            .filter((g) => g.label === 'Personal')
+            .map((group) => (
+              <div key={group.label}>
+                {!collapsed && (
+                  <p className="px-2.5 pb-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--text-muted)]">
+                    {group.label}
+                  </p>
+                )}
+                <div className="space-y-0.5">
+                  {group.items.map((item) => (
+                    <NavLink key={item.href + item.label} item={item} pathname={pathname} collapsed={collapsed} />
+                  ))}
+                </div>
+              </div>
+            ))}
+
+          {showPersonal && (
+            <div>
+              {!collapsed && (
+                <p className="px-2.5 pb-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--text-muted)]">
+                  Apply
+                </p>
+              )}
               <div className="space-y-0.5">
-                {group.items.map((item) => {
-                  const active = isActive(pathname, item);
-                  const Icon = item.icon;
-                  return (
-                    <Link
-                      key={item.href + item.label}
-                      href={item.href}
-                      className={`flex items-center justify-between gap-2 rounded-lg px-2.5 py-2 text-sm font-medium transition-colors ${
-                        active
-                          ? 'bg-[var(--accent)] text-white'
-                          : 'text-[var(--text-primary)] hover:bg-[var(--bg-elevated)]'
-                      }`}
-                    >
-                      <span className="flex items-center gap-2.5">
-                        <Icon size={16} className={active ? 'text-white' : 'text-[var(--text-muted)]'} />
-                        {item.label}
-                      </span>
-                      {!!item.badge && (
-                        <span
-                          className={`inline-flex min-w-[1.1rem] h-[1.1rem] items-center justify-center rounded-full px-1 text-[10px] font-bold ${
-                            active ? 'bg-white/25 text-white' : 'bg-amber-500 text-white'
-                          }`}
-                        >
-                          {item.badge}
-                        </span>
-                      )}
-                    </Link>
-                  );
-                })}
+                <button
+                  type="button"
+                  onClick={openApplyLeave}
+                  title={collapsed ? 'Leave' : undefined}
+                  className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-sm font-medium text-[var(--text-primary)] hover:bg-[var(--bg-elevated)] transition-colors ${
+                    collapsed ? 'justify-center' : ''
+                  }`}
+                >
+                  <CalendarPlus size={16} className="text-[var(--text-muted)]" />
+                  {!collapsed && 'Leave'}
+                </button>
+                <button
+                  type="button"
+                  onClick={openApplyWfh}
+                  title={collapsed ? 'WFH' : undefined}
+                  className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-sm font-medium text-[var(--text-primary)] hover:bg-[var(--bg-elevated)] transition-colors ${
+                    collapsed ? 'justify-center' : ''
+                  }`}
+                >
+                  <Home size={16} className="text-[var(--text-muted)]" />
+                  {!collapsed && 'WFH'}
+                </button>
               </div>
             </div>
-          ))}
+          )}
+
+          {groups
+            .filter((g) => g.label !== 'Personal')
+            .map((group) => (
+              <div key={group.label}>
+                {!collapsed && (
+                  <p className="px-2.5 pb-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--text-muted)]">
+                    {group.label}
+                  </p>
+                )}
+                <div className="space-y-0.5">
+                  {group.items.map((item) => (
+                    <NavLink key={item.href + item.label} item={item} pathname={pathname} collapsed={collapsed} />
+                  ))}
+                </div>
+              </div>
+            ))}
         </nav>
 
-        <div className="border-t border-[var(--border)] px-3 py-3 space-y-2">
-          <div className="flex items-center gap-2">
-            <div className="flex-1 min-w-0">{UserMenu}</div>
+        <div className={`border-t border-[var(--border)] py-3 space-y-2 ${collapsed ? 'px-2' : 'px-3'}`}>
+          <button
+            type="button"
+            onClick={toggleCollapsed}
+            aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            className={`flex items-center gap-2 rounded-lg text-[11px] text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-elevated)] transition-colors w-full py-1.5 ${
+              collapsed ? 'justify-center px-0' : 'px-2'
+            }`}
+          >
+            {collapsed ? <PanelLeftOpen size={15} /> : <><PanelLeftClose size={15} /> Collapse</>}
+          </button>
+          <div className={`flex items-center gap-2 ${collapsed ? 'flex-col' : ''}`}>
+            <div className={collapsed ? '' : 'flex-1 min-w-0'}>{UserMenu}</div>
+            <NotificationBell collapsed={collapsed} />
             <LeaveThemeSync />
           </div>
         </div>
@@ -267,6 +472,29 @@ export default function LeaveShell({
             <p className="truncate text-sm font-semibold text-[var(--text-primary)]">Leave Tracker</p>
           </div>
           <div className="flex items-center gap-2 shrink-0">
+            {showPersonal && (
+              <>
+                <button
+                  type="button"
+                  onClick={openApplyLeave}
+                  aria-label="Apply for Leave"
+                  title="Apply for Leave"
+                  className="flex h-8 w-8 items-center justify-center rounded-lg bg-[var(--accent)] text-white"
+                >
+                  <CalendarPlus size={14} />
+                </button>
+                <button
+                  type="button"
+                  onClick={openApplyWfh}
+                  aria-label="Apply for WFH"
+                  title="Apply for WFH"
+                  className="flex h-8 w-8 items-center justify-center rounded-lg border border-[var(--border)] text-[var(--text-muted)]"
+                >
+                  <Home size={14} />
+                </button>
+              </>
+            )}
+            <NotificationBell collapsed={false} />
             <LeaveThemeSync />
             <div className="relative">
               <button
@@ -339,9 +567,16 @@ export default function LeaveShell({
           min-h-0 is required alongside flex-1 here, or this flex child refuses to
           shrink below its content height and md:overflow-hidden on the wrapper has
           nothing to clip — the page (not this pane) would end up scrolling instead. */}
-      <main className="flex-1 min-w-0 md:h-screen md:min-h-0 md:overflow-y-auto">
+      <main className="scroll-thin flex-1 min-w-0 md:h-screen md:min-h-0 md:overflow-y-auto">
         <div className="mx-auto max-w-[1400px] px-4 sm:px-6 lg:px-10 py-6 sm:py-8">{children}</div>
       </main>
+
+      {applyLeaveOpen && (
+        <ApplyLeaveDrawer onClose={closeApplyLeave} onSuccess={handleApplyLeaveSuccess} initialValues={applyLeavePrefill} />
+      )}
+      {applyWfhOpen && (
+        <WfhApplyDrawer onClose={closeApplyWfh} onSuccess={handleApplyWfhSuccess} initialValues={applyWfhPrefill} />
+      )}
     </div>
   );
 }

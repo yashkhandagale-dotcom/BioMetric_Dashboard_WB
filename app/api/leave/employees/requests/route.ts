@@ -33,6 +33,28 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
   }
 
+  // hr_super_admin (HR Admin) is remind-only — same restriction already
+  // enforced on the approvals queue (canApprove = !isHrSuperAdmin in
+  // app/leave/approvals/page.tsx). Recording leave manually is an
+  // action reserved for plain `hr` (and above); HR Admin nudges people
+  // via reminders instead. This was previously unenforced here — any
+  // authenticated employee row, including hr_super_admin, could record
+  // leave on someone else's behalf.
+  const { data: actingEmployee } = await sessionClient
+    .from('employees')
+    .select('role')
+    .eq('auth_user_id', user.id)
+    .maybeSingle();
+  if (
+  !actingEmployee ||
+  !['hr', 'hr_super_admin'].includes(actingEmployee.role)
+) {
+  return NextResponse.json(
+    { error: 'You do not have permission to record leave.' },
+    { status: 403 }
+  );
+}
+
   const body = await req.json();
   const {
     employee_id,

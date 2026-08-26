@@ -8,6 +8,7 @@ import { updateSession } from '@/lib/supabase/middleware';
 // lib/supabase/middleware.ts) so signing in once is enough for both the
 // Dashboard and the Leave Tracker — no more separate /leave/login.
 //
+//
 // Role (hr / hr_super_admin / manager / lead / employee) comes from the
 // `employees` table, keyed by `auth_user_id`. What each role can reach:
 //   - hr / hr_super_admin : full Dashboard ('/') + full Leave Tracker
@@ -35,8 +36,27 @@ export async function middleware(req: NextRequest) {
   const pathname = req.nextUrl.pathname;
   const isLeaveRoute = pathname.startsWith('/leave') || pathname.startsWith('/api/leave');
 
+  // IMPORTANT: this must still call updateSession() — it must only skip
+  // the redirect/role-gating logic below, not the session refresh itself.
+  // updateSession() is what calls supabase.auth.getUser(), which is what
+  // actually refreshes an expiring access token and re-writes the
+  // refreshed session back into the 'sb-auth' cookie. Supabase rotates
+  // refresh tokens (each one is single-use) — every layout/route under
+  // /leave/** also calls auth.getUser() via createLeaveClient(), but
+  // Server Components (e.g. app/leave/admin/layout.tsx) are NOT allowed
+  // to write cookies, so any refresh that happens there is silently
+  // dropped (see lib/leaveSupabase/server.ts's catch block). Until this
+  // fix, /leave and /api/leave requests never got the one place that CAN
+  // persist a refreshed cookie (this middleware), so the very first
+  // token refresh anywhere in the Leave Tracker would consume the
+  // refresh token without saving the new one — the next request would
+  // then present an already-used refresh token, get rejected, and the
+  // employee would be bounced back to /leave/login. That's the "frequent
+  // logout" bug: it was never really "sessions expiring", it was the
+  // refreshed session never getting saved for this entire route tree.
   if (isLeaveRoute) {
-    return NextResponse.next();
+    const { response } = await updateSession(req);
+    return response;
   }
 
   const isSharedView = req.nextUrl.searchParams.get('view') === '1';
@@ -52,6 +72,14 @@ export async function middleware(req: NextRequest) {
   const { response, user, supabase } = await updateSession(req);
 
   if (!user) {
+    // For API consumers, return JSON 401 instead of redirecting to the
+    // HTML login page — a fetch/XHR expecting JSON will otherwise get an
+    // HTML document (login page) which leads to JSON.parse errors client-side.
+    const wantsJson = pathname.startsWith('/api') || req.headers.get('accept')?.includes('application/json') || req.headers.get('x-requested-with') === 'XMLHttpRequest';
+    if (wantsJson) {
+      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
+    }
+
     const loginUrl = new URL('/login', req.url);
     loginUrl.searchParams.set('next', pathname + req.nextUrl.search);
     return NextResponse.redirect(loginUrl);

@@ -3,12 +3,6 @@ import { createLeaveClient } from '@/lib/leaveSupabase/server';
 import { applyLeavePolicyAndMutateBalance } from '@/lib/leaveSupabase/applyLeavePolicyAndMutateBalance';
 import { getEffectiveApproverId } from '@/lib/leaveSupabase/organization';
 
-// B2 — Reject. Same effective-approver / HR-override authorization as
-// approve (see getEffectiveApproverId and approve/route.ts's header
-// comment for why this no longer checks reporting_manager_id directly).
-// Requires a comment (enforced both here and inside
-// rejectExistingRequest — see that function's own note on why it's
-// re-checked at the write boundary).
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const sessionClient = await createLeaveClient();
@@ -37,7 +31,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
   const { data: request } = await sessionClient
     .from('leave_requests')
-    .select('id, employee_id, employees!inner(department, reporting_lead_id)')
+    .select('id, employee_id, employees!leave_requests_employee_id_fkey!inner(department, reporting_lead_id)')
     .eq('id', id)
     .maybeSingle();
   if (!request) {

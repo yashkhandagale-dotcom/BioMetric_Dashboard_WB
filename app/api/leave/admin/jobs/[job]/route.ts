@@ -1,9 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createLeaveClient, createLeaveServiceClient } from '@/lib/leaveSupabase/server';
 import { getFYStartYear } from '@/lib/leaveSupabase/fyHelpers';
+import { sendLeaveReminder } from '@/lib/leaveSupabase/notifyLeaveEvent';
+import { runLeaveThresholdCheck } from '@/lib/leaveSupabase/thresholdCheck';
+import { runEscalationSweep } from '@/lib/leaveSupabase/attendanceEscalation';
 import type { SupabaseClient } from '@supabase/supabase-js';
 
-const JOBS = ['probation-accrual', 'annual-reset'] as const;
+const JOBS = ['probation-accrual', 'annual-reset', 'pending-leave-reminders', 'leave-threshold-check', 'attendance-escalation-sweep'] as const;
 type Job = (typeof JOBS)[number];
 
 // D7-1: these two SQL functions already exist (schema.sql migration
@@ -164,11 +167,84 @@ async function runAnnualReset(service: SupabaseClient, asOf: Date) {
   return { job: 'annual-reset', oldFyStartYear, ranCount: results.filter((r) => r.ran).length, results };
 }
 
+// Feedback item #11 — "If a leave application remains unapproved for
+// the requested date(s), trigger an automatic reminder to manager +
+// employee." Reuses sendLeaveReminder's existing 'pending_request'
+// mode (previously manager-triggered-only from the Approvals queue) —
+// this job just decides WHICH pending requests qualify and calls it,
+// once per request per day.
+//
+// "Remains unapproved for the requested date(s)" = the request's
+// start_date has arrived (today >= start_date) and it's still pending —
+// i.e. the leave is happening/has happened with no decision made,
+// which is the sharpest version of "overdue" available without a
+// separate configurable SLA-days knob. Dedup: skip a request if a
+// 'leave_reminder' notification referencing it was already created
+// today, so re-running this job the same day never double-sends.
+async function runPendingLeaveReminders(service: SupabaseClient, asOf: Date) {
+  const today = asOf.toISOString().slice(0, 10);
+
+  const { data: pending, error } = await service
+    .from('leave_requests')
+    .select('id, start_date')
+    .eq('status', 'pending')
+    .lte('start_date', today);
+  if (error) throw new Error(error.message);
+
+  const results: { requestId: string; sent: boolean; reason: string }[] = [];
+
+  for (const req of pending ?? []) {
+    const startOfToday = `${today}T00:00:00.000Z`;
+    const { data: alreadySentToday } = await service
+      .from('notifications')
+      .select('id')
+      .eq('leave_request_id', req.id)
+      .eq('type', 'leave_reminder')
+      .gte('created_at', startOfToday)
+      .limit(1);
+
+    if (alreadySentToday && alreadySentToday.length > 0) {
+      results.push({ requestId: req.id, sent: false, reason: 'Already reminded today' });
+      continue;
+    }
+
+    const outcome = await sendLeaveReminder(service, { mode: 'pending_request', requestId: req.id }, 'automatic');
+    results.push({ requestId: req.id, sent: outcome.ok, reason: outcome.ok ? 'Reminder sent' : outcome.error ?? 'Unknown error' });
+  }
+
+  return { job: 'pending-leave-reminders', ranCount: results.filter((r) => r.sent).length, results };
+}
+
+// Feedback item #4 — weekly per-leave-type threshold breach check (see
+// lib/leaveSupabase/thresholdCheck.ts for the "why a rolling 7-day
+// window" reasoning). Idempotency is handled inside that function via
+// leave_threshold_alerts' unique(leave_type_id, week_start).
+async function runLeaveThresholdCheckJob(service: SupabaseClient, asOf: Date) {
+  const { results, error } = await runLeaveThresholdCheck(service, asOf);
+  if (error) throw new Error(error);
+  return { job: 'leave-threshold-check', alertedCount: results.filter((r) => r.alerted).length, results };
+}
+
+// Wires runEscalationSweep (lib/leaveSupabase/attendanceEscalation.ts) —
+// the automated half of the "unmark leave" reminder flow (§C.5's hybrid
+// delivery, same escalation_reminders counter the manual "Remind now"
+// button uses). vercel.json has scheduled this job's path since the
+// escalation feature shipped, but it was never actually added to the
+// JOBS list below, so the daily cron 404'd silently and only manual
+// reminders were ever going out. Fixed as of this change.
+async function runAttendanceEscalationSweepJob(service: SupabaseClient) {
+  const results = await runEscalationSweep(service);
+  return { job: 'attendance-escalation-sweep', sentCount: results.filter((r) => r.sent).length, results };
+}
+
 async function runJob(job: Job) {
   const service = createLeaveServiceClient();
   const now = new Date();
   if (job === 'probation-accrual') return runProbationAccrual(service, now);
-  return runAnnualReset(service, now);
+  if (job === 'annual-reset') return runAnnualReset(service, now);
+  if (job === 'pending-leave-reminders') return runPendingLeaveReminders(service, now);
+  if (job === 'attendance-escalation-sweep') return runAttendanceEscalationSweepJob(service);
+  return runLeaveThresholdCheckJob(service, now);
 }
 
 // D7-2: GET is the path Vercel Cron actually calls (crons can only issue

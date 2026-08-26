@@ -182,7 +182,7 @@ employee, onClose, readOnly, leaveReadOnly, holidays = [], graceMinutes = DEFAUL
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto">
+        <div className="scroll-thin flex-1 overflow-y-auto">
           {(employee.frequentPunchDays || employee.plannedLeaveCount || employee.casualLeaveCount || employee.sickLeaveCount || employee.lwpCount || employee.halfDayCount) ? (
             <div className="px-5 pt-4 pb-2 flex flex-wrap gap-2">
               {!!employee.frequentPunchDays && (

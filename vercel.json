@@ -7,6 +7,18 @@
     {
       "path": "/api/leave/admin/jobs/annual-reset",
       "schedule": "0 3 25 3 *"
+    },
+    {
+      "path": "/api/leave/admin/jobs/pending-leave-reminders",
+      "schedule": "0 9 * * *"
+    },
+    {
+      "path": "/api/leave/admin/jobs/leave-threshold-check",
+      "schedule": "0 8 * * 1"
+    },
+    {
+      "path": "/api/leave/admin/jobs/attendance-escalation-sweep",
+      "schedule": "0 9 * * *"
     }
   ]
 }

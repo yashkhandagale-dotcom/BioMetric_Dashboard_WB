@@ -37,13 +37,22 @@ export type LeaveNotificationType =
   | 'leave_approved'
   | 'leave_rejected'
   | 'leave_cancelled'
-  | 'leave_reminder';
+  | 'leave_corrected'
+  | 'leave_reminder'
+  // WFH (feedback items #5/#6) reuses the notifications table rather
+  // than a parallel one — same recipient-resolution helper
+  // (getEffectiveApproverId), just its own type values so the UI can
+  // tell a WFH notification apart from a leave one.
+  | 'wfh_submitted'
+  | 'wfh_approved'
+  | 'wfh_rejected'
+  | 'wfh_cancelled';
 
 export interface LeaveEvent {
-  type: 'submitted' | 'approved' | 'rejected' | 'cancelled';
+  type: 'submitted' | 'approved' | 'rejected' | 'cancelled' | 'corrected';
   requestId: string;
   employeeId: string;
-  source: 'self_apply' | 'manager_approval' | 'manager_reject' | 'hr_manual' | 'cancellation';
+  source: 'self_apply' | 'manager_approval' | 'manager_reject' | 'hr_manual' | 'cancellation' | 'hr_correction';
   convertedToLwp?: boolean;
   // Present on submitted/approved/rejected/cancelled — needed to decide
   // wide vs narrow broadcast scope (section 6). Optional because a hard
@@ -56,6 +65,10 @@ export interface LeaveEvent {
   startDate?: string;
   endDate?: string;
   violationNote?: string | null;
+  // corrected only — HR's mandatory reason for reversing an
+  // already-finished approved/auto_lwp request (see
+  // applyLeavePolicyAndMutateBalance.ts's hrCorrectExistingRequest).
+  correctionReason?: string;
 }
 
 type EmployeeRow = {
@@ -78,6 +91,18 @@ type EmployeeRow = {
 function dateRangeLabel(start?: string, end?: string): string {
   if (!start) return '';
   return start === end || !end ? start : `${start} to ${end}`;
+}
+
+// Exported single-row wrapper for callers outside this file that need to
+// drop one notification without building the whole LeaveEvent shape —
+// e.g. lib/leaveSupabase/regularisation.ts and wfhRequests.ts. Routes
+// through the same de-dupe/best-effort insertNotifications below so
+// there's exactly one write path into `notifications`.
+export async function insertLeaveNotification(
+  service: SupabaseClient,
+  row: { recipient_employee_id: string; type: LeaveNotificationType; title: string; body: string; leave_request_id: string | null }
+): Promise<void> {
+  await insertNotifications(service, [row]);
 }
 
 async function insertNotifications(
@@ -179,22 +204,61 @@ export async function notifyLeaveEvent(service: SupabaseClient, event: LeaveEven
     for (const t of team ?? []) recipientIds.add(t.id);
   }
 
-  const type: LeaveNotificationType = event.type === 'approved' ? 'leave_approved' : 'leave_cancelled';
-  const verb = event.type === 'approved' ? 'approved' : 'cancelled';
+  const type: LeaveNotificationType =
+    event.type === 'approved' ? 'leave_approved' : event.type === 'corrected' ? 'leave_corrected' : 'leave_cancelled';
+  const verb = event.type === 'approved' ? 'approved' : event.type === 'corrected' ? 'reversed by HR' : 'cancelled';
   const lwpNote = event.convertedToLwp ? ' (recorded as Leave Without Pay due to insufficient balance)' : '';
+  // corrected-only: HR's reason is required at the write boundary (see
+  // hrCorrectExistingRequest), so it's always present here, but this
+  // stays defensive rather than assuming.
+  const reasonNote = event.type === 'corrected' && event.correctionReason ? ` Reason: ${event.correctionReason}` : '';
 
   for (const id of recipientIds) {
     rows.push({
       recipient_employee_id: id,
       type,
       title: id === employee.id ? `Your leave request was ${verb}` : `${employee.full_name}'s leave was ${verb}`,
-      body: `${employee.full_name}'s leave${range ? ` for ${range}` : ''} was ${verb}${lwpNote}.`,
+      body: `${employee.full_name}'s leave${range ? ` for ${range}` : ''} was ${verb}${lwpNote}.${reasonNote}`,
       leave_request_id: event.requestId,
     });
   }
 
   // EMAIL: send to each recipient's email here once a provider is wired up.
   await insertNotifications(service, rows);
+}
+
+async function checkManualReminderCooldown(
+  service: SupabaseClient,
+  input: LeaveReminderInput
+): Promise<{ allowed: boolean; error?: string; nextAllowedAt?: string }> {
+  const { getLeavePolicyConfig } = await import('./leaveConfig');
+  const { config } = await getLeavePolicyConfig(service);
+
+  let query = service
+    .from('notifications')
+    .select('created_at')
+    .eq('type', 'leave_reminder')
+    .order('created_at', { ascending: false })
+    .limit(1);
+  query = input.mode === 'pending_request'
+    ? query.eq('leave_request_id', input.requestId)
+    : query.eq('recipient_employee_id', input.employeeId).is('leave_request_id', null);
+
+  const { data, error } = await query;
+  if (error) return { allowed: false, error: `Could not check reminder history: ${error.message}` };
+  const last = data?.[0]?.created_at;
+  if (!last) return { allowed: true };
+
+  const elapsedHours = (Date.now() - new Date(last).getTime()) / (1000 * 60 * 60);
+  if (elapsedHours >= config.manualReminderCooldownHours) return { allowed: true };
+
+  const remaining = config.manualReminderCooldownHours - elapsedHours;
+  const nextAllowedAt = new Date(new Date(last).getTime() + config.manualReminderCooldownHours * 60 * 60 * 1000).toISOString();
+  return {
+    allowed: false,
+    nextAllowedAt,
+    error: `Please wait — a reminder for this was already sent ${elapsedHours < 1 ? `${Math.round(elapsedHours * 60)}m` : `${elapsedHours.toFixed(1)}h`} ago. Try again in ~${remaining < 1 ? `${Math.round(remaining * 60)}m` : `${remaining.toFixed(1)}h`}.`,
+  };
 }
 
 // =====================================================================
@@ -214,10 +278,22 @@ export type LeaveReminderInput =
   | { mode: 'pending_request'; requestId: string }
   | { mode: 'missing_application'; employeeId: string; date: string };
 
+// `trigger` mirrors attendanceEscalation.ts's EscalationReminderTrigger:
+// 'manual' (HR's "Send Reminder" button on ApprovalCard.tsx) is gated on
+// leave_policy_config's manual_reminder_cooldown_hours (default 24h) so
+// HR can't spam the same request; 'automatic' (the daily
+// pending-leave-reminders cron) keeps its existing once-per-day dedup
+// in app/api/leave/admin/jobs, unaffected by this gate.
 export async function sendLeaveReminder(
   service: SupabaseClient,
-  input: LeaveReminderInput
-): Promise<{ ok: boolean; error?: string }> {
+  input: LeaveReminderInput,
+  trigger: 'manual' | 'automatic' = 'automatic'
+): Promise<{ ok: boolean; error?: string; nextAllowedAt?: string }> {
+  if (trigger === 'manual') {
+    const cooldown = await checkManualReminderCooldown(service, input);
+    if (!cooldown.allowed) return { ok: false, error: cooldown.error, nextAllowedAt: cooldown.nextAllowedAt };
+  }
+
   if (input.mode === 'pending_request') {
     const { data: request } = await service
       .from('leave_requests')

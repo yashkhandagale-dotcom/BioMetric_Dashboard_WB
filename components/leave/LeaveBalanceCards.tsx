@@ -18,29 +18,28 @@ const CARD_COLOR: Record<string, string> = {
 };
 
 export default function LeaveBalanceCards({ balances }: { balances: LeaveBalanceBreakdown[] }) {
-  if (balances.length === 0) {
-    return (
-      <div className="bg-[var(--bg-elevated)]/40 border border-[var(--border)] rounded-xl px-4 py-6 text-center text-[var(--text-muted)] text-sm">
-        No leave balances found for this financial year yet.
-      </div>
-    );
-  }
-
   return (
-    <div className="grid grid-cols-2 gap-3">
-      {balances.map((b) => (
-        <div key={b.code} className="bg-[var(--bg-elevated)]/40 border border-[var(--border)] rounded-xl p-4">
-          <p className="text-[var(--text-muted)] text-xs mb-2">{b.label}</p>
-          <p className={`text-2xl font-bold ${CARD_COLOR[b.code] ?? 'text-[var(--text-primary)]'}`}>
-            {b.remaining.toFixed(1)}
-            <span className="text-xs text-[var(--text-muted)] font-normal"> remaining</span>
-          </p>
-          <div className="flex justify-between text-[11px] text-[var(--text-muted)] mt-2">
-            <span>Entitled {b.entitled.toFixed(1)}</span>
-            <span>Used {b.used.toFixed(1)}</span>
-          </div>
+    <div className="bg-[var(--bg-elevated)]/40 border border-[var(--border)] rounded-xl p-5 space-y-4 h-full">
+      <h2 className="text-sm font-semibold text-[var(--text-primary)]">Leave Balances</h2>
+      {balances.length === 0 ? (
+        <p className="text-center text-[var(--text-muted)] text-sm py-6">No leave balances found for this financial year yet.</p>
+      ) : (
+        <div className="grid grid-cols-2 gap-3">
+          {balances.map((b) => (
+            <div key={b.code} className="bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg p-3">
+              <p className="text-[var(--text-muted)] text-xs mb-2">{b.label}</p>
+              <p className={`text-2xl font-bold ${CARD_COLOR[b.code] ?? 'text-[var(--text-primary)]'}`}>
+                {b.remaining.toFixed(1)}
+                <span className="text-xs text-[var(--text-muted)] font-normal"> remaining</span>
+              </p>
+              <div className="flex justify-between text-[11px] text-[var(--text-muted)] mt-2">
+                <span>Entitled {b.entitled.toFixed(1)}</span>
+                <span>Used {b.used.toFixed(1)}</span>
+              </div>
+            </div>
+          ))}
         </div>
-      ))}
+      )}
     </div>
   );
 }

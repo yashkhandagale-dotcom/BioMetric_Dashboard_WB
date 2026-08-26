@@ -2,9 +2,12 @@ import { createLeaveClient } from '@/lib/leaveSupabase/server';
 import { getCurrentEmployee } from '@/lib/leaveSupabase/getCurrentEmployee';
 import { getEmployeeBalancesByFY } from '@/lib/leaveSupabase/getEmployeeBalances';
 import { getManagedEmployeeIds } from '@/lib/leaveSupabase/organization';
+import { getEmployeesOnLeaveToday } from '@/lib/leaveSupabase/onLeaveToday';
+import { listRegularisationsForEmployees } from '@/lib/leaveSupabase/regularisation';
 import { selectAllRows } from '@/lib/attendanceExceptions';
-import LeaveHistoryTable, { LeaveHistoryRow } from '@/components/leave/LeaveHistoryTable';
+import { LeaveHistoryRow } from '@/components/leave/LeaveHistoryTable';
 import LeavePageHeader from '@/components/leave/LeavePageHeader';
+import TeamTabs from '@/components/leave/TeamTabs';
 
 type HistoryRow = {
   id: string;
@@ -34,6 +37,15 @@ type HistoryRow = {
 // why that's the correct field, not reporting_manager_id); a lead's team
 // is their direct reports (reporting_lead_id, unchanged — that one really
 // is a per-employee field, set by bulk_assign_lead).
+//
+// UI note: the four data surfaces below (On Leave Today, Recent
+// Regularisations, Roster & Balances, Team Leave History) live in a
+// TeamTabs client component instead of four stacked full-width sections —
+// one tab visible at a time instead of a long scroll, and it's the only
+// place search/pagination state can live since this page itself is a
+// Server Component. All the data is still fetched once, here, server-side;
+// TeamTabs just paginates/filters the already-fetched arrays client-side
+// rather than issuing new requests per page/search.
 export default async function LeaveTeamHome() {
   const employee = await getCurrentEmployee();
   const supabase = await createLeaveClient();
@@ -76,7 +88,7 @@ export default async function LeaveTeamHome() {
               `
               id, start_date, end_date, is_half_day, half_day_session, total_days,
               status, source, is_lwp_override, applied_on,
-              employees ( id, full_name, employee_code, department, office ),
+              employees!leave_requests_employee_id_fkey ( id, full_name, employee_code, department, office ),
               leave_types ( code, display_name )
             `
             )
@@ -89,6 +101,15 @@ export default async function LeaveTeamHome() {
   ]);
 
   const teamBalances = balances.filter((b) => teamIds.includes(b.employeeId));
+
+  // Feedback item #13 — "who's on leave today / pre-approved leave", and
+  // item #2's regularisation history, both scoped to this manager/lead's
+  // own team (teamIds), fetched alongside everything else this page
+  // already loads server-side.
+  const [{ rows: onLeaveToday }, { rows: regularisations }] = await Promise.all([
+    teamIds.length > 0 ? getEmployeesOnLeaveToday(supabase, undefined, teamIds) : Promise.resolve({ rows: [], error: null }),
+    teamIds.length > 0 ? listRegularisationsForEmployees(supabase, teamIds) : Promise.resolve({ rows: [], error: null }),
+  ]);
 
   const history: LeaveHistoryRow[] = (historyResult.data ?? [])
     .filter((r) => r.employees && r.leave_types)
@@ -112,62 +133,80 @@ export default async function LeaveTeamHome() {
       recordedBy: r.source === 'hr_manual' ? 'HR (manual entry)' : 'Employee self-service',
     }));
 
+  const pendingRegularisations = regularisations.filter((r) => r.status !== 'approved').length;
+
   return (
-    <div className="max-w-5xl space-y-6">
+    <div className="max-w-6xl mx-auto space-y-9">
       <LeavePageHeader
         title="My Team"
         description="Balances and leave history for your team. View only — record leave and edits stay with HR."
+        icon={
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="3" y="4" width="18" height="18" rx="2" />
+            <path d="M16 2v4M8 2v4M3 10h18" />
+          </svg>
+        }
       />
 
       {reportsError && (
-        <div className="bg-red-900/30 border border-red-500/30 text-red-700 dark:text-red-300 text-sm rounded-xl px-4 py-3 mb-4">
+        <div className="bg-red-900/10 border border-red-500/30 text-red-700 dark:text-red-300 text-sm rounded-xl px-4 py-3">
           Could not load your team: {reportsError.message}
         </div>
       )}
 
-      <div className="bg-[var(--bg-elevated)]/40 border border-[var(--border)] rounded-xl p-4 mb-6">
-          <h2 className="text-sm font-semibold mb-3">Roster &amp; Balances</h2>
-          {!reports || reports.length === 0 ? (
-            <p className="text-[var(--text-muted)] text-sm">No team members found for you yet.</p>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-left text-[var(--text-muted)] text-xs border-b border-[var(--border)]">
-                    <th className="pb-2 pr-4">Employee</th>
-                    <th className="pb-2 pr-4">Code</th>
-                    <th className="pb-2 pr-4">Department</th>
-                    <th className="pb-2 pr-4 text-right">SL</th>
-                    <th className="pb-2 pr-4 text-right">CL</th>
-                    <th className="pb-2 pr-4 text-right">PL</th>
-                    <th className="pb-2 text-right">LWP</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {reports.map((r) => {
-                    const b = teamBalances.find((tb) => tb.employeeId === r.id);
-                    return (
-                      <tr key={r.id} className="border-b border-[var(--border)]/50 last:border-0">
-                        <td className="py-2 pr-4">{r.full_name}</td>
-                        <td className="py-2 pr-4 text-[var(--text-muted)]">{r.employee_code}</td>
-                        <td className="py-2 pr-4 text-[var(--text-muted)]">{r.department}</td>
-                        <td className="py-2 pr-4 text-right">{b ? b.SL.toFixed(1) : '—'}</td>
-                        <td className="py-2 pr-4 text-right">{b ? b.CL.toFixed(1) : '—'}</td>
-                        <td className="py-2 pr-4 text-right">{b ? b.PL.toFixed(1) : '—'}</td>
-                        <td className="py-2 text-right">{b ? b.LWP.toFixed(1) : '—'}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
+      {/* At-a-glance strip — three numbers a manager actually opens this page
+          for, kept outside the tabs so they're visible no matter which tab
+          is active. Each carries a left accent bar matching its semantic
+          weight instead of an identical neutral box. */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <StatCard label="Team members" value={reports.length} tone="neutral" />
+        <StatCard
+          label="On leave today"
+          value={onLeaveToday.length}
+          tone={onLeaveToday.length > 0 ? 'accent' : 'neutral'}
+        />
+        <StatCard
+          label="Pending regularisations"
+          value={pendingRegularisations}
+          tone={pendingRegularisations > 0 ? 'warn' : 'neutral'}
+        />
       </div>
 
-      <div>
-        <h2 className="text-sm font-semibold mb-3">Team Leave History</h2>
-        <LeaveHistoryTable rows={history} />
-      </div>
+      <TeamTabs
+        onLeaveToday={onLeaveToday}
+        regularisations={regularisations}
+        reports={reports}
+        balances={teamBalances}
+        history={history}
+      />
+    </div>
+  );
+}
+
+// Small local presentational helper — only used on this page, so it stays
+// here rather than becoming a shared component.
+function StatCard({
+  label,
+  value,
+  tone = 'neutral',
+}: {
+  label: string;
+  value: number;
+  tone?: 'neutral' | 'accent' | 'warn';
+}) {
+  const barColor = tone === 'accent' ? 'bg-emerald-500' : tone === 'warn' ? 'bg-amber-500' : 'bg-[var(--border)]';
+  const valueColor =
+    tone === 'accent'
+      ? 'text-emerald-600 dark:text-emerald-400'
+      : tone === 'warn'
+      ? 'text-amber-600 dark:text-amber-400'
+      : 'text-[var(--text-primary)]';
+
+  return (
+    <div className="relative bg-[var(--bg-elevated)]/40 border border-[var(--border)] rounded-xl pl-6 pr-5 py-4 overflow-hidden">
+      <span className={`absolute left-0 top-0 bottom-0 w-1 ${barColor}`} aria-hidden />
+      <p className="text-xs font-medium uppercase tracking-wide text-[var(--text-muted)]">{label}</p>
+      <p className={`text-[32px] leading-none font-semibold mt-2 tabular-nums ${valueColor}`}>{value}</p>
     </div>
   );
 }

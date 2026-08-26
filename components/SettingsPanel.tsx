@@ -131,7 +131,7 @@ export default function SettingsPanel({ onClose, thresholds, onSaveThresholds, r
           ))}
         </div>
 
-        <div className="flex-1 overflow-y-auto px-5 py-4">
+        <div className="scroll-thin flex-1 overflow-y-auto px-5 py-4">
           {tab === 'thresholds' && (
             <div className="space-y-5">
               {groups.map(group => (

@@ -68,7 +68,7 @@ export async function GET(req: NextRequest) {
       .select(
         `
         id, start_date, end_date, total_days, lwp_override_reason, applied_on,
-        employees ( id, full_name, employee_code ),
+        employees!leave_requests_employee_id_fkey ( id, full_name, employee_code ),
         leave_types ( code )
       `
       )
@@ -115,7 +115,7 @@ export async function GET(req: NextRequest) {
         .select(
           `
           id, start_date, end_date, total_days, applied_on,
-          employees ( id, full_name, employee_code )
+          employees!leave_requests_employee_id_fkey ( id, full_name, employee_code )
         `
         )
         .eq('leave_type_id', slType.id)
@@ -169,7 +169,7 @@ export async function GET(req: NextRequest) {
       .select(
         `
         id, start_date, end_date, total_days, applied_on,
-        employees ( id, full_name, employee_code, date_of_joining ),
+        employees!leave_requests_employee_id_fkey ( id, full_name, employee_code, date_of_joining ),
         leave_types ( code )
       `
       )
@@ -215,7 +215,7 @@ export async function GET(req: NextRequest) {
       .select(
         `
         id, closing_balance, fy_start_year,
-        employees ( id, full_name, employee_code ),
+        employees!leave_balances_employee_id_fkey ( id, full_name, employee_code ),
         leave_types ( code, is_directly_applicable )
       `
       )
@@ -262,7 +262,7 @@ export async function GET(req: NextRequest) {
       .select(
         `
         id, start_date, total_days,
-        employees ( id, full_name, employee_code ),
+        employees!leave_requests_employee_id_fkey ( id, full_name, employee_code ),
         leave_types ( code )
       `
       )

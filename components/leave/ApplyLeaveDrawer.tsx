@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { X } from 'lucide-react';
-import ApplyLeaveForm, { ApplySubmitResult } from './ApplyLeaveForm';
+import ApplyLeaveForm, { ApplySubmitResult, ApplyLeaveInitialValues } from './ApplyLeaveForm';
 
 // A5 — matches RecordLeaveDrawer.tsx's slide-over pattern exactly
 // (same mount/close/Escape/auto-close-after-success behavior), wrapping
@@ -10,9 +10,11 @@ import ApplyLeaveForm, { ApplySubmitResult } from './ApplyLeaveForm';
 export default function ApplyLeaveDrawer({
   onClose,
   onSuccess,
+  initialValues,
 }: {
   onClose: () => void;
   onSuccess: (result: ApplySubmitResult) => void;
+  initialValues?: ApplyLeaveInitialValues;
 }) {
   const [mounted, setMounted] = useState(false);
 
@@ -48,8 +50,8 @@ export default function ApplyLeaveDrawer({
             <X size={18} />
           </button>
         </div>
-        <div className="flex-1 overflow-y-auto p-5">
-          <ApplyLeaveForm onSuccess={handleFormSuccess} />
+        <div className="scroll-thin flex-1 overflow-y-auto p-5">
+          <ApplyLeaveForm onSuccess={handleFormSuccess} initialValues={initialValues} />
         </div>
       </div>
     </div>

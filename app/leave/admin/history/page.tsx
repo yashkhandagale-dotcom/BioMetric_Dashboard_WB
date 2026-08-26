@@ -1,6 +1,7 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { AlertCircle, CalendarDays, Download, SlidersHorizontal, Table2 } from 'lucide-react';
 import LeaveHistoryTable, { LeaveHistoryRow } from '@/components/leave/LeaveHistoryTable';
 import AbsenteesPanel from '@/components/leave/AbsenteesPanel';
 import HalfDayPanel from '@/components/leave/HalfDayPanel';
@@ -26,6 +27,55 @@ const LEAVE_TYPES = [
 type View = 'calendar' | 'table';
 type Tab = 'absentees' | 'half_days' | 'history';
 
+// Absentees/Half Day default date window. Leaving both dates empty used
+// to mean "scan the entire uploaded attendance history" — for any
+// company with more than a couple months of biometric data, that's
+// hundreds or thousands of rows fetched (paginated 1000 at a time, per
+// table, sequentially — see selectAllRows in lib/attendanceExceptions.ts)
+// EVERY time this page loads, by default, before anyone has touched a
+// filter. That's what "have to choose dates to get data" was actually
+// describing — not a bug in any one query, just an unbounded default.
+// Defaulting to a 60-day window keeps the common case fast; "View full
+// history" below is still available as an explicit, opt-in action for
+// the rarer case of digging into older backlog.
+const DEFAULT_ATTENDANCE_WINDOW_DAYS = 60;
+function isoDate(d: Date): string {
+  return d.toISOString().slice(0, 10);
+}
+function defaultAttendanceFromDate(): string {
+  const d = new Date();
+  d.setUTCDate(d.getUTCDate() - DEFAULT_ATTENDANCE_WINDOW_DAYS);
+  return isoDate(d);
+}
+function defaultAttendanceToDate(): string {
+  return isoDate(new Date());
+}
+
+// Small shared alert banner — used for every error state on this page
+// (employees load failure, calendar load failure, history load
+// failure). Pulled out so all three read as "the same kind of thing"
+// instead of three separately-styled red boxes.
+function Banner({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="flex items-start gap-2.5 bg-red-500/10 border border-red-500/30 text-red-600 dark:text-red-300 text-xs rounded-xl px-4 py-3">
+      <AlertCircle size={14} className="shrink-0 mt-0.5" />
+      <span className="leading-relaxed">{children}</span>
+    </div>
+  );
+}
+
+// Section label used above every filter card, so "these controls narrow
+// what you're looking at" reads the same way in both Calendar and Table
+// view instead of the filter row just appearing with no framing.
+function FilterLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="flex items-center gap-2 mb-3">
+      <SlidersHorizontal size={13} className="text-[var(--text-muted)]" />
+      <h3 className="text-[11px] font-semibold uppercase tracking-wide text-[var(--text-muted)]">{children}</h3>
+    </div>
+  );
+}
+
 // Leave Tracker. The month calendar (below) is now the primary view —
 // see the Leave Tracker Calendar brief. The original Absentees / Half
 // Days / Leave History tabs are preserved as-is, reachable via the
@@ -34,6 +84,16 @@ type Tab = 'absentees' | 'half_days' | 'history';
 // before). "Team" in the original ask maps to Department here — see
 // lib/attendanceExceptions.ts's header comment for why there's no
 // separate team table.
+//
+// UI pass: Calendar/Table is a MODE switch (which whole view you're in),
+// while Absentees/Half Days/History is a TAB switch (which slice of
+// Table view you're in) — those are two different levels of hierarchy,
+// so they now use two different controls (segmented pill vs. underline
+// tabs) instead of looking identical and forcing the user to infer the
+// relationship. Filter cards are solid instead of translucent so they
+// don't blend into the page background, and the 6-column filter grid is
+// now capped at 4 columns so labels + selects stay legible instead of
+// being squeezed.
 export default function LeaveTrackerPage() {
   const [view, setView] = useState<View>('calendar');
   const [tab, setTab] = useState<Tab>('absentees');
@@ -45,8 +105,8 @@ export default function LeaveTrackerPage() {
   const [department, setDepartment] = useState('');
   const [office, setOffice] = useState('');
   const [attendanceSearch, setAttendanceSearch] = useState('');
-  const [attendanceDate, setAttendanceDate] = useState('');
-  const [attendanceEndDate, setAttendanceEndDate] = useState('');
+  const [attendanceDate, setAttendanceDate] = useState(() => defaultAttendanceFromDate());
+  const [attendanceEndDate, setAttendanceEndDate] = useState(() => defaultAttendanceToDate());
 
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
@@ -58,6 +118,27 @@ export default function LeaveTrackerPage() {
   const [error, setError] = useState<string | null>(null);
 
   const [recordLeaveOpen, setRecordLeaveOpen] = useState(false);
+  // HR Admin (hr_super_admin) is remind-only — recording leave is a
+  // plain-HR action (see the matching 403 in
+  // app/api/leave/employees/requests/route.ts). This page is a client
+  // component top-to-bottom, so it can't receive role as a
+  // server-rendered prop the way most other /leave/** pages do; fetched
+  // once here via the small /api/leave/me endpoint instead. Defaults to
+  // false (button hidden) until the fetch resolves, rather than
+  // flashing the button on for HR Admin for a moment.
+  const [canRecordLeave, setCanRecordLeave] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    fetch('/api/leave/me')
+      .then((res) => res.json())
+      .then((body) => {
+        if (!cancelled) setCanRecordLeave(body?.employee?.role === 'hr');
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // ── Calendar-specific state ─────────────────────────────────────────
   const [monthKey, setMonthKey] = useState(currentMonthKey());
@@ -96,7 +177,14 @@ export default function LeaveTrackerPage() {
   );
   const offices = useMemo(() => Array.from(new Set(employees.map((e) => e.office))).sort(), [employees]);
 
+  // Guards against the same class of race the Absentees/Half Day panels
+  // had: an older, slower request landing after a newer one and silently
+  // overwriting fresher data with stale rows.
+  const historyRequestIdRef = useRef(0);
+  const calendarRequestIdRef = useRef(0);
+
   async function fetchHistory() {
+    const myRequestId = ++historyRequestIdRef.current;
     setLoading(true);
     setError(null);
     try {
@@ -111,6 +199,7 @@ export default function LeaveTrackerPage() {
       const res = await fetch(`/api/leave/history?${params.toString()}`);
       const text = await res.text();
       const data = text ? JSON.parse(text) : {};
+      if (myRequestId !== historyRequestIdRef.current) return;
       if (!res.ok) {
         setError(data.error || `Could not load leave history (${res.status}).`);
         setRows([]);
@@ -118,10 +207,11 @@ export default function LeaveTrackerPage() {
       }
       setRows(data.requests ?? []);
     } catch {
+      if (myRequestId !== historyRequestIdRef.current) return;
       setError('Could not reach the server — check your connection and retry.');
       setRows([]);
     } finally {
-      setLoading(false);
+      if (myRequestId === historyRequestIdRef.current) setLoading(false);
     }
   }
 
@@ -136,6 +226,7 @@ export default function LeaveTrackerPage() {
   // same convention AbsenteesPanel/HalfDayPanel already use for their
   // Department/Office/Search filters).
   const loadCalendarMonth = useCallback(async () => {
+    const myRequestId = ++calendarRequestIdRef.current;
     setCalendarLoading(true);
     setCalendarError(null);
     try {
@@ -152,6 +243,7 @@ export default function LeaveTrackerPage() {
         holidaysRes.json(),
       ]);
 
+      if (myRequestId !== calendarRequestIdRef.current) return;
       if (!exceptionsRes.ok) throw new Error(exceptionsBody.error || 'Could not load attendance exceptions.');
       if (!leaveRes.ok) throw new Error(leaveBody.error || 'Could not load leave requests.');
       if (!holidaysRes.ok) throw new Error(holidaysBody.error || 'Could not load holidays.');
@@ -166,9 +258,10 @@ export default function LeaveTrackerPage() {
       }
       setCalendarHolidays(holidayMap);
     } catch (err) {
+      if (myRequestId !== calendarRequestIdRef.current) return;
       setCalendarError(err instanceof Error ? err.message : 'Could not reach the server to load the calendar.');
     } finally {
-      setCalendarLoading(false);
+      if (myRequestId === calendarRequestIdRef.current) setCalendarLoading(false);
     }
   }, [monthKey]);
 
@@ -248,55 +341,63 @@ export default function LeaveTrackerPage() {
       <LeavePageHeader
         title="Leave Tracker"
         actions={
-          <div className="text-right">
-            <button
-              type="button"
-              onClick={() => setRecordLeaveOpen(true)}
-              className="bg-[var(--accent)] hover:bg-[var(--accent)]/90 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
-            >
-              + Record Leave
-            </button>
-            {!(view === 'table' && tab === 'history') && (
-              <p className="text-[11px] text-[var(--text-muted)] mt-1 max-w-[220px]">
-                For any employee. To act on a row already listed below, use that row&apos;s own action instead.
-              </p>
-            )}
-          </div>
+          canRecordLeave ? (
+            <div className="text-right">
+              <button
+                type="button"
+                onClick={() => setRecordLeaveOpen(true)}
+                className="bg-[var(--accent)] hover:bg-[var(--accent)]/90 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+              >
+                + Record Leave
+              </button>
+              {!(view === 'table' && tab === 'history') && (
+                <p className="text-[11px] text-[var(--text-muted)] mt-1 max-w-[220px]">
+                  For any employee. To act on a row already listed below, use that row&apos;s own action instead.
+                </p>
+              )}
+            </div>
+          ) : undefined
         }
       />
 
-      {employeesError && (
-        <div className="bg-red-900/30 border border-red-500/30 text-red-700 dark:text-red-300 text-xs rounded-lg px-3 py-2">
-          {employeesError}
-        </div>
-      )}
+      {employeesError && <Banner>{employeesError}</Banner>}
 
-      {/* Calendar / Table view toggle */}
-      <div className="flex gap-1 border-b border-[var(--border)]">
+      {/* Calendar / Table — a MODE switch (which whole view you're in).
+          Segmented pill control so it reads as a different kind of
+          control than the underline tabs below (which are a TAB switch
+          one level down, inside Table view only). */}
+      <div className="inline-flex items-center gap-1 bg-[var(--bg-elevated)] border border-[var(--border)] rounded-full p-1">
         <button
           type="button"
           onClick={() => setView('calendar')}
-          className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
-            view === 'calendar' ? 'border-emerald-500 text-[var(--text-primary)]' : 'border-transparent text-[var(--text-muted)] hover:text-[var(--text-primary)]'
+          className={`inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full text-sm font-medium transition-colors ${
+            view === 'calendar'
+              ? 'bg-emerald-600 text-white shadow-sm'
+              : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'
           }`}
         >
+          <CalendarDays size={14} />
           Calendar
         </button>
         <button
           type="button"
           onClick={() => setView('table')}
-          className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
-            view === 'table' ? 'border-emerald-500 text-[var(--text-primary)]' : 'border-transparent text-[var(--text-muted)] hover:text-[var(--text-primary)]'
+          className={`inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full text-sm font-medium transition-colors ${
+            view === 'table'
+              ? 'bg-emerald-600 text-white shadow-sm'
+              : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'
           }`}
         >
+          <Table2 size={14} />
           Table view
         </button>
       </div>
 
       {view === 'calendar' && (
         <>
-          <div className="bg-[var(--bg-elevated)]/40 border border-[var(--border)] rounded-xl p-4">
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          <div className="bg-[var(--bg-elevated)] border border-[var(--border)] rounded-xl p-4">
+            <FilterLabel>Narrow the month</FilterLabel>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div>
                 <label className="block text-xs text-[var(--text-muted)] mb-1">Department (team)</label>
                 <select
@@ -310,7 +411,7 @@ export default function LeaveTrackerPage() {
                   ))}
                 </select>
               </div>
-              <div className="sm:col-span-2 lg:col-span-3">
+              <div className="sm:col-span-2">
                 <label className="block text-xs text-[var(--text-muted)] mb-1">Employee search</label>
                 <input
                   type="text"
@@ -323,16 +424,12 @@ export default function LeaveTrackerPage() {
             </div>
           </div>
 
-          {calendarError && (
-            <div className="bg-red-900/30 border border-red-500/30 text-red-700 dark:text-red-300 text-xs rounded-lg px-3 py-2">
-              {calendarError}
-            </div>
-          )}
+          {calendarError && <Banner>{calendarError}</Banner>}
 
           {calendarLoading ? (
             <AttendanceTableSkeleton columns={7} rows={5} />
           ) : filteredDayMap.size === 0 && (calendarDepartment || calendarSearch) ? (
-            <div className="bg-[var(--bg-elevated)]/40 border border-[var(--border)] rounded-xl px-4 py-10 text-center text-[var(--text-muted)] text-sm">
+            <div className="bg-[var(--bg-elevated)] border border-[var(--border)] rounded-xl px-4 py-10 text-center text-[var(--text-muted)] text-sm">
               No leave, half-day, or unrecorded-absence activity this month matching your filters.
             </div>
           ) : (
@@ -355,6 +452,7 @@ export default function LeaveTrackerPage() {
                 setCalendarRefreshSignal((s) => s + 1);
               }}
               onViewInHistory={viewEmployeeInHistory}
+              canRecordLeave={canRecordLeave}
             />
           )}
         </>
@@ -362,7 +460,9 @@ export default function LeaveTrackerPage() {
 
       {view === 'table' && (
         <>
-          {/* Tabs */}
+          {/* Tabs — a slice switch WITHIN Table view, so it stays the
+              familiar underline style, one level below the pill toggle
+              above. */}
           <div className="flex gap-1 border-b border-[var(--border)]">
             {TABS.map((t) => (
               <button
@@ -381,8 +481,9 @@ export default function LeaveTrackerPage() {
           </div>
 
           {/* Shared Department/Office filter, used by all three tabs */}
-          <div className="bg-[var(--bg-elevated)]/40 border border-[var(--border)] rounded-xl p-4 space-y-3">
-            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+          <div className="bg-[var(--bg-elevated)] border border-[var(--border)] rounded-xl p-4 space-y-4">
+            <FilterLabel>Filters</FilterLabel>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               <div>
                 <label className="block text-xs text-[var(--text-muted)] mb-1">Department</label>
                 <select
@@ -432,7 +533,7 @@ export default function LeaveTrackerPage() {
                       className="w-full bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)]"
                     />
                   </div>
-                  <div className="sm:col-span-2 lg:col-span-2">
+                  <div className="sm:col-span-2 lg:col-span-4">
                     <label className="block text-xs text-[var(--text-muted)] mb-1">Employee Search</label>
                     <input
                       type="text"
@@ -443,7 +544,7 @@ export default function LeaveTrackerPage() {
                     />
                   </div>
                   {attendanceEndDate && attendanceEndDate !== attendanceDate && (
-                    <div className="sm:col-span-2 lg:col-span-6 -mt-1">
+                    <div className="sm:col-span-2 lg:col-span-4 -mt-2">
                       <button
                         type="button"
                         onClick={() => setAttendanceEndDate('')}
@@ -453,6 +554,32 @@ export default function LeaveTrackerPage() {
                       </button>
                     </div>
                   )}
+                  <div className="sm:col-span-2 lg:col-span-4 -mt-2">
+                    {attendanceDate || attendanceEndDate ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAttendanceDate('');
+                          setAttendanceEndDate('');
+                        }}
+                        title="Scans every day since your first uploaded attendance record — can take noticeably longer to load than the default 60-day window"
+                        className="text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+                      >
+                        View full history (may take longer to load)
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAttendanceDate(defaultAttendanceFromDate());
+                          setAttendanceEndDate(defaultAttendanceToDate());
+                        }}
+                        className="text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+                      >
+                        ← Back to last {DEFAULT_ATTENDANCE_WINDOW_DAYS} days
+                      </button>
+                    )}
+                  </div>
                 </>
               ) : (
                 <>
@@ -507,7 +634,7 @@ export default function LeaveTrackerPage() {
             </div>
 
             {tab === 'history' && (
-              <div className="flex items-center gap-3 pt-1">
+              <div className="flex flex-wrap items-center gap-3 pt-3 border-t border-[var(--border)]">
                 <button
                   type="button"
                   onClick={fetchHistory}
@@ -525,8 +652,9 @@ export default function LeaveTrackerPage() {
                   type="button"
                   onClick={handleExportCSV}
                   disabled={rows.length === 0}
-                  className="ml-auto border border-[var(--border)] hover:border-[var(--border)] disabled:opacity-40 text-[var(--text-primary)] text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+                  className="ml-auto inline-flex items-center gap-1.5 border border-[var(--border)] hover:border-[var(--text-muted)] disabled:opacity-40 disabled:hover:border-[var(--border)] text-[var(--text-primary)] text-sm font-medium px-4 py-2 rounded-lg transition-colors"
                 >
+                  <Download size={14} />
                   Export CSV
                 </button>
               </div>
@@ -557,17 +685,18 @@ export default function LeaveTrackerPage() {
 
           {tab === 'history' && (
             <>
-              {error && (
-                <div className="bg-red-900/30 border border-red-500/30 text-red-700 dark:text-red-300 text-xs rounded-lg px-3 py-2">
-                  {error}
-                </div>
-              )}
+              {error && <Banner>{error}</Banner>}
               {loading ? (
                 <AttendanceTableSkeleton columns={7} />
               ) : (
                 <>
                   <p className="text-xs text-[var(--text-muted)]">{rows.length} record(s)</p>
-                  <LeaveHistoryTable rows={department || office ? rows.filter((r) => (!department || r.department === department) && (!office || r.office === office)) : rows} />
+                  <LeaveHistoryTable
+                    rows={department || office ? rows.filter((r) => (!department || r.department === department) && (!office || r.office === office)) : rows}
+                    hrCorrection
+                    allowHrCancel
+                    onChanged={fetchHistory}
+                  />
                 </>
               )}
             </>
@@ -575,7 +704,7 @@ export default function LeaveTrackerPage() {
         </>
       )}
 
-      {recordLeaveOpen && (
+      {recordLeaveOpen && canRecordLeave && (
         <RecordLeaveDrawer
           onClose={() => setRecordLeaveOpen(false)}
           onSuccess={() => {

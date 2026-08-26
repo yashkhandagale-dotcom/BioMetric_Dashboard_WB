@@ -38,3 +38,10 @@ export function effectiveMinutes(rawMinutes: number): number | null {
 export function actualMinutes(rawMinutes: number): number {
   return rawMinutes;
 }
+
+export function HalfdayMinutes(rawMinutes : number ): number{
+  if(rawMinutes < 300 ){
+    return rawMinutes-300;
+  }
+  return rawMinutes;
+}

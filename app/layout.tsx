@@ -11,7 +11,6 @@
 // lives inside LeaveShell (sidebar footer on desktop, top bar on
 // mobile), sized like the compact icon button it always was, so this
 // layout has nothing left to render beyond the themed background.
-//
 // LeaveThemeInit IS mounted here though (not chrome — no visible output)
 // specifically because this is the one layout in the /leave/** tree that
 // doesn't get torn down and rebuilt when navigating between top-level

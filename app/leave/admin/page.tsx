@@ -6,6 +6,17 @@ import type { EmployeeWithBalances } from '@/components/leave/EmployeeCard';
 import PolicyInfoButton from '@/components/leave/PolicyInfoButton';
 import BulkEventsButton from '@/components/leave/BulkEventsButton';
 import LeavePageHeader from '@/components/leave/LeavePageHeader';
+// AddEmployeeButton is deliberately not imported/rendered here anymore
+// — HR asked to hide it now that the "Acknowledge & Set Up" flow
+// (NewJoinersPanel, below) covers the normal case. The component and
+// its backing route (POST /api/leave/employees) are untouched and still
+// fully working — NewJoinersPanel's Ack modal reuses that exact same
+// form (see app/leave/admin/employees/AddEmployeeForm.tsx), so it can't
+// be removed outright without breaking Ack too. If a bare
+// pre-registration need comes up again (e.g. an employee without a
+// Google account), re-add `<AddEmployeeButton />` to the actions list
+// below — nothing else needs to change.
+import NewJoinersPanel from '@/components/leave/NewJoinersPanel';
 
 // This page used to show a plain balances-only table (Code/Name/Dept/
 // Office/SL/CL/PL/LWP + an Adjust button) and link out to a separate
@@ -40,7 +51,7 @@ export default async function LeaveAdminHome() {
     supabase
       .from('employees')
       .select(
-        'id, employee_code, full_name, department, office, role, employment_status, notice_period_days, date_of_joining, reporting_lead_id, reporting_manager_id, auth_user_id, email'
+        'id, employee_code, full_name, department, office, role, employment_status, notice_period_days, date_of_joining, reporting_lead_id, reporting_manager_id, auth_user_id, email, auth_provider, last_login_at'
       )
       .order('full_name'),
     getEmployeeBalancesByFY(supabase, fyStartYear),
@@ -54,7 +65,7 @@ export default async function LeaveAdminHome() {
   // "auto-updated everywhere" hierarchy is entirely driven off
   // department_managers.manager_id, so this is the single source of
   // truth both for a manager's card and for every department member's
-  // effective-manager lookup below.
+  // effective-manager lookup below
   const departmentsByManagerId = new Map<string, string[]>();
   for (const d of deptManagers ?? []) {
     if (!d.manager_id) continue;
@@ -82,6 +93,8 @@ export default async function LeaveAdminHome() {
       dateOfJoining: e.date_of_joining,
       hasLogin: !!e.auth_user_id,
       email: e.email,
+      authProvider: e.auth_provider ?? 'password',
+      lastLoginAt: e.last_login_at ?? null,
       // Derived, not stored — reassigning a department's manager changes
       // this for every member automatically, with no per-employee write.
       effectiveManagerName: e.role === 'manager' ? null : effectiveManager?.full_name ?? null,
@@ -115,6 +128,8 @@ export default async function LeaveAdminHome() {
           </>
         }
       />
+
+      <NewJoinersPanel />
 
       {(employeesError || balancesError || deptManagersError) && (
         <div className="bg-red-900/30 border border-red-500/30 text-red-700 dark:text-red-300 text-xs rounded-lg px-3 py-2">
