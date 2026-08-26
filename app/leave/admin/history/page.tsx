@@ -1,7 +1,15 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AlertCircle, CalendarDays, Download, SlidersHorizontal, Table2 } from 'lucide-react';
+import {
+  AlertCircle,
+  CalendarDays,
+  ChevronDown,
+  Download,
+  Search,
+  SlidersHorizontal,
+  Table2,
+} from 'lucide-react';
 import LeaveHistoryTable, { LeaveHistoryRow } from '@/components/leave/LeaveHistoryTable';
 import AbsenteesPanel from '@/components/leave/AbsenteesPanel';
 import HalfDayPanel from '@/components/leave/HalfDayPanel';
@@ -33,7 +41,7 @@ type Tab = 'absentees' | 'half_days' | 'history';
 // instead of three separately-styled red boxes.
 function Banner({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex items-start gap-2.5 bg-red-500/10 border border-red-500/30 text-red-600 dark:text-red-300 text-xs rounded-xl px-4 py-3">
+    <div className="flex items-start gap-2.5 bg-red-500/10 border border-red-500/30 text-red-600 dark:text-red-300 text-xs rounded-xl px-4 py-3 shrink-0">
       <AlertCircle size={14} className="shrink-0 mt-0.5" />
       <span className="leading-relaxed">{children}</span>
     </div>
@@ -52,24 +60,18 @@ function FilterLabel({ children }: { children: React.ReactNode }) {
   );
 }
 
-// Leave Tracker. The month calendar (below) is now the primary view —
-// see the Leave Tracker Calendar brief. The original Absentees / Half
-// Days / Leave History tabs are preserved as-is, reachable via the
-// "Table view" toggle, since HR still needs the flat table for bulk
-// actions/export (exportRowsAsCSV stays wired to History exactly as
-// before). "Team" in the original ask maps to Department here — see
-// lib/attendanceExceptions.ts's header comment for why there's no
-// separate team table.
+// Leave Tracker. The month calendar is the primary view. The original
+// Absentees / Half Days / Leave History tabs are preserved as-is,
+// reachable via the "Table view" toggle, since HR still needs the flat
+// table for bulk actions/export.
 //
-// UI pass: Calendar/Table is a MODE switch (which whole view you're in),
-// while Absentees/Half Days/History is a TAB switch (which slice of
-// Table view you're in) — those are two different levels of hierarchy,
-// so they now use two different controls (segmented pill vs. underline
-// tabs) instead of looking identical and forcing the user to infer the
-// relationship. Filter cards are solid instead of translucent so they
-// don't blend into the page background, and the 6-column filter grid is
-// now capped at 4 columns so labels + selects stay legible instead of
-// being squeezed.
+// Layout pass: the Calendar/Table toggle now sits top-right next to the
+// page title instead of on its own row, and the calendar view is a
+// fixed-height flex column (header + filters + banner take their
+// natural height, the calendar grid absorbs the rest) so the whole
+// screen fits without a page-level scrollbar. Table view keeps its own
+// internal scroll since it has more content (tabs + filters + panel)
+// than reliably fits in one viewport.
 export default function LeaveTrackerPage() {
   const [view, setView] = useState<View>('calendar');
   const [tab, setTab] = useState<Tab>('absentees');
@@ -128,6 +130,28 @@ export default function LeaveTrackerPage() {
   const [calendarLeave, setCalendarLeave] = useState<LeaveHistoryRow[]>([]);
   const [calendarHolidays, setCalendarHolidays] = useState<Map<string, string[]>>(new Map());
   const [openDay, setOpenDay] = useState<string | null>(null);
+
+  // Per-month cache so switching Table -> Calendar (or Calendar -> Table
+  // -> Calendar) for a month already loaded is instant instead of
+  // re-firing 3 requests every time the view mounts. Keyed by monthKey;
+  // bypassed only by an explicit refresh (calendarRefreshSignal change)
+  // or by loading a month not yet in the cache.
+  const calendarCacheRef = useRef<
+    Map<
+      string,
+      {
+        absentees: AbsenteeCandidate[];
+        halfDays: HalfDayCandidate[];
+        leave: LeaveHistoryRow[];
+        holidays: Map<string, string[]>;
+      }
+    >
+  >(new Map());
+  // Tracks the calendarRefreshSignal value the cache was last built
+  // against, so a real refresh (e.g. after resolving a day) invalidates
+  // the cached entry for the current month instead of silently serving
+  // stale data.
+  const lastRefreshSignalRef = useRef(0);
 
   useEffect(() => {
     async function loadEmployees() {
@@ -191,59 +215,100 @@ export default function LeaveTrackerPage() {
     }
   }
 
+  // Tracks whether History has ever been fetched, so switching
+  // Absentees -> History -> Absentees -> History reuses the rows already
+  // in state instead of re-querying every time. A deliberate refetch
+  // still happens via the "Apply Filters" button (fetchHistory) or after
+  // recording/cancelling a leave entry.
+  const historyFetchedRef = useRef(false);
   useEffect(() => {
-    if (tab === 'history' && view === 'table') fetchHistory();
+    if (tab === 'history' && view === 'table' && !historyFetchedRef.current) {
+      historyFetchedRef.current = true;
+      fetchHistory();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, view]);
 
-  // ── Calendar data load: one request per data source per month, per
-  // brief section 1.6 — NOT re-fetched on department/employee-search
-  // changes, which filter the already-fetched month client-side (the
-  // same convention AbsenteesPanel/HalfDayPanel already use for their
-  // Department/Office/Search filters).
-  const loadCalendarMonth = useCallback(async () => {
-    const myRequestId = ++calendarRequestIdRef.current;
-    setCalendarLoading(true);
-    setCalendarError(null);
-    try {
-      const { start, end } = monthBounds(monthKey);
-      const [exceptionsRes, leaveRes, holidaysRes] = await Promise.all([
-        fetch(`/api/leave/attendance/exceptions?start_date=${start}&end_date=${end}`),
-        fetch(`/api/leave/history?start_date=${start}&end_date=${end}&range_mode=overlap`),
-        fetch(`/api/leave/holidays?start_date=${start}&end_date=${end}`),
-      ]);
+  // ── Calendar data load: one request per data source per month —
+  // NOT re-fetched on department/employee-search changes, which filter
+  // the already-fetched month client-side (the same convention
+  // AbsenteesPanel/HalfDayPanel already use for their Department/
+  // Office/Search filters).
+  const loadCalendarMonth = useCallback(
+    async (opts?: { forceRefresh?: boolean }) => {
+      const forceRefresh = !!opts?.forceRefresh;
+      const cached = calendarCacheRef.current.get(monthKey);
 
-      const [exceptionsBody, leaveBody, holidaysBody] = await Promise.all([
-        exceptionsRes.json(),
-        leaveRes.json(),
-        holidaysRes.json(),
-      ]);
-
-      if (myRequestId !== calendarRequestIdRef.current) return;
-      if (!exceptionsRes.ok) throw new Error(exceptionsBody.error || 'Could not load attendance exceptions.');
-      if (!leaveRes.ok) throw new Error(leaveBody.error || 'Could not load leave requests.');
-      if (!holidaysRes.ok) throw new Error(holidaysBody.error || 'Could not load holidays.');
-
-      setCalendarAbsentees(exceptionsBody.absentees ?? []);
-      setCalendarHalfDays(exceptionsBody.halfDayCandidates ?? []);
-      setCalendarLeave(leaveBody.requests ?? []);
-
-      const holidayMap = new Map<string, string[]>();
-      for (const h of holidaysBody.holidays ?? []) {
-        holidayMap.set(h.date, [h.name]);
+      // Serve straight from cache — no network, no loading flicker —
+      // when we already have this month and nothing forced a refresh.
+      if (cached && !forceRefresh) {
+        setCalendarAbsentees(cached.absentees);
+        setCalendarHalfDays(cached.halfDays);
+        setCalendarLeave(cached.leave);
+        setCalendarHolidays(cached.holidays);
+        setCalendarError(null);
+        setCalendarLoading(false);
+        return;
       }
-      setCalendarHolidays(holidayMap);
-    } catch (err) {
-      if (myRequestId !== calendarRequestIdRef.current) return;
-      setCalendarError(err instanceof Error ? err.message : 'Could not reach the server to load the calendar.');
-    } finally {
-      if (myRequestId === calendarRequestIdRef.current) setCalendarLoading(false);
-    }
-  }, [monthKey]);
+
+      const myRequestId = ++calendarRequestIdRef.current;
+      setCalendarLoading(true);
+      setCalendarError(null);
+      try {
+        const { start, end } = monthBounds(monthKey);
+        const [exceptionsRes, leaveRes, holidaysRes] = await Promise.all([
+          fetch(`/api/leave/attendance/exceptions?start_date=${start}&end_date=${end}`),
+          fetch(`/api/leave/history?start_date=${start}&end_date=${end}&range_mode=overlap`),
+          fetch(`/api/leave/holidays?start_date=${start}&end_date=${end}`),
+        ]);
+
+        const [exceptionsBody, leaveBody, holidaysBody] = await Promise.all([
+          exceptionsRes.json(),
+          leaveRes.json(),
+          holidaysRes.json(),
+        ]);
+
+        if (myRequestId !== calendarRequestIdRef.current) return;
+        if (!exceptionsRes.ok) throw new Error(exceptionsBody.error || 'Could not load attendance exceptions.');
+        if (!leaveRes.ok) throw new Error(leaveBody.error || 'Could not load leave requests.');
+        if (!holidaysRes.ok) throw new Error(holidaysBody.error || 'Could not load holidays.');
+
+        const absentees = exceptionsBody.absentees ?? [];
+        const halfDays = exceptionsBody.halfDayCandidates ?? [];
+        const leave = leaveBody.requests ?? [];
+
+        const holidayMap = new Map<string, string[]>();
+        for (const h of holidaysBody.holidays ?? []) {
+          holidayMap.set(h.date, [h.name]);
+        }
+
+        calendarCacheRef.current.set(monthKey, { absentees, halfDays, leave, holidays: holidayMap });
+
+        setCalendarAbsentees(absentees);
+        setCalendarHalfDays(halfDays);
+        setCalendarLeave(leave);
+        setCalendarHolidays(holidayMap);
+      } catch (err) {
+        if (myRequestId !== calendarRequestIdRef.current) return;
+        setCalendarError(err instanceof Error ? err.message : 'Could not reach the server to load the calendar.');
+      } finally {
+        if (myRequestId === calendarRequestIdRef.current) setCalendarLoading(false);
+      }
+    },
+    [monthKey]
+  );
 
   useEffect(() => {
-    if (view === 'calendar') loadCalendarMonth();
-  }, [view, loadCalendarMonth, calendarRefreshSignal]);
+    if (view !== 'calendar') return;
+    // A real refresh (calendarRefreshSignal bumped, e.g. after resolving
+    // a day in the drawer) must bypass the cache for this month — it's
+    // the one case where cached data is now known-stale.
+    const isExplicitRefresh = calendarRefreshSignal !== lastRefreshSignalRef.current;
+    lastRefreshSignalRef.current = calendarRefreshSignal;
+    if (isExplicitRefresh) calendarCacheRef.current.delete(monthKey);
+    loadCalendarMonth({ forceRefresh: isExplicitRefresh });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view, monthKey, calendarRefreshSignal]);
 
   const { start: monthStart, end: monthEnd } = monthBounds(monthKey);
 
@@ -296,8 +361,7 @@ export default function LeaveTrackerPage() {
 
   // Used by the calendar's day drawer "View full record" action — jumps
   // to the Table view's History tab, pre-filtered to that one employee,
-  // since there's no separate per-employee profile page in this app (see
-  // brief section 1.4's note to reuse existing row-click behavior).
+  // since there's no separate per-employee profile page in this app.
   function viewEmployeeInHistory(id: string) {
     setEmployeeId(id);
     setView('table');
@@ -313,110 +377,130 @@ export default function LeaveTrackerPage() {
   ];
 
   return (
-    <div className="space-y-6">
-      <LeavePageHeader
-        title="Leave Tracker"
-        actions={
-          canRecordLeave ? (
-            <div className="text-right">
-              <button
-                type="button"
-                onClick={() => setRecordLeaveOpen(true)}
-                className="bg-[var(--accent)] hover:bg-[var(--accent)]/90 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
-              >
-                + Record Leave
-              </button>
-              {!(view === 'table' && tab === 'history') && (
-                <p className="text-[11px] text-[var(--text-muted)] mt-1 max-w-[220px]">
-                  For any employee. To act on a row already listed below, use that row&apos;s own action instead.
-                </p>
-              )}
-            </div>
-          ) : undefined
-        }
-      />
+    // h-[calc(100vh-<header>)] caps the page to the viewport so the
+    // calendar view never needs a page-level scrollbar. Adjust the
+    // subtracted value to match your actual top nav/header height.
+    <div className="flex flex-col h-[calc(100vh-64px)] overflow-hidden gap-4">
+      {/* Title + Record Leave action on the left, Calendar/Table toggle
+          pinned top-right so it no longer costs its own row. */}
+      <div className="flex items-start justify-between gap-4 flex-wrap shrink-0">
+        <LeavePageHeader
+          title="Leave Tracker"
+          actions={
+            canRecordLeave ? (
+              <div className="text-right">
+                <button
+                  type="button"
+                  onClick={() => setRecordLeaveOpen(true)}
+                  className="bg-[var(--accent)] hover:bg-[var(--accent)]/90 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+                >
+                  + Record Leave
+                </button>
+                {!(view === 'table' && tab === 'history') && (
+                  <p className="text-[11px] text-[var(--text-muted)] mt-1 max-w-[220px]">
+                    For any employee. To act on a row already listed below, use that row&apos;s own action instead.
+                  </p>
+                )}
+              </div>
+            ) : undefined
+          }
+        />
+
+        {/* Calendar / Table — a MODE switch (which whole view you're
+            in). Segmented pill control so it reads as a different kind
+            of control than the underline tabs below (which are a TAB
+            switch one level down, inside Table view only). */}
+        <div className="inline-flex items-center gap-1 bg-[var(--bg-elevated)] border border-[var(--border)] rounded-full p-1 shrink-0">
+          <button
+            type="button"
+            onClick={() => setView('calendar')}
+            className={`inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full text-sm font-medium transition-colors ${
+              view === 'calendar'
+                ? 'bg-emerald-600 text-white shadow-sm'
+                : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'
+            }`}
+          >
+            <CalendarDays size={14} />
+            Calendar
+          </button>
+          <button
+            type="button"
+            onClick={() => setView('table')}
+            className={`inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full text-sm font-medium transition-colors ${
+              view === 'table'
+                ? 'bg-emerald-600 text-white shadow-sm'
+                : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'
+            }`}
+          >
+            <Table2 size={14} />
+            Table view
+          </button>
+        </div>
+      </div>
 
       {employeesError && <Banner>{employeesError}</Banner>}
 
-      {/* Calendar / Table — a MODE switch (which whole view you're in).
-          Segmented pill control so it reads as a different kind of
-          control than the underline tabs below (which are a TAB switch
-          one level down, inside Table view only). */}
-      <div className="inline-flex items-center gap-1 bg-[var(--bg-elevated)] border border-[var(--border)] rounded-full p-1">
-        <button
-          type="button"
-          onClick={() => setView('calendar')}
-          className={`inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full text-sm font-medium transition-colors ${
-            view === 'calendar'
-              ? 'bg-emerald-600 text-white shadow-sm'
-              : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'
-          }`}
-        >
-          <CalendarDays size={14} />
-          Calendar
-        </button>
-        <button
-          type="button"
-          onClick={() => setView('table')}
-          className={`inline-flex items-center gap-1.5 px-4 py-1.5 rounded-full text-sm font-medium transition-colors ${
-            view === 'table'
-              ? 'bg-emerald-600 text-white shadow-sm'
-              : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'
-          }`}
-        >
-          <Table2 size={14} />
-          Table view
-        </button>
-      </div>
-
       {view === 'calendar' && (
-        <>
-          <div className="bg-[var(--bg-elevated)] border border-[var(--border)] rounded-xl p-4">
-            <FilterLabel>Narrow the month</FilterLabel>
+        <div className="flex flex-col flex-1 min-h-0 gap-3">
+          {/* Compact filter row — department + search share one line,
+              smaller padding than Table view's filter card so it costs
+              less vertical space. */}
+          <div className="bg-[var(--bg-elevated)] border border-[var(--border)] rounded-xl p-3 shrink-0">
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
               <div>
-                <label className="block text-xs text-[var(--text-muted)] mb-1">Department (team)</label>
-                <select
-                  value={calendarDepartment}
-                  onChange={(e) => setCalendarDepartment(e.target.value)}
-                  className="w-full bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)]"
-                >
-                  <option value="">All departments</option>
-                  {departments.map((d) => (
-                    <option key={d} value={d}>{d}</option>
-                  ))}
-                </select>
+                <div className="relative">
+                  <select
+                    value={calendarDepartment}
+                    onChange={(e) => setCalendarDepartment(e.target.value)}
+                    className="w-full appearance-none bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg pl-3 pr-9 py-2 text-sm text-[var(--text-primary)] cursor-pointer transition-colors hover:border-[var(--text-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)] focus:border-transparent"
+                  >
+                    <option value="">All departments</option>
+                    {departments.map((d) => (
+                      <option key={d} value={d}>{d}</option>
+                    ))}
+                  </select>
+                  <ChevronDown className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-muted)]" />
+                </div>
               </div>
+
               <div className="sm:col-span-2">
-                <label className="block text-xs text-[var(--text-muted)] mb-1">Employee search</label>
-                <input
-                  type="text"
-                  value={calendarSearch}
-                  onChange={(e) => setCalendarSearch(e.target.value)}
-                  placeholder="Search by name or employee code to narrow to one person's month…"
-                  className="w-full bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)]"
-                />
+                <div className="relative">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-muted)]" />
+                  <input
+                    type="text"
+                    value={calendarSearch}
+                    onChange={(e) => setCalendarSearch(e.target.value)}
+                    placeholder="Search by name or employee code…"
+                    className="w-full bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg pl-9 pr-3 py-2 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] transition-colors hover:border-[var(--text-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)] focus:border-transparent"
+                  />
+                </div>
               </div>
             </div>
           </div>
 
           {calendarError && <Banner>{calendarError}</Banner>}
 
-          {calendarLoading ? (
-            <AttendanceTableSkeleton columns={7} rows={5} />
-          ) : filteredDayMap.size === 0 && (calendarDepartment || calendarSearch) ? (
-            <div className="bg-[var(--bg-elevated)] border border-[var(--border)] rounded-xl px-4 py-10 text-center text-[var(--text-muted)] text-sm">
-              No leave, half-day, or unrecorded-absence activity this month matching your filters.
-            </div>
-          ) : (
-            <LeaveCalendar
-              monthKey={monthKey}
-              onMonthChange={setMonthKey}
-              dayMap={filteredDayMap}
-              holidaysByDate={calendarHolidays}
-              onDayClick={setOpenDay}
-            />
-          )}
+          {/* Calendar fills whatever vertical space remains instead of
+              pushing the page taller than the viewport. If LeaveCalendar
+              renders a fixed internal height, pass className="h-full"
+              through to it so it actually stretches to fill this slot. */}
+          <div className="flex-1 min-h-0">
+            {calendarLoading ? (
+              <AttendanceTableSkeleton columns={7} rows={5} />
+            ) : filteredDayMap.size === 0 && (calendarDepartment || calendarSearch) ? (
+              <div className="bg-[var(--bg-elevated)] border border-[var(--border)] rounded-xl px-4 py-10 text-center text-[var(--text-muted)] text-sm">
+                No leave, half-day, or unrecorded-absence activity this month matching your filters.
+              </div>
+            ) : (
+              <LeaveCalendar
+                monthKey={monthKey}
+                onMonthChange={setMonthKey}
+                dayMap={filteredDayMap}
+                holidaysByDate={calendarHolidays}
+                onDayClick={setOpenDay}
+              />
+            )}
+          </div>
 
           {openDay && (
             <CalendarDayDrawer
@@ -431,11 +515,14 @@ export default function LeaveTrackerPage() {
               canRecordLeave={canRecordLeave}
             />
           )}
-        </>
+        </div>
       )}
 
       {view === 'table' && (
-        <>
+        // Table view has more content (tabs + filter card + a panel with
+        // potentially many rows) than reliably fits one viewport, so it
+        // keeps its own internal scroll rather than being squeezed.
+        <div className="flex-1 min-h-0 overflow-y-auto space-y-4 pr-1">
           {/* Tabs — a slice switch WITHIN Table view, so it stays the
               familiar underline style, one level below the pill toggle
               above. */}
@@ -651,7 +738,7 @@ export default function LeaveTrackerPage() {
               )}
             </>
           )}
-        </>
+        </div>
       )}
 
       {recordLeaveOpen && canRecordLeave && (
