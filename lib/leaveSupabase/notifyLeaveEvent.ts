@@ -230,7 +230,7 @@ export async function notifyLeaveEvent(service: SupabaseClient, event: LeaveEven
 async function checkManualReminderCooldown(
   service: SupabaseClient,
   input: LeaveReminderInput
-): Promise<{ allowed: boolean; error?: string }> {
+): Promise<{ allowed: boolean; error?: string; nextAllowedAt?: string }> {
   const { getLeavePolicyConfig } = await import('./leaveConfig');
   const { config } = await getLeavePolicyConfig(service);
 
@@ -244,7 +244,8 @@ async function checkManualReminderCooldown(
     ? query.eq('leave_request_id', input.requestId)
     : query.eq('recipient_employee_id', input.employeeId).is('leave_request_id', null);
 
-  const { data } = await query;
+  const { data, error } = await query;
+  if (error) return { allowed: false, error: `Could not check reminder history: ${error.message}` };
   const last = data?.[0]?.created_at;
   if (!last) return { allowed: true };
 
@@ -252,8 +253,10 @@ async function checkManualReminderCooldown(
   if (elapsedHours >= config.manualReminderCooldownHours) return { allowed: true };
 
   const remaining = config.manualReminderCooldownHours - elapsedHours;
+  const nextAllowedAt = new Date(new Date(last).getTime() + config.manualReminderCooldownHours * 60 * 60 * 1000).toISOString();
   return {
     allowed: false,
+    nextAllowedAt,
     error: `Please wait — a reminder for this was already sent ${elapsedHours < 1 ? `${Math.round(elapsedHours * 60)}m` : `${elapsedHours.toFixed(1)}h`} ago. Try again in ~${remaining < 1 ? `${Math.round(remaining * 60)}m` : `${remaining.toFixed(1)}h`}.`,
   };
 }
@@ -285,10 +288,10 @@ export async function sendLeaveReminder(
   service: SupabaseClient,
   input: LeaveReminderInput,
   trigger: 'manual' | 'automatic' = 'automatic'
-): Promise<{ ok: boolean; error?: string }> {
+): Promise<{ ok: boolean; error?: string; nextAllowedAt?: string }> {
   if (trigger === 'manual') {
     const cooldown = await checkManualReminderCooldown(service, input);
-    if (!cooldown.allowed) return { ok: false, error: cooldown.error };
+    if (!cooldown.allowed) return { ok: false, error: cooldown.error, nextAllowedAt: cooldown.nextAllowedAt };
   }
 
   if (input.mode === 'pending_request') {

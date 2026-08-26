@@ -40,6 +40,7 @@ export default function AddEmployeeForm({
     probation_months: '',
   });
   const [managedDepartments, setManagedDepartments] = useState<string[]>([]);
+  const [isNewDepartment, setIsNewDepartment] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [warning, setWarning] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -187,7 +188,61 @@ export default function AddEmployeeForm({
             {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
           </select>
         </div>
-        <Field label="Department" value={form.department} onChange={(v) => update('department', v)} required />
+        <div>
+          <label className="block text-xs text-[var(--text-muted)] mb-1">Department</label>
+          {isNewDepartment || departments.length === 0 ? (
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                value={form.department}
+                onChange={(e) => update('department', e.target.value)}
+                required
+                placeholder="e.g. Engineering"
+                className="w-full bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)] focus:outline-none focus:border-emerald-500"
+              />
+              {departments.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsNewDepartment(false);
+                    update('department', '');
+                  }}
+                  className="shrink-0 text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] underline underline-offset-2"
+                >
+                  Choose existing
+                </button>
+              )}
+            </div>
+          ) : (
+            <div className="flex items-center gap-2">
+              <select
+                value={form.department}
+                onChange={(e) => update('department', e.target.value)}
+                required
+                className="w-full bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)]"
+              >
+                <option value="" disabled>Select a department…</option>
+                {departments.map((d) => (
+                  <option key={d.department} value={d.department}>{d.department}</option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsNewDepartment(true);
+                  update('department', '');
+                }}
+                className="shrink-0 text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] underline underline-offset-2 whitespace-nowrap"
+              >
+                + New
+              </button>
+            </div>
+          )}
+          <p className="text-[10px] text-[var(--text-muted)] mt-1">
+            Picking from the existing list avoids typo'd duplicates (e.g. "Engineering" vs "engineering") showing up
+            as two different departments elsewhere in the app.
+          </p>
+        </div>
         <Field label="Office" value={form.office} onChange={(v) => update('office', v)} required />
         <Field
           label="Date of Joining"

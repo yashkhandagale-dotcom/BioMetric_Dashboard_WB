@@ -33,7 +33,7 @@ export async function POST(req: NextRequest) {
   const service = createLeaveServiceClient();
   const map = await ensureAttendanceExceptionRows(service, entries);
 
-  const targets: Record<string, { id: string; reminderCount: number }> = {};
+  const targets: Record<string, { id: string; reminderCount: number; nextAllowedAt: string | null }> = {};
   for (const e of entries) {
     const v = map.get(exceptionKey(e.employeeId, e.date));
     if (v) targets[exceptionKey(e.employeeId, e.date)] = v;

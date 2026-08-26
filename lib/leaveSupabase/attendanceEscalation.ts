@@ -173,8 +173,30 @@ export function exceptionKey(employeeId: string, date: string): EnsuredException
 export async function ensureAttendanceExceptionRows(
   service: SupabaseClient,
   entries: { employeeId: string; date: string; kind: 'absent' | 'possible_half_day'; firstPunch?: string | null; lastPunch?: string | null }[]
-): Promise<Map<EnsuredExceptionKey, { id: string; reminderCount: number }>> {
-  const result = new Map<EnsuredExceptionKey, { id: string; reminderCount: number }>();
+): Promise<Map<EnsuredExceptionKey, { id: string; reminderCount: number; nextAllowedAt: string | null }>> {
+  const result = new Map<EnsuredExceptionKey, { id: string; reminderCount: number; nextAllowedAt: string | null }>();
+  if (entries.length === 0) return result;
+
+  // AbsenteesPanel/HalfDayPanel's "no date picked" view can hand this
+  // hundreds or thousands of rows at once (getAttendanceExceptionsAllPending
+  // scans the whole uploaded attendance history). One giant upsert plus
+  // one giant `.in(ids)` filter for all of them in a single request risks
+  // being slow or hitting a query-size limit; batching keeps each round
+  // trip small and bounded regardless of how much history there is.
+  const BATCH_SIZE = 200;
+  for (let i = 0; i < entries.length; i += BATCH_SIZE) {
+    const batch = entries.slice(i, i + BATCH_SIZE);
+    const batchResult = await ensureAttendanceExceptionRowsBatch(service, batch);
+    for (const [k, v] of batchResult) result.set(k, v);
+  }
+  return result;
+}
+
+async function ensureAttendanceExceptionRowsBatch(
+  service: SupabaseClient,
+  entries: { employeeId: string; date: string; kind: 'absent' | 'possible_half_day'; firstPunch?: string | null; lastPunch?: string | null }[]
+): Promise<Map<EnsuredExceptionKey, { id: string; reminderCount: number; nextAllowedAt: string | null }>> {
+  const result = new Map<EnsuredExceptionKey, { id: string; reminderCount: number; nextAllowedAt: string | null }>();
   if (entries.length === 0) return result;
 
   const rows = entries.map((e) => ({
@@ -195,30 +217,80 @@ export async function ensureAttendanceExceptionRows(
   const ids = upserted.map((r) => r.id);
   const { data: reminders } = await service
     .from('escalation_reminders')
-    .select('target_id, reminder_count')
+    .select('target_id, reminder_count, last_reminder_at')
     .eq('target_type', 'attendance_exception_unmarked')
     .in('target_id', ids);
-  const countById = new Map((reminders ?? []).map((r) => [r.target_id, r.reminder_count]));
+  const reminderById = new Map((reminders ?? []).map((r) => [r.target_id, r]));
 
   // A row with no escalation_reminders entry yet has never been
-  // reminded about — this is the moment it first becomes "unmarked" as
-  // far as this app can observe it, so fire the immediate reminder
-  // right now rather than waiting for the next cron sweep. Fire-and-
-  // forget in parallel; a failure here just means the automatic sweep
-  // picks it up on its normal cadence instead, so it isn't awaited into
-  // the panel's loading state.
-  const brandNewIds = ids.filter((id) => !countById.has(id));
-  if (brandNewIds.length > 0) {
-    Promise.all(
-      brandNewIds.map((id) => sendEscalationReminder(service, 'attendance_exception_unmarked', id, 'immediate'))
-    ).catch(() => {
-      // Best-effort — the daily automatic sweep is the fallback.
-    });
-    for (const id of brandNewIds) countById.set(id, 1);
+  // reminded about — but that does NOT mean it just went unmarked.
+  // getAttendanceExceptionsAllPending (the "no date picked" view) scans
+  // the ENTIRE uploaded attendance history, so on this feature's very
+  // first run every unresolved day from months ago would otherwise look
+  // "brand new" too. That previously caused a real bug here: hundreds
+  // of historical rows all got treated as newly-unmarked in one go,
+  // each firing an actual reminder notification, and the resulting
+  // burst of concurrent database calls was enough to make the whole
+  // panel hang. Two guards now prevent that:
+  //   1. Only a row dated within IMMEDIATE_REMINDER_WINDOW_DAYS of today
+  //      is eligible — an absence from three months ago is not "just
+  //      unmarked," it's backlog for the ordinary automatic sweep
+  //      (leave_policy_config.reminder_interval_hours) to pick up on
+  //      its normal cadence, not something to blast a reminder for
+  //      right now.
+  //   2. A hard cap on how many go out from a single call, as a safety
+  //      net against this exact class of bug recurring in some other
+  //      form later.
+  // These are awaited sequentially (not fire-and-forget in parallel)
+  // now that the set is small — that also removes the read-then-write
+  // race that let overlapping/duplicate loads double-count a single
+  // burst of reminders.
+  const IMMEDIATE_REMINDER_WINDOW_DAYS = 3;
+  const IMMEDIATE_REMINDER_MAX_PER_CALL = 15;
+  const windowCutoff = new Date();
+  windowCutoff.setUTCDate(windowCutoff.getUTCDate() - IMMEDIATE_REMINDER_WINDOW_DAYS);
+  const dateById = new Map(upserted.map((r) => [r.id, r.exception_date]));
+
+  const brandNewIds = ids.filter((id) => !reminderById.has(id));
+  const eligibleForImmediate = brandNewIds
+    .filter((id) => {
+      const d = dateById.get(id);
+      return d ? new Date(`${d}T00:00:00Z`) >= windowCutoff : false;
+    })
+    .slice(0, IMMEDIATE_REMINDER_MAX_PER_CALL);
+
+  for (const id of eligibleForImmediate) {
+    try {
+      const outcome = await sendEscalationReminder(service, 'attendance_exception_unmarked', id, 'immediate');
+      if (outcome.ok) {
+        reminderById.set(id, { target_id: id, reminder_count: outcome.reminderCount ?? 1, last_reminder_at: new Date().toISOString() });
+      }
+    } catch {
+      // Best-effort — the daily automatic sweep is the fallback if this
+      // particular send fails.
+    }
   }
+  // Older backlog rows that were skipped above stay at whatever
+  // escalation_reminders already has for them (nothing, if this is
+  // truly the first time this feature has seen them) — they're left for
+  // the automatic sweep / a manual Remind click, not silently marked as
+  // already-reminded.
+
+  // Compute each row's manual-cooldown "available again at" up front
+  // (one config read, not one per row) so the panel can disable the
+  // Remind button and show a real countdown instead of the admin
+  // clicking it, seeing nothing happen, and clicking again.
+  const { config } = await getLeavePolicyConfig(service);
+  const cooldownMs = config.manualReminderCooldownHours * 60 * 60 * 1000;
 
   for (const r of upserted) {
-    result.set(exceptionKey(r.employee_id, r.exception_date), { id: r.id, reminderCount: countById.get(r.id) ?? 0 });
+    const rem = reminderById.get(r.id);
+    const nextAllowedAt = rem?.last_reminder_at ? new Date(new Date(rem.last_reminder_at).getTime() + cooldownMs).toISOString() : null;
+    result.set(exceptionKey(r.employee_id, r.exception_date), {
+      id: r.id,
+      reminderCount: rem?.reminder_count ?? 0,
+      nextAllowedAt: nextAllowedAt && new Date(nextAllowedAt) > new Date() ? nextAllowedAt : null,
+    });
   }
   return result;
 }
@@ -347,6 +419,11 @@ export interface SendEscalationReminderResult {
   /** True when this send happened because of the guaranteed
    *  final-reminder-day rule rather than the normal interval/cooldown. */
   isFinalReminder?: boolean;
+  /** Set when ok is false because of a cooldown/interval block — ISO
+   *  timestamp of when this target becomes remindable again, so the UI
+   *  can disable the button and show a live countdown instead of the
+   *  admin re-clicking into another silent no-op. */
+  nextAllowedAt?: string;
 }
 
 export type EscalationReminderTrigger = 'immediate' | 'automatic' | 'manual';
@@ -383,7 +460,7 @@ async function checkReminderGate(
   trigger: EscalationReminderTrigger,
   relevantDate: string | null,
   existing: { last_reminder_at: string | null; last_final_reminder_on: string | null } | null | undefined
-): Promise<{ allowed: boolean; isFinal: boolean; error?: string }> {
+): Promise<{ allowed: boolean; isFinal: boolean; error?: string; nextAllowedAt?: string }> {
   if (trigger === 'immediate') return { allowed: true, isFinal: false };
 
   const { config } = await getLeavePolicyConfig(service);
@@ -407,14 +484,16 @@ async function checkReminderGate(
   const elapsed = hoursBetween(now, new Date(existing.last_reminder_at));
   if (elapsed >= gapHours) return { allowed: true, isFinal: false };
 
+  const nextAllowedAt = new Date(new Date(existing.last_reminder_at).getTime() + gapHours * 60 * 60 * 1000).toISOString();
   if (trigger === 'manual') {
     return {
       allowed: false,
       isFinal: false,
+      nextAllowedAt,
       error: `Please wait — the last reminder for this went out ${fmtHours(elapsed)} ago. HR can send another after ${gapHours}h (in ~${fmtHours(gapHours - elapsed)}).`,
     };
   }
-  return { allowed: false, isFinal: false, error: `Not due yet (last sent ${fmtHours(elapsed)} ago, interval is ${gapHours}h).` };
+  return { allowed: false, isFinal: false, nextAllowedAt, error: `Not due yet (last sent ${fmtHours(elapsed)} ago, interval is ${gapHours}h).` };
 }
 
 async function bumpEscalationReminder(
@@ -423,21 +502,47 @@ async function bumpEscalationReminder(
   targetId: string,
   trigger: EscalationReminderTrigger,
   relevantDate: string | null
-): Promise<{ reminderCount: number | null; isFinal: boolean; error: string | null }> {
-  const { data: existing } = await service
+): Promise<{ reminderCount: number | null; isFinal: boolean; error: string | null; nextAllowedAt?: string }> {
+  // Split into a "core" select (columns that have existed since the
+  // original migration 0015) and a best-effort fetch of
+  // last_final_reminder_on (added later, in migration 0018). This used
+  // to be one .select() — if a database hadn't run 0018 yet, the whole
+  // query errored out, the destructured `data` came back null, and the
+  // code below treated that exactly like "no reminder has ever been
+  // sent for this target": reminder_count got reset to 1 on every
+  // single click and the cooldown had nothing to compare against, so
+  // it never blocked. Splitting it means a not-yet-migrated database
+  // only loses the final-reminder-day feature, not core counting/cooldown.
+  const { data: existing, error: selectError } = await service
     .from('escalation_reminders')
-    .select('id, reminder_count, acked_at, last_reminder_at, last_final_reminder_on')
+    .select('id, reminder_count, acked_at, last_reminder_at')
     .eq('target_type', targetType)
     .eq('target_id', targetId)
     .maybeSingle();
+  if (selectError) {
+    return { reminderCount: null, isFinal: false, error: `Could not read reminder history: ${selectError.message}` };
+  }
+
+  let lastFinalReminderOn: string | null = null;
+  if (existing) {
+    const { data: finalRow, error: finalError } = await service
+      .from('escalation_reminders')
+      .select('last_final_reminder_on')
+      .eq('id', existing.id)
+      .maybeSingle();
+    if (!finalError && finalRow) lastFinalReminderOn = (finalRow as { last_final_reminder_on: string | null }).last_final_reminder_on;
+    // finalError here almost always means migration 0018 hasn't run yet
+    // (column doesn't exist) — degrade to "final reminder day disabled"
+    // rather than failing the whole reminder.
+  }
 
   if (existing?.acked_at) {
     return { reminderCount: existing.reminder_count, isFinal: false, error: 'This has already been converted to LWP — no further reminders needed.' };
   }
 
-  const gate = await checkReminderGate(service, trigger, relevantDate, existing);
+  const gate = await checkReminderGate(service, trigger, relevantDate, existing ? { ...existing, last_final_reminder_on: lastFinalReminderOn } : null);
   if (!gate.allowed) {
-    return { reminderCount: existing?.reminder_count ?? 0, isFinal: false, error: gate.error ?? 'Not due yet.' };
+    return { reminderCount: existing?.reminder_count ?? 0, isFinal: false, error: gate.error ?? 'Not due yet.', nextAllowedAt: gate.nextAllowedAt };
   }
 
   const nextCount = (existing?.reminder_count ?? 0) + 1;
@@ -451,7 +556,18 @@ async function bumpEscalationReminder(
   if (gate.isFinal) patch.last_final_reminder_on = now.toISOString().slice(0, 10);
 
   const { error } = await service.from('escalation_reminders').upsert(patch, { onConflict: 'target_type,target_id' });
-  if (error) return { reminderCount: null, isFinal: false, error: error.message };
+  if (error) {
+    // If this specifically failed because last_final_reminder_on doesn't
+    // exist yet, retry without it so a not-yet-migrated database still
+    // gets working reminders/cooldowns (just without the final-day rule).
+    if (gate.isFinal && /last_final_reminder_on/.test(error.message)) {
+      delete patch.last_final_reminder_on;
+      const retry = await service.from('escalation_reminders').upsert(patch, { onConflict: 'target_type,target_id' });
+      if (retry.error) return { reminderCount: null, isFinal: false, error: retry.error.message };
+      return { reminderCount: nextCount, isFinal: false, error: null };
+    }
+    return { reminderCount: null, isFinal: false, error: error.message };
+  }
   return { reminderCount: nextCount, isFinal: gate.isFinal, error: null };
 }
 
@@ -472,14 +588,14 @@ export async function sendEscalationReminder(
       return { ok: false, error: 'This day is no longer unmarked — nothing to remind about.' };
     }
 
-    const { reminderCount, isFinal, error } = await bumpEscalationReminder(
+    const { reminderCount, isFinal, error, nextAllowedAt } = await bumpEscalationReminder(
       service,
       targetType,
       targetId,
       trigger,
       exception.exception_date
     );
-    if (error) return { ok: false, error, reminderCount: reminderCount ?? undefined };
+    if (error) return { ok: false, error, reminderCount: reminderCount ?? undefined, nextAllowedAt };
 
     await insertLeaveNotification(service, {
       recipient_employee_id: exception.employee_id,
@@ -510,14 +626,14 @@ export async function sendEscalationReminder(
     });
     if (!approverId) return { ok: false, error: 'No approver is configured for this employee.' };
 
-    const { reminderCount, isFinal, error } = await bumpEscalationReminder(
+    const { reminderCount, isFinal, error, nextAllowedAt } = await bumpEscalationReminder(
       service,
       targetType,
       targetId,
       trigger,
       request.start_date
     );
-    if (error) return { ok: false, error, reminderCount: reminderCount ?? undefined };
+    if (error) return { ok: false, error, reminderCount: reminderCount ?? undefined, nextAllowedAt };
 
     await insertLeaveNotification(service, {
       recipient_employee_id: approverId,
@@ -548,14 +664,14 @@ export async function sendEscalationReminder(
   });
   if (!approverId) return { ok: false, error: 'No approver is configured for this employee.' };
 
-  const { reminderCount, isFinal, error } = await bumpEscalationReminder(
+  const { reminderCount, isFinal, error, nextAllowedAt } = await bumpEscalationReminder(
     service,
     targetType,
     targetId,
     trigger,
     reg.regularised_date
   );
-  if (error) return { ok: false, error, reminderCount: reminderCount ?? undefined };
+  if (error) return { ok: false, error, reminderCount: reminderCount ?? undefined, nextAllowedAt };
 
   await insertLeaveNotification(service, {
     recipient_employee_id: approverId,

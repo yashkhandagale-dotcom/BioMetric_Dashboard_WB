@@ -68,14 +68,26 @@ export default function AbsenteesPanel({
   const isMultiDate = !date || isRange;
 
   const [rows, setRows] = useState<AbsenteeCandidate[]>([]);
-  const [escalation, setEscalation] = useState<Map<string, { id: string; reminderCount: number }>>(new Map());
+  const [escalation, setEscalation] = useState<Map<string, { id: string; reminderCount: number; nextAllowedAt: string | null }>>(new Map());
+  const [rowErrors, setRowErrors] = useState<Map<string, string>>(new Map());
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [remindingKey, setRemindingKey] = useState<string | null>(null);
   const [ackingKey, setAckingKey] = useState<string | null>(null);
+  const [remindingAll, setRemindingAll] = useState(false);
+  const [bulkResult, setBulkResult] = useState<string | null>(null);
   const [refreshSignal, setRefreshSignal] = useState(0);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(9);
+  // Ticks every 20s purely to re-render cooldown countdowns/re-enable
+  // "Remind" buttons as their cooldown lapses, without needing a full
+  // reload — the underlying nextAllowedAt values don't change on their
+  // own, only whether "now" has passed them.
+  const [nowTick, setNowTick] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNowTick(Date.now()), 20000);
+    return () => clearInterval(id);
+  }, []);
   // Guards against a race between overlapping requests: if the user picks
   // a new date range before the previous fetch has come back (e.g. April
   // right after June), the June response can land AFTER April's and
@@ -85,25 +97,118 @@ export default function AbsenteesPanel({
 
   async function sendReminder(employeeId: string, forDate: string) {
     const key = `${employeeId}-${forDate}`;
-    const target = escalation.get(`${employeeId}__${forDate}`);
+    const mapKey = `${employeeId}__${forDate}`;
+    const target = escalation.get(mapKey);
     if (!target) return;
     setRemindingKey(key);
+    setRowErrors((prev) => {
+      const next = new Map(prev);
+      next.delete(key);
+      return next;
+    });
     try {
       const res = await fetch('/api/leave/attendance/remind', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ targetType: 'attendance_exception_unmarked', targetId: target.id }),
       });
+      const body = await res.json().catch(() => ({}));
       if (res.ok) {
-        const body = await res.json();
         setEscalation((prev) => {
           const next = new Map(prev);
-          next.set(`${employeeId}__${forDate}`, { id: target.id, reminderCount: body.reminderCount ?? target.reminderCount + 1 });
+          next.set(mapKey, { id: target.id, reminderCount: body.reminderCount ?? target.reminderCount + 1, nextAllowedAt: null });
           return next;
         });
+      } else {
+        // This used to be silently dropped — the button would just
+        // re-enable with nothing shown, so a blocked cooldown click and
+        // a successful one looked identical. Now the actual reason
+        // (cooldown, or the day having been resolved in the meantime)
+        // is shown under the row, and the button disables itself until
+        // nextAllowedAt if the server sent one back.
+        setRowErrors((prev) => {
+          const next = new Map(prev);
+          next.set(key, body.error || `Could not send reminder (${res.status}).`);
+          return next;
+        });
+        if (body.nextAllowedAt) {
+          setEscalation((prev) => {
+            const next = new Map(prev);
+            next.set(mapKey, { id: target.id, reminderCount: body.reminderCount ?? target.reminderCount, nextAllowedAt: body.nextAllowedAt });
+            return next;
+          });
+        }
       }
+    } catch {
+      setRowErrors((prev) => {
+        const next = new Map(prev);
+        next.set(key, 'Could not reach the server.');
+        return next;
+      });
     } finally {
       setRemindingKey(null);
+    }
+  }
+
+  // "Remind All" — sends to every currently filtered row (across all
+  // pages, not just the visible page) that has a resolvable target and
+  // isn't currently in cooldown, in one batch call. Rows already in
+  // cooldown are skipped client-side before the request even goes out —
+  // no point spending a server round trip on something we already know
+  // will be skipped.
+  async function remindAll() {
+    const now = Date.now();
+    const eligible = filtered
+      .map((r) => {
+        const mapKey = `${r.employeeId}__${r.date}`;
+        const target = escalation.get(mapKey);
+        if (!target) return null;
+        if (target.nextAllowedAt && new Date(target.nextAllowedAt).getTime() > now) return null;
+        return { targetType: 'attendance_exception_unmarked' as const, targetId: target.id, key: mapKey };
+      })
+      .filter((t): t is { targetType: 'attendance_exception_unmarked'; targetId: string; key: string } => t !== null);
+
+    if (eligible.length === 0) {
+      setBulkResult('Nothing to remind — every row is either resolved or still in its cooldown window.');
+      return;
+    }
+
+    setRemindingAll(true);
+    setBulkResult(null);
+    try {
+      const res = await fetch('/api/leave/attendance/remind-all', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ targets: eligible }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setBulkResult(body.error || `Could not send reminders (${res.status}).`);
+        return;
+      }
+      setEscalation((prev) => {
+        const next = new Map(prev);
+        for (const r of body.results ?? []) {
+          const existing = next.get(r.key);
+          if (!existing) continue;
+          next.set(r.key, {
+            id: existing.id,
+            reminderCount: r.sent ? r.reminderCount ?? existing.reminderCount + 1 : existing.reminderCount,
+            nextAllowedAt: r.sent ? null : r.nextAllowedAt ?? existing.nextAllowedAt,
+          });
+        }
+        return next;
+      });
+      const skippedCount = body.skippedCount ?? 0;
+      setBulkResult(
+        `Sent ${body.sentCount ?? 0} reminder${(body.sentCount ?? 0) === 1 ? '' : 's'}${
+          skippedCount > 0 ? `, skipped ${skippedCount} (already reminded recently or no longer pending)` : ''
+        }.`
+      );
+    } catch {
+      setBulkResult('Could not reach the server.');
+    } finally {
+      setRemindingAll(false);
     }
   }
 
@@ -162,7 +267,7 @@ export default function AbsenteesPanel({
         });
         if (ensureRes.ok && myRequestId === requestIdRef.current) {
           const ensureBody = await ensureRes.json();
-          setEscalation(new Map(Object.entries(ensureBody.targets ?? {})) as Map<string, { id: string; reminderCount: number }>);
+          setEscalation(new Map(Object.entries(ensureBody.targets ?? {})) as Map<string, { id: string; reminderCount: number; nextAllowedAt: string | null }>);
         }
       } else {
         setEscalation(new Map());
@@ -203,6 +308,16 @@ export default function AbsenteesPanel({
 
   const periodLabel = !date ? 'all pending dates' : isRange ? `${date} → ${endDate}` : date;
 
+  // How many currently-filtered rows actually have a remindable,
+  // not-in-cooldown target right now — drives the Remind All button's
+  // label/disabled state so it's clear up front whether clicking it
+  // will do anything.
+  const remindableCount = filtered.filter((r) => {
+    const target = escalation.get(`${r.employeeId}__${r.date}`);
+    if (!target) return false;
+    return !target.nextAllowedAt || new Date(target.nextAllowedAt).getTime() <= nowTick;
+  }).length;
+
   if (loading) {
     return (
       <div>
@@ -223,9 +338,27 @@ export default function AbsenteesPanel({
           {error}
         </div>
       )}
-      <p className="text-xs text-[var(--text-muted)] mb-3">
-        {filtered.length} absentee record{filtered.length === 1 ? '' : 's'} for {periodLabel}
+      <p className="text-xs text-[var(--text-muted)] mb-3 flex items-center justify-between flex-wrap gap-2">
+        <span>
+          {filtered.length} absentee record{filtered.length === 1 ? '' : 's'} for {periodLabel}
+        </span>
+        {filtered.length > 0 && (
+          <button
+            type="button"
+            onClick={remindAll}
+            disabled={remindingAll || remindableCount === 0}
+            title={remindableCount === 0 ? 'Every row is resolved or still in its reminder cooldown' : `Send a reminder to all ${remindableCount} eligible row(s) currently in view`}
+            className="text-xs font-medium border border-[var(--border)] text-[var(--text-primary)] hover:border-[var(--accent)] hover:text-[var(--accent)] disabled:opacity-50 disabled:cursor-not-allowed px-3 py-1.5 rounded-lg transition-colors"
+          >
+            {remindingAll ? 'Sending reminders…' : `Remind All${remindableCount > 0 ? ` (${remindableCount})` : ''}`}
+          </button>
+        )}
       </p>
+      {bulkResult && (
+        <div className="mb-3 bg-[var(--bg-elevated)]/60 border border-[var(--border)] text-[var(--text-primary)] text-xs font-medium rounded-lg px-3 py-2">
+          {bulkResult}
+        </div>
+      )}
 
       {filtered.length === 0 ? (
         <div className="bg-[var(--bg-elevated)]/40 border border-[var(--border)] rounded-xl px-4 py-14 flex flex-col items-center gap-2 text-center">
@@ -242,6 +375,8 @@ export default function AbsenteesPanel({
               const key = `${r.employeeId}-${r.date}`;
               const target = escalation.get(`${r.employeeId}__${r.date}`);
               const reminderCount = target?.reminderCount ?? 0;
+              const inCooldown = !!target?.nextAllowedAt && new Date(target.nextAllowedAt).getTime() > nowTick;
+              const rowError = rowErrors.get(key);
 
               return (
                 <div
@@ -291,6 +426,10 @@ export default function AbsenteesPanel({
                     )}
                   </div>
 
+                  {rowError && (
+                    <p className="text-[11px] text-red-600 dark:text-red-400 -mt-1">{rowError}</p>
+                  )}
+
                   {/* mt-auto pins actions to the bottom of every card, so a
                      shorter badge line on one card never leaves its buttons
                      sitting at a different height than its neighbors. */}
@@ -298,11 +437,15 @@ export default function AbsenteesPanel({
                     <button
                       type="button"
                       onClick={() => sendReminder(r.employeeId, r.date)}
-                      disabled={!target || remindingKey === key}
-                      title="Nudge the employee to respond via My Leave"
+                      disabled={!target || remindingKey === key || inCooldown}
+                      title={inCooldown && target?.nextAllowedAt ? `Available again in ${fmtCountdown(target.nextAllowedAt, nowTick)}` : 'Nudge the employee to respond via My Leave'}
                       className="flex-1 text-xs border border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--text-primary)] disabled:opacity-50 font-medium px-2.5 py-1.5 rounded-lg transition-colors"
                     >
-                      {remindingKey === key ? 'Sending…' : 'Remind'}
+                      {remindingKey === key
+                        ? 'Sending…'
+                        : inCooldown && target?.nextAllowedAt
+                          ? `Available in ${fmtCountdown(target.nextAllowedAt, nowTick)}`
+                          : 'Remind'}
                     </button>
                     <button
                       type="button"
@@ -375,6 +518,19 @@ function formatShortDate(dateStr: string) {
   const d = new Date(`${dateStr}T00:00:00`);
   if (Number.isNaN(d.getTime())) return dateStr;
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+// Live "Available in Xh Ym" / "Xm" label for a disabled Remind button —
+// recomputed on every nowTick so it counts down instead of showing a
+// stale value until the next full data reload.
+function fmtCountdown(nextAllowedAtIso: string, nowMs: number): string {
+  const remainingMs = new Date(nextAllowedAtIso).getTime() - nowMs;
+  if (remainingMs <= 0) return '0m';
+  const totalMinutes = Math.ceil(remainingMs / 60000);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (hours === 0) return `${minutes}m`;
+  return `${hours}h ${minutes}m`;
 }
 
 function initials(name: string) {
