@@ -108,6 +108,76 @@ export async function POST(req: NextRequest) {
     pendingAuthUserId = pending.auth_user_id;
   }
 
+  // IMPORTANT: employee_code is unique. Before inserting, always check
+  // whether HR is actually trying to set up an employee that already
+  // exists. A stale pending Google signup can survive after HR has added
+  // the employee manually, so blindly inserting here used to produce:
+  // `duplicate key value violates unique constraint
+  // "employees_employee_code_key"`.
+  //
+  // For an acknowledgement flow, an existing employee_code means the
+  // employee record already exists — link the already-authenticated Google
+  // account to that record instead of creating a second employee row.
+  const { data: existingByCode, error: existingCodeError } = await service
+    .from('employees')
+    .select('id, employee_code, full_name, email, role, auth_user_id, auth_provider')
+    .eq('employee_code', employee_code)
+    .maybeSingle();
+
+  if (existingCodeError) {
+    return NextResponse.json({ error: existingCodeError.message }, { status: 400 });
+  }
+
+  if (existingByCode) {
+    if (!pending_signup_id) {
+      return NextResponse.json(
+        {
+          error: `Employee code "${employee_code}" already exists for ${existingByCode.full_name || existingByCode.email || 'an employee'}. Use the existing employee record instead of adding a duplicate.`,
+        },
+        { status: 409 }
+      );
+    }
+
+    // This is the safe HR acknowledgement path: HR is explicitly
+    // acknowledging a Google identity that is waiting in the pending queue.
+    // Never overwrite an existing auth link belonging to another account.
+    if (existingByCode.auth_user_id && existingByCode.auth_user_id !== pendingAuthUserId) {
+      return NextResponse.json(
+        {
+          error: `Employee code "${employee_code}" is already linked to another login. No changes were made.`,
+        },
+        { status: 409 }
+      );
+    }
+
+    const nowIso = new Date().toISOString();
+    const { data: linkedEmployee, error: linkExistingError } = await service
+      .from('employees')
+      .update({
+        auth_user_id: pendingAuthUserId,
+        auth_provider: 'google',
+        profile_confirmed_at: nowIso,
+        updated_at: nowIso,
+      })
+      .eq('id', existingByCode.id)
+      .select()
+      .single();
+
+    if (linkExistingError) {
+      return NextResponse.json({ error: linkExistingError.message }, { status: 400 });
+    }
+
+    await service
+      .from('pending_employee_signups')
+      .delete()
+      .eq('id', pending_signup_id);
+
+    return NextResponse.json({
+      employee: linkedEmployee,
+      message: `Existing employee "${linkedEmployee.full_name}" was linked to the Google account. No duplicate employee was created.`,
+    });
+  }
+
   // Hierarchy fields are role-gated the same way the profile PATCH route
   // gates them — see app/api/leave/employees/[id]/profile/route.ts for
   // the full rationale. Grouping itself is just `department` (already
@@ -134,6 +204,7 @@ export async function POST(req: NextRequest) {
       // app/api/auth/callback/route.ts).
       auth_user_id: pendingAuthUserId,
       auth_provider: pendingAuthUserId ? 'google' : 'password',
+      profile_confirmed_at: pendingAuthUserId ? new Date().toISOString() : null,
     })
     .select()
     .single();
