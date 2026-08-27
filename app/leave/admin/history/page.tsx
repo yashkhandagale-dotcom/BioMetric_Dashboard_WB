@@ -14,6 +14,7 @@ import LeavePageHeader from '@/components/leave/LeavePageHeader';
 import type { AbsenteeCandidate, HalfDayCandidate } from '@/lib/attendanceExceptions';
 import { currentMonthKey, mergeCalendarDay, monthBounds } from '@/lib/leaveCalendar';
 import type { CalendarDayEntry } from '@/lib/leaveCalendar';
+import { useDebounce } from '@/lib/useDebounce';
 
 type EmployeeOption = { id: string; full_name: string; employee_code: string; department: string; office: string };
 
@@ -276,8 +277,10 @@ export default function LeaveTrackerPage() {
     [monthStart, monthEnd, calendarLeave, calendarAbsentees, calendarHalfDays]
   );
 
+  const debouncedCalendarSearch = useDebounce(calendarSearch, 200);
+
   const filteredDayMap = useMemo(() => {
-    const q = calendarSearch.trim().toLowerCase();
+    const q = debouncedCalendarSearch.trim().toLowerCase();
     const out = new Map<string, CalendarDayEntry[]>();
     for (const [date, byEmployee] of mergedByDate) {
       const entries = Array.from(byEmployee.values()).filter((e) => {
@@ -288,7 +291,7 @@ export default function LeaveTrackerPage() {
       if (entries.length > 0) out.set(date, entries);
     }
     return out;
-  }, [mergedByDate, calendarDepartment, calendarSearch]);
+  }, [mergedByDate, calendarDepartment, debouncedCalendarSearch]);
 
   function handleClearHistoryFilters() {
     setStartDate('');

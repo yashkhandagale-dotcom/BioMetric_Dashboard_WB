@@ -1,54 +1,64 @@
 @import "tailwindcss";
 
-/* Tailwind v4 uses prefers-color-scheme for `dark:` by default. next-themes
-   toggles a `dark`/`light` class on <html> instead, so this custom variant
-   makes `dark:` respond to that class rather than the OS setting. */
 @custom-variant dark (&:where(.dark, .dark *));
 
 :root {
-  --background: #0a0a0a;
-  --foreground: #ededed;
+  --background: #080c14;
+  --foreground: #f8fafc;
 }
 
-/* `--background`/`--foreground` used to only be defined once, in :root,
-   with no .light override — so <body> stayed near-black permanently
-   regardless of theme. Invisible on any page whose content div fully
-   covers the viewport (bg-[var(--bg-surface)] painted over it), but
-   app/leave/layout.tsx wraps every /leave/** page in a top strip (the
-   theme-toggle row) with no background class of its own — so it showed
-   raw <body> through it: a black bar across the top of every Leave
-   Tracker page, un-affected by the toggle. Fix: make --background/
-   --foreground theme-aware too, same as every other token below. */
 .light {
-  --background: #ffffff;
+  --background: #f8fafc;
   --foreground: #0f172a;
-}
-
-/* Semantic tokens (Workstream 2, step 1 — foundation only).
-   Nothing in components/ reads these yet; that's the later migration-pass
-   subpart. These values are chosen to match the app's CURRENT hardcoded
-   slate-* look exactly, so switching a component over later is a
-   like-for-like swap, not a redesign. */
-.dark {
-  --bg-surface: #0f172a;   /* slate-900 — matches existing bg-slate-900 */
-  --bg-elevated: #1e293b;  /* slate-800 */
-  --border: #334155;       /* slate-700 */
-  --text-primary: #f8fafc; /* slate-50 / white */
-  --text-muted: #94a3b8;   /* slate-400 */
-  --accent: #fb923c;       /* warm terracotta */
-  --danger: #f87171;       /* red-400 */
-  --success: #4ade80;      /* green-400 */
-}
-
-.light {
   --bg-surface: #ffffff;
-  --bg-elevated: #f8fafc;
+  --bg-elevated: #f1f5f9;
+  --bg-card: #ffffff;
   --border: #e2e8f0;
+  --border-subtle: #edf2f7;
   --text-primary: #0f172a;
   --text-muted: #64748b;
-  --accent: #ea580c;      /* warm terracotta */
+  --text-dim: #94a3b8;
+  --accent: #ea580c;
+  --accent-hover: #c2410c;
+  --accent-subtle: rgba(234, 88, 12, 0.1);
+  --primary: #2563eb;
+  --primary-hover: #1d4ed8;
+  --primary-subtle: rgba(37, 99, 235, 0.1);
   --danger: #dc2626;
+  --danger-subtle: rgba(220, 38, 38, 0.1);
   --success: #16a34a;
+  --success-subtle: rgba(22, 163, 74, 0.1);
+  --warning: #d97706;
+  --warning-subtle: rgba(217, 119, 6, 0.1);
+  --shadow-card: 0 1px 3px 0 rgba(0, 0, 0, 0.06), 0 1px 2px -1px rgba(0, 0, 0, 0.04);
+  --shadow-elevation: 0 10px 25px -5px rgba(0, 0, 0, 0.08), 0 8px 10px -6px rgba(0, 0, 0, 0.04);
+  --ambient-glow: radial-gradient(circle at 50% 0%, rgba(37, 99, 235, 0.05) 0%, transparent 60%);
+}
+
+.dark {
+  --bg-surface: #0b0f19;   /* Sleek deep slate */
+  --bg-elevated: #111827;  /* Rich elevated dark */
+  --bg-card: #131d31;      /* Modern glass card */
+  --border: #1e293b;       /* Subtle slate border */
+  --border-subtle: rgba(255, 255, 255, 0.07);
+  --text-primary: #f8fafc; /* Crisp white */
+  --text-muted: #94a3b8;   /* Balanced slate */
+  --text-dim: #64748b;
+  --accent: #f97316;       /* Vibrant warm orange */
+  --accent-hover: #ea580c;
+  --accent-subtle: rgba(249, 115, 22, 0.15);
+  --primary: #3b82f6;      /* Electric blue */
+  --primary-hover: #60a5fa;
+  --primary-subtle: rgba(59, 130, 246, 0.15);
+  --danger: #f87171;       /* Red-400 */
+  --danger-subtle: rgba(248, 113, 113, 0.15);
+  --success: #34d399;      /* Emerald-400 */
+  --success-subtle: rgba(52, 211, 153, 0.15);
+  --warning: #fbbf24;      /* Amber-400 */
+  --warning-subtle: rgba(251, 191, 36, 0.15);
+  --shadow-card: 0 4px 6px -1px rgba(0, 0, 0, 0.35), 0 2px 4px -2px rgba(0, 0, 0, 0.25);
+  --shadow-elevation: 0 20px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.4);
+  --ambient-glow: radial-gradient(circle at 50% 0%, rgba(59, 130, 246, 0.08) 0%, transparent 50%), radial-gradient(circle at 100% 0%, rgba(249, 115, 22, 0.05) 0%, transparent 40%);
 }
 
 @theme inline {
@@ -56,36 +66,70 @@
   --color-foreground: var(--foreground);
   --color-bg-surface: var(--bg-surface);
   --color-bg-elevated: var(--bg-elevated);
+  --color-bg-card: var(--bg-card);
   --color-border: var(--border);
+  --color-border-subtle: var(--border-subtle);
   --color-text-primary: var(--text-primary);
   --color-text-muted: var(--text-muted);
+  --color-text-dim: var(--text-dim);
   --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-subtle: var(--accent-subtle);
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-subtle: var(--primary-subtle);
   --color-danger: var(--danger);
+  --color-danger-subtle: var(--danger-subtle);
   --color-success: var(--success);
+  --color-success-subtle: var(--success-subtle);
+  --color-warning: var(--warning);
+  --color-warning-subtle: var(--warning-subtle);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
 body {
   background: var(--background);
+  background-image: var(--ambient-glow);
+  background-attachment: fixed;
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Inter", Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-/* Shared thin, theme-aware scrollbar — applied to every internally-scrolling
-   region (drawers, modals, sidebars, scoped lists) instead of each one
-   falling back to the browser's default scrollbar styling. Firefox uses the
-   scrollbar-width/scrollbar-color properties; Chrome/Edge/Safari use the
-   ::-webkit-scrollbar pseudo-elements. Both branches read the same tokens
-   so the scrollbar always matches the current theme. */
+/* Glassmorphic card styling */
+.glass-panel {
+  background: var(--bg-card);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-card);
+}
+
+/* Premium Card container */
+.premium-card {
+  background: linear-gradient(180deg, var(--bg-card) 0%, var(--bg-surface) 100%);
+  border: 1px solid var(--border);
+  border-radius: 1rem;
+  box-shadow: var(--shadow-card);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.premium-card:hover {
+  border-color: rgba(249, 115, 22, 0.3);
+  box-shadow: var(--shadow-elevation);
+}
+
+/* Shared thin, theme-aware scrollbar */
 .scroll-thin {
   scrollbar-width: thin;
   scrollbar-color: var(--border) transparent;
 }
 
 .scroll-thin::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
 }
 
 .scroll-thin::-webkit-scrollbar-track {
@@ -95,23 +139,20 @@ body {
 .scroll-thin::-webkit-scrollbar-thumb {
   background-color: var(--border);
   border-radius: 9999px;
-  border: 2px solid transparent;
+  border: 1px solid transparent;
   background-clip: content-box;
 }
 
 .scroll-thin::-webkit-scrollbar-thumb:hover {
   background-color: var(--text-muted);
-  background-clip: content-box;
 }
 
-/* Pulsing ring used to draw the eye to a queue action the user hasn't
-   acted on yet (e.g. the top row's Acknowledge button in
-   NewJoinersPanel.tsx — only the first/oldest row gets this, not every
-   row in the list, so it stays a "look here" signal rather than visual
-   noise). Animates box-shadow only — never opacity — so the button
-   stays fully solid and readable throughout, unlike Tailwind's
-   animate-pulse which reads as "loading/disabled" rather than "look
-   here". */
+/* Subtle glow badge */
+.badge-glow {
+  box-shadow: 0 0 12px -2px currentColor;
+}
+
+/* Pulsing attention ring */
 @keyframes pulse-attention {
   0%, 100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.45); }
   50% { box-shadow: 0 0 0 7px rgba(16, 185, 129, 0); }

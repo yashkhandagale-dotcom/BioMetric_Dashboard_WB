@@ -166,9 +166,9 @@ function LoginForm() {
             <p className="text-[var(--text-muted)] text-xs mt-1">Use your WonderBiz Google account.</p>
           </div>
 
-          <div className="bg-[var(--bg-elevated)]/40 border border-[var(--border)] rounded-xl p-6 space-y-4">
+          <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-2xl p-6 sm:p-8 space-y-5 shadow-xl">
             {error && (
-              <div className="bg-red-900/30 border border-red-500/30 text-red-700 dark:text-red-300 text-xs rounded-lg px-3 py-2">
+              <div className="bg-red-50 dark:bg-red-500/15 border border-red-500/30 text-red-700 dark:text-red-300 text-xs font-medium rounded-xl px-3.5 py-2.5 leading-relaxed">
                 {error}
               </div>
             )}
@@ -177,18 +177,18 @@ function LoginForm() {
               type="button"
               onClick={handleGoogleSignIn}
               disabled={googleLoading}
-              className="w-full flex items-center justify-center gap-2.5 bg-white hover:bg-gray-50 disabled:opacity-60 text-gray-800 text-sm font-medium py-2.5 rounded-lg border border-gray-300 transition-colors"
+              className="w-full flex items-center justify-center gap-3 bg-white hover:bg-slate-50 disabled:opacity-60 text-slate-800 text-sm font-semibold py-3 rounded-xl border border-slate-200 shadow-sm hover:shadow transition-all duration-150"
             >
               <GoogleLogo />
               {googleLoading ? 'Redirecting…' : 'Continue with Google'}
             </button>
-            <p className="text-[var(--text-muted)] text-[11px] text-center">
-              Use your @wonderbiz.in account. New here? Google sign-in only works once HR has added you.
+            <p className="text-[var(--text-muted)] text-[11px] text-center leading-relaxed">
+              Use your <span className="font-medium text-[var(--text-primary)]">@wonderbiz.in</span> account. New here? Google sign-in works once HR has added you.
             </p>
 
             <div className="flex items-center gap-3 py-1">
               <div className="h-px flex-1 bg-[var(--border)]" />
-              <span className="text-[var(--text-muted)] text-[11px]">or</span>
+              <span className="text-[var(--text-muted)] text-xs uppercase tracking-wider font-medium">or</span>
               <div className="h-px flex-1 bg-[var(--border)]" />
             </div>
 
@@ -196,38 +196,38 @@ function LoginForm() {
               <button
                 type="button"
                 onClick={() => setShowPasswordForm(true)}
-                className="w-full text-[var(--text-primary)] text-sm font-medium py-2.5 rounded-lg border border-[var(--border)] hover:border-[var(--accent)] transition-colors"
+                className="w-full text-[var(--text-primary)] text-sm font-medium py-2.5 rounded-xl border border-[var(--border)] bg-[var(--bg-elevated)]/50 hover:bg-[var(--bg-elevated)] hover:border-[var(--accent)]/50 transition-colors"
               >
                 Sign in with email &amp; password
               </button>
             ) : (
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div>
-                  <label className="block text-xs text-[var(--text-muted)] mb-1.5">Email</label>
+                  <label className="block text-xs font-medium text-[var(--text-muted)] mb-1.5">Email address</label>
                   <input
                     type="email"
                     required
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    className="w-full bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)] focus:outline-none focus:border-blue-500"
+                    className="w-full bg-[var(--bg-surface)] border border-[var(--border)] rounded-xl px-3.5 py-2.5 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/30 focus:border-[var(--accent)] transition-all"
                     placeholder="you@wonderbiz.in"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs text-[var(--text-muted)] mb-1.5">Password</label>
+                  <label className="block text-xs font-medium text-[var(--text-muted)] mb-1.5">Password</label>
                   <input
                     type="password"
                     required
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    className="w-full bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)] focus:outline-none focus:border-blue-500"
+                    className="w-full bg-[var(--bg-surface)] border border-[var(--border)] rounded-xl px-3.5 py-2.5 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/30 focus:border-[var(--accent)] transition-all"
                     placeholder="••••••••"
                   />
                 </div>
                 <button
                   type="submit"
                   disabled={loading}
-                  className="w-full bg-blue-600 hover:bg-blue-500 disabled:opacity-60 text-white text-sm font-medium py-2.5 rounded-lg transition-colors"
+                  className="w-full bg-[var(--accent)] hover:bg-[var(--accent-hover)] disabled:opacity-60 text-white text-sm font-semibold py-3 rounded-xl shadow-md transition-all duration-150"
                 >
                   {loading ? 'Signing in…' : 'Sign in'}
                 </button>

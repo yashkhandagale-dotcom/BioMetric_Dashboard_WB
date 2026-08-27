@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect, useCallback, Suspense } from 'react';
+import { useState, useEffect, useCallback, useMemo, Suspense } from 'react';
 import { createPortal } from 'react-dom';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { CheckCircle, ShieldX, Calendar, X as XIcon } from 'lucide-react';
@@ -37,6 +37,7 @@ import HolidayModal from '@/components/HolidayModal';
 import InsightsStrip from '@/components/InsightsStrip';
 import SettingsPanel from '@/components/SettingsPanel';
 import DashboardShell, { type DashboardSectionId } from '@/components/dashboard/DashboardShell';
+import DashboardSkeleton from '@/components/dashboard/DashboardSkeleton';
 
 // 'loading' is the initial render only — it exists so a login/refresh
 // never flashes the upload screen while we're still checking whether
@@ -60,7 +61,7 @@ interface PendingFile { file: File; officeCode: string; month: string; year: str
 interface MappingQueueItem { officeCode: string; headers: string[]; }
 
 function getMonthName(mm: string): string {
-  const m = ['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const m = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
   return m[parseInt(mm, 10)] || mm;
 }
 
@@ -573,66 +574,70 @@ function HRDashboard() {
   const { kpi, employeeSummaries, dailyTrend, deptAttendance, hoursDistribution, officeAttendance, departments, offices, filteredRecords, availableDates, viewMode, dayDeptSnapshots } =
     useDashboardData(recordPool, selectedOffice, selectedDepts, [], holidays, thresholds, leaveRecords, allOfficeRecords, dateFrom, dateTo);
 
-  // Comparison mode (2+ departments selected) needs the FULL department
-  // universe — not just the selected ones — so the bar charts below can show
-  // every department and simply dim the ones outside the comparison set,
-  // rather than only ever showing the selected departments in isolation.
-  const { deptAttendance: allDeptAttendance, filteredRecords: allDeptRecords } =
-    useDashboardData(recordPool, selectedOffice, [], [], holidays, thresholds, leaveRecords, allOfficeRecords, dateFrom, dateTo);
-
   const isComparison = viewMode === 'comparison';
 
-  const leaveMap = buildLeaveMap(leaveRecords);
+  // Comparison mode (2+ departments selected) needs the FULL department universe for dimmed comparison bars.
+  // Only execute the universe calculation when isComparison is actually active.
+  const comparisonData = useDashboardData(
+    recordPool,
+    selectedOffice,
+    isComparison ? [] : selectedDepts,
+    [],
+    holidays,
+    thresholds,
+    leaveRecords,
+    allOfficeRecords,
+    dateFrom,
+    dateTo
+  );
+  const allDeptAttendance = isComparison ? comparisonData.deptAttendance : deptAttendance;
+  const allDeptRecords = isComparison ? comparisonData.filteredRecords : filteredRecords;
+
+  const leaveMap = useMemo(() => buildLeaveMap(leaveRecords), [leaveRecords]);
 
   const currentOffice = getOfficeFromKey(selectedMonthKey);
   const currentYear = getYearFromKey(selectedMonthKey);
 
-  // When the user hasn't picked an explicit From/To yet, the From/To boxes
-  // still need to reflect *something* real — otherwise they sit blank while
-  // the dashboard is quietly showing the selected month's data, with no way
-  // to tell what date span that actually is. Derive it from filteredRecords
-  // (dates are normalized to ISO "YYYY-MM-DD", so lexical min/max is safe).
-  const impliedRange = (() => {
+  // When the user hasn't picked an explicit From/To yet, derive it from filteredRecords
+  const impliedRange = useMemo(() => {
     if (filteredRecords.length === 0) return null;
-    let min = filteredRecords[0].date, max = filteredRecords[0].date;
-    for (const r of filteredRecords) {
-      if (r.date < min) min = r.date;
-      if (r.date > max) max = r.date;
+    let min = filteredRecords[0].date;
+    let max = filteredRecords[0].date;
+    for (let i = 1; i < filteredRecords.length; i++) {
+      const d = filteredRecords[i].date;
+      if (d < min) min = d;
+      if (d > max) max = d;
     }
     return { min, max };
-  })();
+  }, [filteredRecords]);
 
-  // What the From/To boxes actually display right now, INCLUDING the
-  // implied fallback — this is the thing that must be preserved when the
-  // other box changes. `dateFrom`/`dateTo` alone aren't enough: they're
-  // still null before the user has explicitly touched a box, even though
-  // the box is visibly showing impliedRange's min/max. Using the raw null
-  // check was the root cause of "changing From also changes To" — the
-  // effective value WAS already set (via the implied default), just not
-  // captured in state yet.
   const effectiveDateFrom = dateFrom ?? impliedRange?.min ?? null;
   const effectiveDateTo = dateTo ?? impliedRange?.max ?? null;
 
-  const filteredSummaries = tableFilter === 'all' ? employeeSummaries
-    : tableFilter === 'present' ? employeeSummaries.filter(e => e.presentDays > 0)
-    : tableFilter === 'absent' ? employeeSummaries.filter(e => e.absentDays > 0)
-    : tableFilter === 'late' ? employeeSummaries.filter(e => e.lateCount > 0)
-    : tableFilter === 'earlyexit' ? employeeSummaries.filter(e => e.earlyExitCount > 0)
-    : tableFilter === 'shortday' ? employeeSummaries.filter(e => e.shortDayCount > 0)
-    : tableFilter === 'frequentpunch' ? employeeSummaries.filter(e => e.frequentPunchDays > 0)
-    : employeeSummaries;
+  const filteredSummaries = useMemo(() => {
+    if (tableFilter === 'all') return employeeSummaries;
+    if (tableFilter === 'present') return employeeSummaries.filter(e => e.presentDays > 0);
+    if (tableFilter === 'absent') return employeeSummaries.filter(e => e.absentDays > 0);
+    if (tableFilter === 'late') return employeeSummaries.filter(e => e.lateCount > 0);
+    if (tableFilter === 'earlyexit') return employeeSummaries.filter(e => e.earlyExitCount > 0);
+    if (tableFilter === 'shortday') return employeeSummaries.filter(e => e.shortDayCount > 0);
+    if (tableFilter === 'frequentpunch') return employeeSummaries.filter(e => e.frequentPunchDays > 0);
+    return employeeSummaries;
+  }, [tableFilter, employeeSummaries]);
 
-  // All dates across ALL uploaded months (for cross-month date range).
-  // Sorted chronologically (by actual Date value), not lexically as strings —
-  // a plain string sort breaks across month boundaries whenever a date isn't
-  // strict ISO "YYYY-MM-DD" (e.g. "31-05-2026" would out-sort "30-06-2026").
-  const allAvailableDates = (() => {
+  // All dates across ALL uploaded months, memoized with efficient set + sort
+  const { allAvailableDates, minAvailableDate, maxAvailableDate } = useMemo(() => {
     const set = new Set<string>();
-    allUploadedRecords.forEach(r => set.add(r.date));
-    return Array.from(set).sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
-  })();
-  const minAvailableDate = allAvailableDates[0];
-  const maxAvailableDate = allAvailableDates[allAvailableDates.length - 1];
+    for (let i = 0; i < allUploadedRecords.length; i++) {
+      set.add(allUploadedRecords[i].date);
+    }
+    const sorted = Array.from(set).sort();
+    return {
+      allAvailableDates: sorted,
+      minAvailableDate: sorted[0] || undefined,
+      maxAvailableDate: sorted[sorted.length - 1] || undefined,
+    };
+  }, [allUploadedRecords]);
 
   // Steps the Single Day view to the previous/next date that actually has
   // uploaded data (skips weekends/gaps with no records rather than landing
@@ -688,8 +693,8 @@ function HRDashboard() {
 
       <div>
         {appState === 'loading' && (
-          <div className="flex items-center justify-center py-24">
-            <div className="text-[var(--text-muted)] text-sm">Loading...</div>
+          <div className="py-4">
+            <DashboardSkeleton />
           </div>
         )}
 
@@ -714,126 +719,196 @@ function HRDashboard() {
         {hasDashboardData && (
           <div className="space-y-6">
 
-            {/* ── Filter Bar ─────────────────────────────────────────────── */}
-            <div className="flex flex-wrap items-center gap-3">
-              {/* Date range — restricted to the span of dates actually present in uploaded data.
-                  Custom only, deliberately — a preset like "This Month" would show/hide data
-                  based on today's calendar date rather than what's actually been uploaded,
-                  which is misleading (e.g. "This Month" looking empty in August when the
-                  latest uploaded data is from July). The min/max below already constrain
-                  the picker to real data, so there's no invalid range to protect against. */}
-              {allAvailableDates.length > 0 && (
-                <div className="flex items-center gap-1.5 flex-wrap bg-[var(--bg-elevated)]/60 border border-[var(--border)] rounded-lg px-3 py-1.5">
-                  <span className="text-[var(--text-muted)] text-xs font-medium">From</span>
-                  <input
-                    type="date"
-                    value={dateFrom ?? impliedRange?.min ?? ''}
-                    min={minAvailableDate}
-                    max={effectiveDateTo ?? maxAvailableDate}
-                    onChange={e => {
-                      const v = e.target.value || null;
-                      if (v && (v < minAvailableDate! || v > maxAvailableDate!)) {
-                        showToast('error', `No data outside ${minAvailableDate} → ${maxAvailableDate}.`);
-                        return;
-                      }
-                                        setDateFrom(v);
-                      // If To is already showing a value — whether the user set it
-                      // explicitly or it's just the implied default for the current
-                      // month — lock that value in rather than letting it collapse
-                      // to match From. Only default To = From when there's truly
-                      // nothing shown for To yet.
-                      if (v) setDateTo(effectiveDateTo ?? v);
-                    }}
-                    className={`bg-transparent text-xs focus:outline-none w-28 sm:w-32 ${dateFrom ? 'text-[var(--text-primary)]' : 'text-[var(--text-muted)]'}`}
-                    title={!dateFrom ? 'Auto-filled to match the data currently shown — pick a date to filter explicitly' : undefined}
-                  />
-                  <span className="text-[var(--text-muted)] text-xs">→</span>
-                  <span className="text-[var(--text-muted)] text-xs font-medium">To</span>
-                  <input
-                    type="date"
-                    value={dateTo ?? impliedRange?.max ?? ''}
-                    min={effectiveDateFrom ?? minAvailableDate}
-                    max={maxAvailableDate}
-                    onChange={e => {
-                      const v = e.target.value || null;
-                      if (v && (v < minAvailableDate! || v > maxAvailableDate!)) {
-                        showToast('error', `No data outside ${minAvailableDate} → ${maxAvailableDate}.`);
-                        return;
-                      }
-                                        setDateTo(v);
-                      // Same fix mirrored for the From side — lock in whatever
-                      // From is currently showing (explicit or implied) instead
-                      // of letting it collapse to match the new To.
-                      if (v) setDateFrom(effectiveDateFrom ?? v);
-                    }}
-                    className={`bg-transparent text-xs focus:outline-none w-28 sm:w-32 ${dateTo ? 'text-[var(--text-primary)]' : 'text-[var(--text-muted)]'}`}
-                    title={!dateTo ? 'Auto-filled to match the data currently shown — pick a date to filter explicitly' : undefined}
-                  />
-                  {!dateFrom && !dateTo && impliedRange && (
-                    <span className="text-[var(--text-muted)] text-[10px] italic ml-1">(current period)</span>
-                  )}
-                  {(dateFrom || dateTo) && (
-                    <button onClick={() => { setDateFrom(null); setDateTo(null); }} className="text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors ml-1" title="Clear date range">
-                      <XIcon className="w-3.5 h-3.5" />
+            {/* ── Executive Dashboard Header & Control Strip ──────────────── */}
+            <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-2xl p-4 sm:p-5 shadow-lg space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-[var(--border)]">
+                <div>
+                  <h1 className="text-xl font-bold tracking-tight text-[var(--text-primary)] flex items-center gap-2.5">
+                    <span>Attendance Dashboard</span>
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                      Biometric Data
+                    </span>
+                  </h1>
+                  <p className="text-xs text-[var(--text-muted)] mt-0.5">
+                    biometric analytics &amp; employee attendance tracking · <span className="font-semibold text-[var(--text-primary)]">{filteredRecords.length.toLocaleString()}</span> records
+                  </p>
+                </div>
+
+                {/* Quick Range Presets */}
+                {allAvailableDates.length > 0 && (
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <button
+                      onClick={() => { setDateFrom(null); setDateTo(null); }}
+                      className={`px-3 py-1 rounded-lg text-xs font-medium transition-all ${!dateFrom && !dateTo
+                        ? 'bg-[var(--accent)] text-white shadow-sm font-semibold'
+                        : 'bg-[var(--bg-elevated)] border border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--text-primary)]'
+                        }`}
+                    >
+                      Default Month
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (minAvailableDate && maxAvailableDate) {
+                          setDateFrom(minAvailableDate);
+                          setDateTo(maxAvailableDate);
+                        }
+                      }}
+                      className={`px-3 py-1 rounded-lg text-xs font-medium transition-all ${dateFrom === minAvailableDate && dateTo === maxAvailableDate
+                        ? 'bg-[var(--accent)] text-white shadow-sm font-semibold'
+                        : 'bg-[var(--bg-elevated)] border border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--text-primary)]'
+                        }`}
+                    >
+                      All Uploaded ({allAvailableDates.length}d)
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* ── Filter Controls Row ────────────────────────────────── */}
+              <div className="flex flex-wrap items-center gap-3">
+                {/* Date range picker */}
+                {allAvailableDates.length > 0 && (
+                  <div className="flex items-center gap-2 bg-[var(--bg-surface)] border border-[var(--border)] rounded-xl px-3 py-2 shadow-inner">
+                    <Calendar className="w-4 h-4 text-[var(--accent)] flex-shrink-0" />
+                    <span className="text-[var(--text-muted)] text-xs font-medium">From:</span>
+                    <input
+                      type="date"
+                      value={dateFrom ?? impliedRange?.min ?? ''}
+                      min={minAvailableDate}
+                      max={effectiveDateTo ?? maxAvailableDate}
+                      onChange={e => {
+                        const v = e.target.value || null;
+                        if (v && (v < minAvailableDate! || v > maxAvailableDate!)) {
+                          showToast('error', `No data outside ${minAvailableDate} → ${maxAvailableDate}.`);
+                          return;
+                        }
+                        setDateFrom(v);
+                        if (v) setDateTo(effectiveDateTo ?? v);
+                      }}
+                      className={`bg-transparent text-xs font-medium focus:outline-none w-28 sm:w-32 ${dateFrom ? 'text-[var(--text-primary)]' : 'text-[var(--text-muted)]'}`}
+                      title={!dateFrom ? 'Auto-filled to match current month data' : undefined}
+                    />
+                    <span className="text-[var(--border)] text-xs font-bold">|</span>
+                    <span className="text-[var(--text-muted)] text-xs font-medium">To:</span>
+                    <input
+                      type="date"
+                      value={dateTo ?? impliedRange?.max ?? ''}
+                      min={effectiveDateFrom ?? minAvailableDate}
+                      max={maxAvailableDate}
+                      onChange={e => {
+                        const v = e.target.value || null;
+                        if (v && (v < minAvailableDate! || v > maxAvailableDate!)) {
+                          showToast('error', `No data outside ${minAvailableDate} → ${maxAvailableDate}.`);
+                          return;
+                        }
+                        setDateTo(v);
+                        if (v) setDateFrom(effectiveDateFrom ?? v);
+                      }}
+                      className={`bg-transparent text-xs font-medium focus:outline-none w-28 sm:w-32 ${dateTo ? 'text-[var(--text-primary)]' : 'text-[var(--text-muted)]'}`}
+                      title={!dateTo ? 'Auto-filled to match current month data' : undefined}
+                    />
+                    {(dateFrom || dateTo) && (
+                      <button
+                        onClick={() => { setDateFrom(null); setDateTo(null); }}
+                        className="text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors ml-1 p-0.5 rounded hover:bg-[var(--bg-elevated)]"
+                        title="Clear date range"
+                      >
+                        <XIcon className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                {/* Office pills */}
+                <div className="flex items-center gap-1 bg-[var(--bg-surface)] border border-[var(--border)] rounded-xl p-1 shadow-inner">
+                  {['ALL', ...offices].map(o => (
+                    <button
+                      key={o}
+                      onClick={() => handleOfficeChange(o)}
+                      className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all ${selectedOffice === o
+                        ? 'bg-[var(--primary)] text-white shadow-sm'
+                        : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-elevated)]'
+                        }`}
+                    >
+                      {o}
+                    </button>
+                  ))}
+                </div>
+
+                {/* Department pills rail */}
+                <div className="flex flex-wrap items-center gap-1.5 flex-1 min-w-[200px]">
+                  {departments.map(d => {
+                    const isSelected = selectedDepts.includes(d);
+                    return (
+                      <button
+                        key={d}
+                        onClick={() => toggleDept(d)}
+                        className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all ${isSelected
+                          ? 'bg-violet-600 text-white shadow-sm font-semibold'
+                          : 'bg-[var(--bg-surface)] border border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:border-violet-500/40'
+                          }`}
+                      >
+                        {d}
+                      </button>
+                    );
+                  })}
+                  {selectedDepts.length > 0 && (
+                    <button
+                      onClick={clearDepts}
+                      className="px-2.5 py-1 rounded-lg text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-elevated)] transition-colors font-medium underline"
+                    >
+                      Clear ({selectedDepts.length})
                     </button>
                   )}
                 </div>
-              )}
-
-              {/* Office pills */}
-              <div className="flex gap-1">
-                {['ALL', ...offices].map(o => (
-                  <button key={o} onClick={() => handleOfficeChange(o)}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${selectedOffice === o ? 'bg-blue-600 text-white' : 'bg-[var(--bg-elevated)] border border-[var(--border)] text-[var(--text-muted)] hover:border-[var(--border)]'}`}>
-                    {o}
-                  </button>
-                ))}
-              </div>
-
-              {/* Department pills */}
-              <div className="flex flex-wrap gap-1">
-                {departments.map(d => (
-                  <button key={d} onClick={() => toggleDept(d)}
-                    className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${selectedDepts.includes(d) ? 'bg-violet-600 text-white' : 'bg-[var(--bg-elevated)] border border-[var(--border)] text-[var(--text-muted)] hover:border-[var(--border)]'}`}>
-                    {d}
-                  </button>
-                ))}
-                {selectedDepts.length > 0 && (
-                  <button onClick={clearDepts} className="px-2.5 py-1 rounded-lg text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors">Clear</button>
-                )}
               </div>
             </div>
 
             {/* ── Active filter banner ───────────────────────────────────── */}
             {(dateFrom || dateTo) && (
-              <div className={`flex items-center gap-3 rounded-xl px-4 py-2.5 border
-                ${viewMode === 'single_day'
-                  ? 'bg-blue-500/10 border-blue-500/25'
-                  : 'bg-indigo-500/10 border-indigo-500/25'}`}>
-                <Calendar className={`w-4 h-4 flex-shrink-0 ${viewMode === 'single_day' ? 'text-blue-400' : 'text-indigo-400'}`} />
+              <div className={`flex items-center gap-3 rounded-2xl px-4 py-3 border shadow-sm ${viewMode === 'single_day'
+                ? 'bg-blue-500/10 border-blue-500/30'
+                : 'bg-indigo-500/10 border-indigo-500/30'
+                }`}>
+                <Calendar className={`w-5 h-5 flex-shrink-0 ${viewMode === 'single_day' ? 'text-blue-500' : 'text-indigo-500'}`} />
                 <div className="flex-1 min-w-0">
                   {viewMode === 'single_day' ? (
-                    <span className="text-blue-700 dark:text-blue-300 text-sm font-medium">
-                      Day view: {new Date((dateFrom ?? '') + 'T00:00:00').toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
-                      <span className="text-blue-400/60 text-xs ml-2">— KPIs show raw counts, charts show dept snapshots</span>
+                    <span className="text-[var(--text-primary)] text-sm font-medium">
+                      <strong className="text-blue-600 dark:text-blue-400">Single Day View:</strong> {new Date((dateFrom ?? '') + 'T00:00:00').toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+                      <span className="text-[var(--text-muted)] text-xs ml-2 font-normal">— Showing exact punch snapshots</span>
                     </span>
                   ) : (
-                    <span className="text-indigo-300 text-sm font-medium">
-                      Range: {dateFrom} → {dateTo}
-                      <span className="text-indigo-400/60 text-xs ml-2">— {filteredRecords.length.toLocaleString()} records</span>
+                    <span className="text-[var(--text-primary)] text-sm font-medium">
+                      <strong className="text-indigo-600 dark:text-indigo-400">Custom Date Range:</strong> {dateFrom} → {dateTo}
+                      <span className="text-[var(--text-muted)] text-xs ml-2 font-normal">— {filteredRecords.length.toLocaleString()} attendance records</span>
                     </span>
                   )}
                 </div>
-                <button onClick={() => { setDateFrom(null); setDateTo(null); }} className="text-[var(--text-muted)]/60 hover:text-[var(--text-primary)] transition-colors flex-shrink-0">
+                <button
+                  onClick={() => { setDateFrom(null); setDateTo(null); }}
+                  className="text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors flex-shrink-0 p-1 rounded-lg hover:bg-[var(--bg-elevated)]"
+                  title="Reset to default month"
+                >
                   <XIcon className="w-4 h-4" />
                 </button>
               </div>
             )}
 
             {/* ── KPI Cards ──────────────────────────────────────────────── */}
-            <div id="section-overview" className="space-y-6">
-              <KPICards kpi={kpi} thresholds={thresholds} viewMode={viewMode} onCardClick={(f) => setTableFilter(f === tableFilter ? 'all' : f)} />
-              {/* Feedback item #1 — pre-approved leave visibility, HR dashboard. */}
+            <div id="section-overview" className="space-y-4">
+              <div className="flex items-center justify-between">
+                <h2 className="text-sm font-bold uppercase tracking-wider text-[var(--text-muted)]">
+                  Performance Metrics
+                </h2>
+                {tableFilter !== 'all' && (
+                  <span className="text-xs text-[var(--accent)] font-medium">
+                    Filtered by: <span className="font-semibold capitalize">{tableFilter}</span> (click card to clear)
+                  </span>
+                )}
+              </div>
+              <KPICards kpi={kpi} thresholds={thresholds} viewMode={viewMode} activeFilter={tableFilter} onCardClick={(f) => setTableFilter(f === tableFilter ? 'all' : f)} />
+              {/* Pre-approved leave visibility card */}
               <OnLeaveTodayCard />
             </div>
 
@@ -1168,8 +1243,8 @@ export default function DashboardClient({
   }, [role, teamCodes]);
 
   if (viewMode === 'loading') return (
-    <div className="min-h-screen bg-[var(--bg-surface)] flex items-center justify-center">
-      <div className="text-[var(--text-muted)] text-sm">Loading...</div>
+    <div className="min-h-screen bg-[var(--bg-surface)] p-6 md:p-8">
+      <DashboardSkeleton />
     </div>
   );
   if (viewMode === 'denied') return (
@@ -1182,7 +1257,7 @@ export default function DashboardClient({
   if (viewMode === 'team') return <ManagerView records={managerRecords} teamMode teamCodes={teamCodes} />;
 
   return (
-    <Suspense fallback={<div className="min-h-screen bg-[var(--bg-surface)] flex items-center justify-center"><div className="text-[var(--text-muted)] text-sm">Loading...</div></div>}>
+    <Suspense fallback={<div className="min-h-screen bg-[var(--bg-surface)] p-6 md:p-8"><DashboardSkeleton /></div>}>
       <HRDashboard />
     </Suspense>
   );

@@ -102,14 +102,16 @@ export default async function LeaveTeamHome() {
 
   const teamBalances = balances.filter((b) => teamIds.includes(b.employeeId));
 
-  // Feedback item #13 — "who's on leave today / pre-approved leave", and
-  // item #2's regularisation history, both scoped to this manager/lead's
-  // own team (teamIds), fetched alongside everything else this page
-  // already loads server-side.
-  const [{ rows: onLeaveToday }, { rows: regularisations }] = await Promise.all([
+  // Fetch onLeaveToday, regularisations, and pendingApprovalsCount
+  const [{ rows: onLeaveToday }, { rows: regularisations }, pendingApprovalsResult] = await Promise.all([
     teamIds.length > 0 ? getEmployeesOnLeaveToday(supabase, undefined, teamIds) : Promise.resolve({ rows: [], error: null }),
     teamIds.length > 0 ? listRegularisationsForEmployees(supabase, teamIds) : Promise.resolve({ rows: [], error: null }),
+    teamIds.length > 0
+      ? supabase.from('leave_requests').select('id', { count: 'exact', head: true }).in('employee_id', teamIds).eq('status', 'pending')
+      : Promise.resolve({ count: 0, error: null }),
   ]);
+
+  const pendingApprovalsCount = pendingApprovalsResult.count ?? 0;
 
   const history: LeaveHistoryRow[] = (historyResult.data ?? [])
     .filter((r) => r.employees && r.leave_types)
@@ -136,12 +138,12 @@ export default async function LeaveTeamHome() {
   const pendingRegularisations = regularisations.filter((r) => r.status !== 'approved').length;
 
   return (
-    <div className="max-w-6xl mx-auto space-y-9">
+    <div className="max-w-6xl mx-auto space-y-8">
       <LeavePageHeader
         title="My Team"
-        description="Balances and leave history for your team. View only — record leave and edits stay with HR."
+        description="Live overview, roster balances, pending approvals, and team regularisations."
         icon={
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <rect x="3" y="4" width="18" height="18" rx="2" />
             <path d="M16 2v4M8 2v4M3 10h18" />
           </svg>
@@ -149,21 +151,24 @@ export default async function LeaveTeamHome() {
       />
 
       {reportsError && (
-        <div className="bg-red-900/10 border border-red-500/30 text-red-700 dark:text-red-300 text-sm rounded-xl px-4 py-3">
+        <div className="bg-red-50 dark:bg-red-500/15 border border-red-500/30 text-red-700 dark:text-red-300 text-sm font-medium rounded-2xl px-4 py-3">
           Could not load your team: {reportsError.message}
         </div>
       )}
 
-      {/* At-a-glance strip — three numbers a manager actually opens this page
-          for, kept outside the tabs so they're visible no matter which tab
-          is active. Each carries a left accent bar matching its semantic
-          weight instead of an identical neutral box. */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      {/* ── At-a-glance Metric Strip: 4 Key Team KPIs ────────────── */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard label="Team members" value={reports.length} tone="neutral" />
         <StatCard
           label="On leave today"
           value={onLeaveToday.length}
           tone={onLeaveToday.length > 0 ? 'accent' : 'neutral'}
+        />
+        <StatCard
+          label="Pending approvals"
+          value={pendingApprovalsCount}
+          tone={pendingApprovalsCount > 0 ? 'warn' : 'neutral'}
+          href="/leave/approvals"
         />
         <StatCard
           label="Pending regularisations"
@@ -183,18 +188,20 @@ export default async function LeaveTeamHome() {
   );
 }
 
-// Small local presentational helper — only used on this page, so it stays
-// here rather than becoming a shared component.
+import Link from 'next/link';
+
 function StatCard({
   label,
   value,
   tone = 'neutral',
+  href,
 }: {
   label: string;
   value: number;
   tone?: 'neutral' | 'accent' | 'warn';
+  href?: string;
 }) {
-  const barColor = tone === 'accent' ? 'bg-emerald-500' : tone === 'warn' ? 'bg-amber-500' : 'bg-[var(--border)]';
+  const barColor = tone === 'accent' ? 'bg-emerald-500' : tone === 'warn' ? 'bg-amber-500' : 'bg-[var(--accent)]/40';
   const valueColor =
     tone === 'accent'
       ? 'text-emerald-600 dark:text-emerald-400'
@@ -202,11 +209,28 @@ function StatCard({
       ? 'text-amber-600 dark:text-amber-400'
       : 'text-[var(--text-primary)]';
 
-  return (
-    <div className="relative bg-[var(--bg-elevated)]/40 border border-[var(--border)] rounded-xl pl-6 pr-5 py-4 overflow-hidden">
-      <span className={`absolute left-0 top-0 bottom-0 w-1 ${barColor}`} aria-hidden />
-      <p className="text-xs font-medium uppercase tracking-wide text-[var(--text-muted)]">{label}</p>
-      <p className={`text-[32px] leading-none font-semibold mt-2 tabular-nums ${valueColor}`}>{value}</p>
+  const content = (
+    <div
+      className={`relative rounded-2xl border border-[var(--border)] pl-6 pr-5 py-4 overflow-hidden transition-all duration-200 shadow-sm ${
+        href ? 'hover:shadow-md hover:border-[var(--accent)]/40 hover:-translate-y-0.5 cursor-pointer' : ''
+      }`}
+      style={{
+        background: 'linear-gradient(160deg, var(--bg-card) 0%, var(--bg-elevated) 100%)',
+      }}
+    >
+      <span className={`absolute left-0 top-0 bottom-0 w-1.5 ${barColor}`} aria-hidden />
+      <div className="flex items-center justify-between">
+        <p className="text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)]">{label}</p>
+        {href && (
+          <span className="text-[10px] font-semibold text-[var(--accent)]">View →</span>
+        )}
+      </div>
+      <p className={`text-3xl leading-none font-black mt-2 tabular-nums ${valueColor}`}>{value}</p>
     </div>
   );
+
+  if (href) {
+    return <Link href={href} className="block">{content}</Link>;
+  }
+  return content;
 }

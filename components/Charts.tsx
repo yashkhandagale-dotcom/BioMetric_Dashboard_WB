@@ -121,7 +121,11 @@ function SortToggle({ mode, onChange }: { mode: SortMode; onChange: (m: SortMode
         <button
           key={o.key}
           onClick={() => onChange(o.key)}
-          className={`px-2 py-1 rounded text-[10px] font-medium transition-colors ${mode === o.key ? 'bg-blue-600 text-white' : 'bg-[var(--bg-elevated)] text-[var(--text-muted)] hover:text-[var(--text-primary)]'}`}
+          className={`px-2.5 py-1 rounded-lg text-[11px] font-medium transition-all ${
+            mode === o.key
+              ? 'bg-[var(--accent)] text-white shadow-sm font-semibold'
+              : 'bg-[var(--bg-elevated)] border border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:border-[var(--accent)]/40'
+          }`}
         >
           {o.label}
         </button>
@@ -153,8 +157,10 @@ function GranularityToggle({ value, onChange, active }: {
           key={o.label}
           onClick={() => onChange(o.key)}
           title={o.key === null ? `Auto (currently ${active})` : undefined}
-          className={`px-2 py-0.5 rounded text-[10px] font-medium transition-colors ${
-            value === o.key ? 'bg-blue-600 text-white' : 'bg-[var(--bg-elevated)] text-[var(--text-muted)] hover:text-[var(--text-primary)]'
+          className={`px-2.5 py-1 rounded-lg text-[11px] font-medium transition-all ${
+            value === o.key
+              ? 'bg-[var(--accent)] text-white shadow-sm font-semibold'
+              : 'bg-[var(--bg-elevated)] border border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:border-[var(--accent)]/40'
           }`}
         >
           {o.label}
@@ -1852,18 +1858,18 @@ export function DayDeptProductivityChart({
                 const dept = getDepartmentFromClick(entry);
                 if (dept) { setDrillDept(dept); onDeptClick?.(dept); }
               }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#334155" horizontal={false} />
-              <XAxis type="number" tick={{ fontSize: 10, fill: '#64748b' }} tickFormatter={(v: number) => minutesToHHMM(Math.round(v * 60))} />
-              <YAxis type="category" dataKey="department" tick={{ fontSize: 10, fill: '#94a3b8' }} width={100} />
+              <CartesianGrid strokeDasharray="3 3" stroke={__tc.border} horizontal={false} />
+              <XAxis type="number" tick={{ fontSize: 10, fill: __tc.mutedText }} tickFormatter={(v: number) => minutesToHHMM(Math.round(v * 60))} />
+              <YAxis type="category" dataKey="department" tick={{ fontSize: 10, fill: __tc.mutedText }} width={100} />
               <Tooltip cursor={{ fill: 'rgba(255,255,255,0.04)' }} content={({ active, payload, label }: any) => {
                 if (!active || !payload?.length) return null;
                 const d: DayDeptSnapshot = payload[0]?.payload;
                 return (
-                  <div className="bg-slate-900 border border-slate-600 rounded-lg px-3 py-2 text-xs shadow-xl">
-                    <p className="text-white font-medium mb-1">{label}</p>
-                    <p className="text-amber-400">Hours Lost: <strong>{minutesToHHMM(Math.round(d.hoursLost * 60))}</strong></p>
-                    <p className="text-slate-400">Late: {d.lateCount} · Early exit: {d.earlyCount}</p>
-                    <p className="text-slate-500 text-[10px] mt-1">Click to see employees →</p>
+                  <div className="bg-[var(--bg-surface)] border border-[var(--border)] rounded-xl px-3.5 py-2.5 text-xs shadow-xl">
+                    <p className="text-[var(--text-primary)] font-semibold mb-1">{label}</p>
+                    <p className="text-amber-600 dark:text-amber-400 font-medium">Hours Lost: <strong>{minutesToHHMM(Math.round(d.hoursLost * 60))}</strong></p>
+                    <p className="text-[var(--text-muted)] text-[11px] mt-0.5">Late: {d.lateCount} · Early exit: {d.earlyCount}</p>
+                    <p className="text-[var(--accent)] text-[10px] font-medium mt-1">Click to see employees →</p>
                   </div>
                 );
               }} />
@@ -1871,7 +1877,7 @@ export function DayDeptProductivityChart({
                 {sorted.map((entry, i) => (
                   <Cell key={i} fill={entry.hoursLost > 5 ? '#f87171' : entry.hoursLost > 2 ? '#fbbf24' : '#fb923c'} />
                 ))}
-                <LabelList dataKey="hoursLost" position="right" style={{ fontSize: 10, fill: '#94a3b8' }} formatter={(v: any) => minutesToHHMM(Math.round(Number(v) * 60))} />
+                <LabelList dataKey="hoursLost" position="right" style={{ fontSize: 10, fill: __tc.mutedText }} formatter={(v: any) => minutesToHHMM(Math.round(Number(v) * 60))} />
               </Bar>
             </BarChart>
           </ResponsiveContainer>

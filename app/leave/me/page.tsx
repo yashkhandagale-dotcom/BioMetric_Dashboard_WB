@@ -1,4 +1,4 @@
-﻿import { redirect } from 'next/navigation';
+import { redirect } from 'next/navigation';
 import { getCurrentEmployee } from '@/lib/leaveSupabase/getCurrentEmployee';
 import { createLeaveClient } from '@/lib/leaveSupabase/server';
 import { getEmployeeBalanceBreakdown } from '@/lib/leaveSupabase/getEmployeeBalances';
@@ -93,12 +93,42 @@ export default async function LeaveMeHome() {
     }));
 
   return (
-    <div className="max-w-6xl space-y-5">
-      <MeNavbar
-        employeeName={`${employee.full_name} · ${employee.employee_code} · ${employee.department}`}
-        role={employee.role}
-      />
+    <div className="max-w-6xl space-y-6">
+      {/* ── Welcome hero banner ─────────────────────────────────────── */}
+      <div
+        className="relative overflow-hidden rounded-2xl border border-[var(--border)] px-6 py-5 shadow-lg"
+        style={{
+          background: 'linear-gradient(135deg, var(--bg-card) 0%, var(--bg-elevated) 60%, var(--accent-subtle) 100%)',
+        }}
+      >
+        {/* Decorative orb */}
+        <div
+          className="absolute -top-10 -right-10 w-48 h-48 rounded-full opacity-10 pointer-events-none"
+          style={{ background: 'radial-gradient(circle, var(--accent) 0%, transparent 70%)' }}
+        />
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div>
+            <p className="text-[11px] font-bold uppercase tracking-wider text-[var(--accent)] mb-1">My Leave Portal</p>
+            <h1 className="text-xl sm:text-2xl font-bold text-[var(--text-primary)] tracking-tight">
+              {employee.full_name}
+            </h1>
+            <p className="text-sm text-[var(--text-muted)] mt-0.5">
+              {employee.employee_code} · {employee.department} · {employee.office}
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border border-emerald-500/30 bg-emerald-500/15 text-emerald-700 dark:text-emerald-300">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+              Active
+            </span>
+            <span className="inline-flex items-center px-3 py-1.5 rounded-full text-xs font-semibold border border-[var(--border)] bg-[var(--bg-surface)] text-[var(--text-muted)] capitalize">
+              {employee.role?.replace(/_/g, ' ')}
+            </span>
+          </div>
+        </div>
+      </div>
 
+      {/* ── Main grid: Attendance report + balance cards ─────────────── */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
         <div className="lg:col-span-2">
           <PersonalAttendanceReport />
@@ -110,10 +140,16 @@ export default async function LeaveMeHome() {
 
       <WfhPanel />
 
-      <div className="space-y-3">
-        <h2 className="text-sm font-semibold text-[var(--text-primary)]">My Leave History</h2>
+      {/* ── Leave History ────────────────────────────────────────────── */}
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-base font-bold text-[var(--text-primary)] tracking-tight">My Leave History</h2>
+            <p className="text-xs text-[var(--text-muted)] mt-0.5">{history.length} record{history.length !== 1 ? 's' : ''} found</p>
+          </div>
+        </div>
         <LeaveHistoryTable rows={history} showActions />
       </div>
     </div>
   );
-}
+}

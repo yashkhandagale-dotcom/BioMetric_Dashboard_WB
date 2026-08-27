@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import LeavePageHeader from '@/components/leave/LeavePageHeader';
+import { useDebounce } from '@/lib/useDebounce';
 
 type DepartmentRow = { department: string; managerId: string | null; managerName: string | null };
 type ManagerRow = {
@@ -366,7 +367,8 @@ export default function OrganizationManagementPage() {
     }
   }
 
-  const q = orgSearch.trim().toLowerCase();
+  const debouncedOrgSearch = useDebounce(orgSearch, 200);
+  const q = debouncedOrgSearch.trim().toLowerCase();
 
   const filteredDepartments = useMemo(
     () => departments.filter((d) => !q || d.department.toLowerCase().includes(q) || (d.managerName ?? '').toLowerCase().includes(q)),

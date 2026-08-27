@@ -13,14 +13,14 @@ export default function LeavePageHeader({
 }) {
   return (
     <div className="flex flex-wrap items-start justify-between gap-4 mb-7">
-      <div className="min-w-0 flex items-start gap-3">
+      <div className="min-w-0 flex items-start gap-4">
         {icon && (
-          <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[var(--accent)]/10 text-[var(--accent)]">
+          <div className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-[var(--accent)]/20 to-[var(--accent)]/5 text-[var(--accent)] border border-[var(--accent)]/20 shadow-sm">
             {icon}
           </div>
         )}
         <div className="min-w-0">
-          <h1 className="text-[22px] sm:text-2xl font-semibold tracking-tight text-[var(--text-primary)]">
+          <h1 className="text-2xl sm:text-[26px] font-bold tracking-tight text-[var(--text-primary)] leading-tight">
             {title}
           </h1>
           {description && (
