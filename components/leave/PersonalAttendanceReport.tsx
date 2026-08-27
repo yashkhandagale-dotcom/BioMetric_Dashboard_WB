@@ -1,16 +1,10 @@
-﻿'use client';
+'use client';
 
 import { useEffect, useState } from 'react';
+import { Calendar, ChevronLeft, ChevronRight } from 'lucide-react';
 import { currentMonthKey, monthLabel, shiftMonthKey } from '@/lib/leaveCalendar';
 import type { EmployeeAttendanceKPIs } from '@/lib/leaveSupabase/getEmployeeAttendanceKPIs';
 
-// A2 — renders the shared attendance-KPI extraction (A1:
-// lib/leaveSupabase/getEmployeeAttendanceKPIs.ts, which wraps the same
-// computeEmployeeKPIs() the main dashboard's EmployeeModal/EmployeeTable
-// use) for one employee, with a month selector. Wherever this panel
-// shows hours, both "Actual" and "Effective" are shown, clearly
-// labeled — per the labeling convention, never an unlabeled single
-// hours number (lib/hoursCalc.ts).
 export default function PersonalAttendanceReport() {
   const [monthKey, setMonthKey] = useState(currentMonthKey());
   const [kpis, setKpis] = useState<EmployeeAttendanceKPIs | null>(null);
@@ -48,101 +42,151 @@ export default function PersonalAttendanceReport() {
   }, [monthKey]);
 
   return (
-    <div className="bg-[var(--bg-elevated)]/40 border border-[var(--border)] rounded-xl p-5 space-y-4">
-      <div className="flex items-center justify-between">
-        <h2 className="text-sm font-semibold text-[var(--text-primary)]">My Attendance</h2>
-        <div className="flex items-center gap-2 text-xs">
+    <div
+      className="border border-[var(--border)] rounded-2xl p-5 space-y-4 shadow-md"
+      style={{
+        background: 'linear-gradient(160deg, var(--bg-card) 0%, var(--bg-elevated) 100%)',
+      }}
+    >
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2 border-b border-[var(--border-subtle)]">
+        <div>
+          <h2 className="text-base font-bold text-[var(--text-primary)] tracking-tight flex items-center gap-2">
+            <Calendar size={16} className="text-[var(--accent)]" />
+            Attendance Summary
+          </h2>
+          <p className="text-xs text-[var(--text-muted)] mt-0.5">
+            Biometric activity &amp; hours for <span className="font-semibold text-[var(--text-primary)]">{monthLabel(monthKey)}</span>
+          </p>
+        </div>
+
+        {/* Month Selector */}
+        <div className="flex items-center gap-1.5 bg-[var(--bg-surface)] border border-[var(--border)] rounded-xl p-1 shadow-inner">
           <button
             type="button"
             onClick={() => setMonthKey((m) => shiftMonthKey(m, -1))}
-            className="px-2 py-1 rounded-md border border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+            className="p-1 rounded-lg text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-elevated)] transition-colors"
+            title="Previous month"
           >
-            ←
+            <ChevronLeft size={16} />
           </button>
-          <span className="text-[var(--text-primary)] font-medium min-w-[110px] text-center">{monthLabel(monthKey)}</span>
+          <span className="text-[var(--text-primary)] text-xs font-bold px-2 min-w-[100px] text-center">
+            {monthLabel(monthKey)}
+          </span>
           <button
             type="button"
             onClick={() => setMonthKey((m) => shiftMonthKey(m, 1))}
             disabled={monthKey >= currentMonthKey()}
-            className="px-2 py-1 rounded-md border border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--text-primary)] disabled:opacity-40"
+            className="p-1 rounded-lg text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-elevated)] disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
+            title="Next month"
           >
-            →
+            <ChevronRight size={16} />
           </button>
         </div>
       </div>
 
       {error && (
-        <div className="bg-red-900/30 border border-red-500/30 text-red-700 dark:text-red-300 text-xs rounded-lg px-3 py-2">
+        <div className="bg-red-50 dark:bg-red-500/15 border border-red-500/30 text-red-700 dark:text-red-300 text-xs rounded-xl px-3.5 py-2.5 font-medium">
           {error}
         </div>
       )}
 
       {loading ? (
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-          {Array.from({ length: 6 }).map((_, i) => (
-            <div key={i} className="h-16 rounded-xl bg-[var(--bg-elevated)]/50 animate-pulse" />
-          ))}
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <div key={i} className="h-16 rounded-xl bg-[var(--bg-elevated)]/60 animate-pulse" />
+            ))}
+          </div>
+          <div className="grid grid-cols-2 gap-2.5">
+            {Array.from({ length: 2 }).map((_, i) => (
+              <div key={i} className="h-20 rounded-xl bg-[var(--bg-elevated)]/60 animate-pulse" />
+            ))}
+          </div>
         </div>
       ) : !kpis || recordCount === 0 ? (
-        // Same card grid as the loaded state below (label + dash instead
-        // of a value), just without the pulse animation — keeps the
-        // panel's shape consistent instead of collapsing to one line of
-        // text once loading finishes with nothing to show.
-        <div className="space-y-2">
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
             {['Attendance Rate', 'Present Days', 'Absent Days', 'Late Count', 'Early Exit Count', 'Productivity Lost'].map((label) => (
-              <div key={label} className="bg-[var(--bg-elevated)]/50 rounded-xl p-3">
-                <p className="text-[var(--text-muted)] text-xs mb-1">{label}</p>
-                <p className="text-lg font-bold text-[var(--text-muted)]">—</p>
+              <div key={label} className="bg-[var(--bg-surface)]/60 border border-[var(--border-subtle)] rounded-xl p-3">
+                <p className="text-[var(--text-muted)] text-[11px] font-medium">{label}</p>
+                <p className="text-lg font-bold text-[var(--text-muted)]/50 mt-1">—</p>
               </div>
             ))}
           </div>
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-2 gap-2.5">
             {['Actual Hours / Day', 'Effective Hours / Day'].map((label) => (
-              <div key={label} className="bg-[var(--bg-elevated)]/50 rounded-xl p-3">
-                <p className="text-[var(--text-muted)] text-xs mb-1">{label}</p>
-                <p className="text-lg font-bold text-[var(--text-muted)]">—</p>
+              <div key={label} className="bg-[var(--bg-surface)]/60 border border-[var(--border-subtle)] rounded-xl p-3">
+                <p className="text-[var(--text-muted)] text-[11px] font-medium">{label}</p>
+                <p className="text-lg font-bold text-[var(--text-muted)]/50 mt-1">—</p>
               </div>
             ))}
           </div>
-          <p className="text-[var(--text-muted)] text-xs text-center pt-1">
+          <p className="text-[var(--text-muted)] text-xs text-center pt-2 font-medium">
             No attendance data uploaded for {monthLabel(monthKey)} yet.
           </p>
         </div>
       ) : (
-        <>
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
             {[
-              { label: 'Attendance Rate', value: `${kpis.attendanceRate.toFixed(1)}%`, color: 'text-emerald-400' },
-              { label: 'Present Days', value: kpis.presentDays.toFixed(1), color: 'text-emerald-400' },
-              { label: 'Absent Days', value: kpis.absentDays, color: 'text-red-400' },
-              { label: 'Late Count', value: kpis.lateArrivalRate > 0 ? Math.round((kpis.lateArrivalRate / 100) * kpis.presentSampleSize) : 0, color: 'text-amber-400' },
-              { label: 'Early Exit Count', value: kpis.earlyExitRate > 0 ? Math.round((kpis.earlyExitRate / 100) * kpis.presentSampleSize) : 0, color: 'text-amber-400' },
-              { label: 'Productivity Lost', value: `${kpis.productivityLost.toFixed(1)}%`, color: 'text-orange-400' },
-            ].map(({ label, value, color }) => (
-              <div key={label} className="bg-[var(--bg-elevated)]/50 rounded-xl p-3">
-                <p className="text-[var(--text-muted)] text-xs mb-1">{label}</p>
-                <p className={`text-lg font-bold ${color}`}>{value}</p>
+              {
+                label: 'Attendance Rate',
+                value: `${kpis.attendanceRate.toFixed(1)}%`,
+                color: 'text-emerald-600 dark:text-emerald-300',
+                bg: 'bg-emerald-500/10 border-emerald-500/20',
+              },
+              {
+                label: 'Present Days',
+                value: kpis.presentDays.toFixed(1),
+                color: 'text-emerald-600 dark:text-emerald-300',
+                bg: 'bg-emerald-500/10 border-emerald-500/20',
+              },
+              {
+                label: 'Absent Days',
+                value: kpis.absentDays,
+                color: 'text-rose-600 dark:text-rose-300',
+                bg: 'bg-rose-500/10 border-rose-500/20',
+              },
+              {
+                label: 'Late Arrival Count',
+                value: kpis.lateArrivalRate > 0 ? Math.round((kpis.lateArrivalRate / 100) * kpis.presentSampleSize) : 0,
+                color: 'text-amber-600 dark:text-amber-300',
+                bg: 'bg-amber-500/10 border-amber-500/20',
+              },
+              {
+                label: 'Early Exit Count',
+                value: kpis.earlyExitRate > 0 ? Math.round((kpis.earlyExitRate / 100) * kpis.presentSampleSize) : 0,
+                color: 'text-amber-600 dark:text-amber-300',
+                bg: 'bg-amber-500/10 border-amber-500/20',
+              },
+              {
+                label: 'Productivity Lost',
+                value: `${kpis.productivityLost.toFixed(1)}%`,
+                color: 'text-orange-600 dark:text-orange-300',
+                bg: 'bg-orange-500/10 border-orange-500/20',
+              },
+            ].map(({ label, value, color, bg }) => (
+              <div key={label} className={`rounded-xl p-3 border ${bg}`}>
+                <p className="text-[var(--text-muted)] text-[10px] font-bold uppercase tracking-wider">{label}</p>
+                <p className={`text-xl font-extrabold tabular-nums mt-1 ${color}`}>{value}</p>
               </div>
             ))}
           </div>
 
-          {/* Actual + Effective hours — always shown together, both
-              labeled, per the "never an unlabeled single hours number"
-              convention. */}
-          <div className="grid grid-cols-2 gap-2">
-            <div className="bg-[var(--bg-elevated)]/50 rounded-xl p-3">
-              <p className="text-[var(--text-muted)] text-xs mb-1">Actual Hours / Day</p>
-              <p className="text-lg font-bold text-[var(--accent)]">{kpis.avgActualHoursPerDay.toFixed(1)}h</p>
-              <p className="text-[10px] text-[var(--text-muted)] mt-0.5">Raw punch duration, lunch included</p>
+          {/* Actual & Effective Hours */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+            <div className="bg-[var(--bg-surface)] border border-[var(--border)] rounded-xl p-3.5 shadow-sm">
+              <p className="text-[var(--text-muted)] text-[10px] font-bold uppercase tracking-wider">Actual Hours / Day</p>
+              <p className="text-2xl font-black text-[var(--accent)] tabular-nums mt-1">{kpis.avgActualHoursPerDay.toFixed(1)}<span className="text-xs font-normal text-[var(--text-muted)] ml-1">hours</span></p>
+              <p className="text-[11px] text-[var(--text-muted)] mt-1">Raw punch duration (lunch included)</p>
             </div>
-            <div className="bg-[var(--bg-elevated)]/50 rounded-xl p-3">
-              <p className="text-[var(--text-muted)] text-xs mb-1">Effective Hours / Day</p>
-              <p className="text-lg font-bold text-[var(--accent)]">{kpis.avgEffectiveHoursPerDay.toFixed(1)}h</p>
-              <p className="text-[10px] text-[var(--text-muted)] mt-0.5">Minus a 60-min lunch</p>
+            <div className="bg-[var(--bg-surface)] border border-[var(--border)] rounded-xl p-3.5 shadow-sm">
+              <p className="text-[var(--text-muted)] text-[10px] font-bold uppercase tracking-wider">Effective Hours / Day</p>
+              <p className="text-2xl font-black text-[var(--primary)] tabular-nums mt-1">{kpis.avgEffectiveHoursPerDay.toFixed(1)}<span className="text-xs font-normal text-[var(--text-muted)] ml-1">hours</span></p>
+              <p className="text-[11px] text-[var(--text-muted)] mt-1">Net work hours (standard lunch deducted)</p>
             </div>
           </div>
-        </>
+        </div>
       )}
     </div>
   );

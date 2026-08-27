@@ -1,7 +1,9 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import { CalendarCheck, Sparkles } from 'lucide-react';
 import LeaveHistoryTable, { LeaveHistoryRow } from './LeaveHistoryTable';
+import TeamRegulariseModal from './TeamRegulariseModal';
 
 export type OnLeaveTodayRow = {
   employeeId: string;
@@ -211,6 +213,7 @@ export default function TeamTabs({
   history: LeaveHistoryRow[];
 }) {
   const [tab, setTab] = useState<TabId>('today');
+  const [teamRegModalOpen, setTeamRegModalOpen] = useState(false);
 
   const [regPage, setRegPage] = useState(1);
 
@@ -220,15 +223,6 @@ export default function TeamTabs({
   const [historySearch, setHistorySearch] = useState('');
   const [historyPage, setHistoryPage] = useState(1);
 
-  // --- Regularisations: pagination only (item #2 asked no search here) ---
-  const regTotalPages = Math.max(1, Math.ceil(regularisations.length / REGULARISATIONS_PAGE_SIZE));
-  const regPageClamped = Math.min(regPage, regTotalPages);
-  const regPageRows = regularisations.slice(
-    (regPageClamped - 1) * REGULARISATIONS_PAGE_SIZE,
-    regPageClamped * REGULARISATIONS_PAGE_SIZE
-  );
-
-  // --- Roster: search across name/code/department, then paginate ---
   const filteredReports = useMemo(() => {
     const q = rosterSearch.trim().toLowerCase();
     if (!q) return reports;
@@ -239,6 +233,26 @@ export default function TeamTabs({
         r.department.toLowerCase().includes(q)
     );
   }, [reports, rosterSearch]);
+
+  const filteredHistory = useMemo(() => {
+    const q = historySearch.trim().toLowerCase();
+    if (!q) return history;
+    return history.filter(
+      (r) =>
+        r.employeeName.toLowerCase().includes(q) ||
+        r.employeeCode.toLowerCase().includes(q) ||
+        r.leaveTypeLabel.toLowerCase().includes(q) ||
+        r.status.toLowerCase().includes(q)
+    );
+  }, [history, historySearch]);
+
+  const regTotalPages = Math.max(1, Math.ceil(regularisations.length / REGULARISATIONS_PAGE_SIZE));
+  const regPageClamped = Math.min(regPage, regTotalPages);
+  const regPageRows = regularisations.slice(
+    (regPageClamped - 1) * REGULARISATIONS_PAGE_SIZE,
+    regPageClamped * REGULARISATIONS_PAGE_SIZE
+  );
+
   const rosterTotalPages = Math.max(1, Math.ceil(filteredReports.length / ROSTER_PAGE_SIZE));
   const rosterPageClamped = Math.min(rosterPage, rosterTotalPages);
   const rosterPageRows = filteredReports.slice(
@@ -246,17 +260,6 @@ export default function TeamTabs({
     rosterPageClamped * ROSTER_PAGE_SIZE
   );
 
-  // --- History: search across employee/type/status, then paginate ---
-  const filteredHistory = useMemo(() => {
-    const q = historySearch.trim().toLowerCase();
-    if (!q) return history;
-    return history.filter((h) =>
-      [h.employeeName, h.employeeCode, h.department, h.leaveTypeLabel, h.status]
-        .join(' ')
-        .toLowerCase()
-        .includes(q)
-    );
-  }, [history, historySearch]);
   const historyTotalPages = Math.max(1, Math.ceil(filteredHistory.length / HISTORY_PAGE_SIZE));
   const historyPageClamped = Math.min(historyPage, historyTotalPages);
   const historyPageRows = filteredHistory.slice(
@@ -265,30 +268,46 @@ export default function TeamTabs({
   );
 
   return (
-    <div>
-      {/* Tab bar — one row instead of four stacked full-width sections, so
-          a manager sees whichever list they actually came for without
-          scrolling past the other three. Scrolls horizontally on narrow
-          screens rather than wrapping, since "Recent Regularisations" is
-          long and wrapping would push the underline off-alignment. */}
-      <div role="tablist" className="flex items-center gap-6 overflow-x-auto border-b border-[var(--border)] mb-5">
-        <TabButton active={tab === 'today'} dot="emerald" label="On Leave Today" count={onLeaveToday.length} onClick={() => setTab('today')} />
-        <TabButton
-          active={tab === 'regularisations'}
-          dot="amber"
-          label="Recent Regularisations"
-          count={regularisations.length}
-          onClick={() => setTab('regularisations')}
-        />
-        <TabButton active={tab === 'roster'} label="Roster & Balances" count={reports.length} onClick={() => setTab('roster')} />
-        <TabButton active={tab === 'history'} label="Team Leave History" count={history.length} onClick={() => setTab('history')} />
+    <div className="space-y-4">
+      {/* Tab bar header + Action button */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[var(--border)] pb-1 mb-5">
+        <div role="tablist" className="flex items-center gap-6 overflow-x-auto">
+          <TabButton active={tab === 'today'} dot="emerald" label="On Leave Today" count={onLeaveToday.length} onClick={() => setTab('today')} />
+          <TabButton
+            active={tab === 'regularisations'}
+            dot="amber"
+            label="Recent Regularisations"
+            count={regularisations.length}
+            onClick={() => setTab('regularisations')}
+          />
+          <TabButton active={tab === 'roster'} label="Roster & Balances" count={reports.length} onClick={() => setTab('roster')} />
+          <TabButton active={tab === 'history'} label="Team Leave History" count={history.length} onClick={() => setTab('history')} />
+        </div>
+
+        {/* Manager Action: Regularise Team Day */}
+        {reports.length > 0 && (
+          <button
+            type="button"
+            onClick={() => setTeamRegModalOpen(true)}
+            className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-[var(--accent)] to-[var(--accent-hover)] hover:opacity-95 text-white text-xs font-bold shadow-md shadow-[var(--accent)]/25 shrink-0 mb-2 sm:mb-0 transition-all"
+          >
+            <CalendarCheck size={14} />
+            Regularise Team Day
+          </button>
+        )}
       </div>
+
+      <TeamRegulariseModal
+        reports={reports}
+        isOpen={teamRegModalOpen}
+        onClose={() => setTeamRegModalOpen(false)}
+      />
 
       <section
         className={
           tab === 'history'
             ? ''
-            : 'bg-[var(--bg-elevated)]/40 border border-[var(--border)] rounded-xl p-5'
+            : 'bg-[var(--bg-card)] border border-[var(--border)] rounded-2xl p-5 shadow-sm'
         }
       >
         {tab === 'today' && (

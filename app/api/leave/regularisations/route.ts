@@ -20,9 +20,19 @@ export async function POST(req: NextRequest) {
   }
 
   const body = await req.json();
-  const { employeeId, date, reason } = body as { employeeId?: string; date?: string; reason?: string };
-  if (!employeeId || !date || !reason) {
-    return NextResponse.json({ error: 'employeeId, date, and reason are required' }, { status: 400 });
+  const { employeeId, employeeIds, date, reason } = body as {
+    employeeId?: string;
+    employeeIds?: string[];
+    date?: string;
+    reason?: string;
+  };
+
+  const targetIds = (employeeIds && employeeIds.length > 0)
+    ? employeeIds
+    : (employeeId ? [employeeId] : []);
+
+  if (targetIds.length === 0 || !date || !reason) {
+    return NextResponse.json({ error: 'Target employee(s), date, and reason are required' }, { status: 400 });
   }
 
   // Scope check: a manager/lead can only regularise their own team's
@@ -31,26 +41,33 @@ export async function POST(req: NextRequest) {
   if (!isHr) {
     let allowedIds: string[] = [];
     if (actingEmployee.role === 'manager') {
-      const { employeeIds } = await getManagedEmployeeIds(sessionClient, actingEmployee.id);
-      allowedIds = employeeIds;
+      const { employeeIds: managed } = await getManagedEmployeeIds(sessionClient, actingEmployee.id);
+      allowedIds = managed;
     } else {
       const { data: reports } = await sessionClient.from('employees').select('id').eq('reporting_lead_id', actingEmployee.id);
       allowedIds = (reports ?? []).map((r) => r.id);
     }
-    if (!allowedIds.includes(employeeId)) {
-      return NextResponse.json({ error: 'You can only regularise days for your own team' }, { status: 403 });
+    const unauthorized = targetIds.filter((id) => !allowedIds.includes(id));
+    if (unauthorized.length > 0) {
+      return NextResponse.json({ error: 'You can only regularise days for your own team members' }, { status: 403 });
     }
   }
 
-  const { id, error } = await createRegularisation(sessionClient, {
-    employeeId,
-    date,
-    reason,
-    regularisedBy: actingEmployee.id,
-  });
-  if (error) return NextResponse.json({ error }, { status: 400 });
+  const createdIds: string[] = [];
+  for (const empId of targetIds) {
+    const { id, error } = await createRegularisation(sessionClient, {
+      employeeId: empId,
+      date,
+      reason,
+      regularisedBy: actingEmployee.id,
+    });
+    if (error) {
+      return NextResponse.json({ error: `Failed for employee ${empId}: ${error}` }, { status: 400 });
+    }
+    if (id) createdIds.push(id);
+  }
 
-  return NextResponse.json({ id });
+  return NextResponse.json({ ok: true, count: createdIds.length, ids: createdIds });
 }
 
 export async function GET(req: NextRequest) {

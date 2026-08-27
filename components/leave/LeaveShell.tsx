@@ -178,10 +178,10 @@ export default function LeaveShell({
   const [applyWfhOpen, setApplyWfhOpen] = useState(false);
   const [applyWfhPrefill, setApplyWfhPrefill] = useState<WfhApplyInitialValues | undefined>(undefined);
 
-  // "Reapply" flows dispatch these custom events (from LeaveHistoryTable and WfhPanel)
+  // "Apply" and "Reapply" flows dispatch these custom events
   useEffect(() => {
-    function onLeaveReapply(e: Event) {
-      const detail = (e as CustomEvent<ApplyLeaveInitialValues>).detail;
+    function onLeaveOpen(e: Event) {
+      const detail = (e as CustomEvent<ApplyLeaveInitialValues | undefined>).detail;
       setApplyLeavePrefill(detail);
       setApplyLeaveOpen(true);
     }
@@ -190,10 +190,12 @@ export default function LeaveShell({
       setApplyWfhPrefill(detail);
       setApplyWfhOpen(true);
     }
-    window.addEventListener('leave:reapply', onLeaveReapply as EventListener);
+    window.addEventListener('leave:open', onLeaveOpen as EventListener);
+    window.addEventListener('leave:reapply', onLeaveOpen as EventListener);
     window.addEventListener('wfh:reapply', onWfhReapply as EventListener);
     return () => {
-      window.removeEventListener('leave:reapply', onLeaveReapply as EventListener);
+      window.removeEventListener('leave:open', onLeaveOpen as EventListener);
+      window.removeEventListener('leave:reapply', onLeaveOpen as EventListener);
       window.removeEventListener('wfh:reapply', onWfhReapply as EventListener);
     };
   }, []);

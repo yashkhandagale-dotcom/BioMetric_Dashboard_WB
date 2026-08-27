@@ -1,7 +1,8 @@
-﻿'use client';
+'use client';
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { Calendar, Clock, User } from 'lucide-react';
 import ViolationBadge from './ViolationBadge';
 import ConfirmDialog from '../ConfirmDialog';
 
@@ -40,8 +41,13 @@ function formatDateRange(start: string, end: string) {
     : `${formatDate(start)} → ${formatDate(end)}`;
 }
 
+function initials(name: string) {
+  const parts = name.trim().split(/\s+/);
+  return ((parts[0]?.[0] ?? '') + (parts[1]?.[0] ?? '')).toUpperCase() || 'U';
+}
+
 const FIELD_LABEL_CLASS =
-  'text-[10px] font-medium uppercase tracking-wide text-[var(--text-muted)]';
+  'text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]';
 
 export default function ApprovalCard({
   request,
@@ -120,7 +126,7 @@ export default function ApprovalCard({
     setConfirmingReject(false);
 
     if (!comment.trim()) {
-      setError('A short comment is required to reject.');
+      setError('A reason is required when rejecting a request.');
       return;
     }
 
@@ -133,7 +139,7 @@ export default function ApprovalCard({
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ comment }),
+          body: JSON.stringify({ comment: comment.trim() }),
         }
       );
 
@@ -154,53 +160,61 @@ export default function ApprovalCard({
   }
 
   return (
-    <div className="h-full flex flex-col bg-[var(--bg-elevated)]/40 border border-[var(--border)] rounded-xl p-4 transition-colors hover:border-[var(--text-muted)]/30">
+    <div
+      className="h-full flex flex-col border border-[var(--border)] rounded-2xl p-5 space-y-4 shadow-sm hover:shadow-lg hover:border-[var(--accent)]/40 transition-all duration-200"
+      style={{
+        background: 'linear-gradient(160deg, var(--bg-card) 0%, var(--bg-elevated) 100%)',
+      }}
+    >
       {/* Header */}
       <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="text-[var(--text-primary)] font-medium text-sm">
-            {request.employeeName}
-          </p>
-
-          <p className="text-[var(--text-muted)] text-xs mt-0.5">
-            {request.employeeCode} · {request.department}
-          </p>
+        <div className="flex items-start gap-3 min-w-0">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-amber-500/20 to-amber-500/5 text-amber-600 dark:text-amber-400 border border-amber-500/25 text-xs font-bold shadow-sm">
+            {initials(request.employeeName)}
+          </div>
+          <div className="min-w-0">
+            <p className="text-[var(--text-primary)] font-bold text-sm truncate">
+              {request.employeeName}
+            </p>
+            <p className="text-[var(--text-muted)] text-xs mt-0.5 truncate">
+              {request.employeeCode} · <span className="font-medium text-[var(--text-primary)]">{request.department}</span>
+            </p>
+          </div>
         </div>
 
         {request.isLwpOverride && <ViolationBadge count={1} />}
       </div>
 
-      {/* Stats */}
-      <div className="grid grid-cols-2 gap-3 text-xs mt-3.5">
-        <div>
+      {/* Metric Tiles Grid */}
+      <div className="grid grid-cols-2 gap-2 text-xs">
+        <div className="bg-[var(--bg-surface)]/80 border border-[var(--border-subtle)] rounded-xl p-2.5">
           <p className={FIELD_LABEL_CLASS}>Leave Type</p>
-          <p className="text-[var(--text-primary)] font-medium mt-1">
+          <p className="text-[var(--text-primary)] font-bold text-sm mt-1 truncate">
             {request.leaveTypeLabel}
           </p>
         </div>
 
-        <div>
+        <div className="bg-[var(--bg-surface)]/80 border border-[var(--border-subtle)] rounded-xl p-2.5">
           <p className={FIELD_LABEL_CLASS}>Dates</p>
-          <p className="text-[var(--text-primary)] font-medium mt-1">
+          <p className="text-[var(--text-primary)] font-semibold text-xs mt-1 truncate">
             {formatDateRange(request.startDate, request.endDate)}
             {request.isHalfDay &&
               ` (${request.halfDaySession ?? 'half day'})`}
           </p>
         </div>
 
-        <div>
+        <div className="bg-[var(--bg-surface)]/80 border border-[var(--border-subtle)] rounded-xl p-2.5">
           <p className={FIELD_LABEL_CLASS}>Days Requested</p>
-          <p className="text-[var(--text-primary)] font-medium mt-1">
-            {request.totalDays}
+          <p className="text-[var(--accent)] font-extrabold text-base mt-0.5 tabular-nums">
+            {request.totalDays} <span className="text-[10px] font-normal text-[var(--text-muted)]">days</span>
           </p>
         </div>
 
-        <div>
+        <div className="bg-[var(--bg-surface)]/80 border border-[var(--border-subtle)] rounded-xl p-2.5">
           <p className={FIELD_LABEL_CLASS}>
             Balance ({request.leaveTypeCode})
           </p>
-
-          <p className="text-[var(--text-primary)] font-medium mt-1">
+          <p className="text-[var(--text-primary)] font-extrabold text-base mt-0.5 tabular-nums">
             {request.currentBalance !== null
               ? request.currentBalance.toFixed(1)
               : '—'}
@@ -210,36 +224,35 @@ export default function ApprovalCard({
 
       {/* LWP Banner */}
       {request.isLwpOverride && request.lwpOverrideReason && (
-        <p className="mt-3.5 text-amber-700 dark:text-amber-300 text-xs bg-amber-500/10 border border-amber-500/30 rounded-lg px-3 py-2 leading-relaxed">
+        <p className="text-amber-700 dark:text-amber-300 text-xs bg-amber-500/15 border border-amber-500/30 rounded-xl px-3.5 py-2.5 leading-relaxed font-medium">
           {request.lwpOverrideReason}
         </p>
       )}
 
       {/* Reason */}
-      <div className="mt-3.5">
+      <div className="bg-[var(--bg-surface)]/40 rounded-xl p-3 border border-[var(--border-subtle)]">
         <p className={FIELD_LABEL_CLASS}>Reason</p>
-
-        <p className="text-[var(--text-primary)] text-sm mt-1 leading-relaxed">
-          {request.reason}
+        <p className="text-[var(--text-primary)] text-xs mt-1 leading-relaxed italic">
+          &ldquo;{request.reason}&rdquo;
         </p>
       </div>
 
-      {/* Error */}
+      {/* Error Banner */}
       {error && (
-        <div className="mt-3.5 bg-red-500/10 border border-red-500/30 text-red-700 dark:text-red-300 text-xs rounded-lg px-3 py-2">
+        <div className="bg-red-50 dark:bg-red-500/15 border border-red-500/30 text-red-700 dark:text-red-300 text-xs rounded-xl px-3.5 py-2.5 font-medium">
           {error}
         </div>
       )}
 
       {/* Actions */}
       {rejecting ? (
-        <div className="mt-auto pt-3.5 space-y-2 border-t border-[var(--border)]">
+        <div className="mt-auto pt-3.5 space-y-3 border-t border-[var(--border-subtle)]">
           <textarea
             value={comment}
             onChange={(e) => setComment(e.target.value)}
             rows={2}
             placeholder="Reason for rejecting (required)…"
-            className="w-full bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)] outline-none transition-shadow focus:ring-2 focus:ring-[var(--accent)]/30 focus:border-[var(--accent)]"
+            className="w-full bg-[var(--bg-surface)] border border-[var(--border)] rounded-xl px-3 py-2 text-sm text-[var(--text-primary)] outline-none transition-shadow focus:ring-2 focus:ring-[var(--accent)]/30 focus:border-[var(--accent)]"
           />
 
           <div className="flex gap-2">
@@ -247,7 +260,7 @@ export default function ApprovalCard({
               type="button"
               onClick={() => setConfirmingReject(true)}
               disabled={loading}
-              className="bg-red-600 hover:bg-red-500 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+              className="bg-red-600 hover:bg-red-500 disabled:opacity-50 text-white text-xs font-semibold px-4 py-2 rounded-xl transition-all shadow-sm"
             >
               {loading ? 'Rejecting…' : 'Confirm Reject'}
             </button>
@@ -259,21 +272,21 @@ export default function ApprovalCard({
                 setComment('');
                 setError(null);
               }}
-              className="text-[var(--text-muted)] hover:text-[var(--text-primary)] text-sm px-3 py-2"
+              className="text-[var(--text-muted)] hover:text-[var(--text-primary)] text-xs font-medium px-3 py-2"
             >
               Cancel
             </button>
           </div>
         </div>
       ) : (
-        <div className="mt-auto flex gap-2 pt-3.5 border-t border-[var(--border)]">
+        <div className="mt-auto flex items-center gap-2 pt-3.5 border-t border-[var(--border-subtle)]">
           {canApprove && (
             <>
               <button
                 type="button"
                 onClick={() => setConfirmingApprove(true)}
                 disabled={loading}
-                className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+                className="flex-1 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-bold py-2.5 rounded-xl transition-all shadow-sm"
               >
                 {loading ? 'Approving…' : 'Approve'}
               </button>
@@ -282,7 +295,7 @@ export default function ApprovalCard({
                 type="button"
                 onClick={() => setRejecting(true)}
                 disabled={loading}
-                className="border border-red-500/40 text-red-600 dark:text-red-400 hover:bg-red-900/20 text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+                className="border border-red-500/40 text-red-600 dark:text-red-400 hover:bg-red-500/10 text-xs font-semibold px-4 py-2.5 rounded-xl transition-all"
               >
                 Reject
               </button>
@@ -295,15 +308,15 @@ export default function ApprovalCard({
               onClick={handleRemind}
               disabled={loading || reminderSent}
               title="Notifies both the employee and the approver that this request is still pending"
-              className="border border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--text-primary)] disabled:opacity-50 text-sm font-medium px-4 py-2 rounded-lg transition-colors ml-auto"
+              className="border border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-elevated)] disabled:opacity-50 text-xs font-semibold px-3.5 py-2.5 rounded-xl transition-all ml-auto"
             >
-              {reminderSent ? 'Reminder sent' : 'Send Reminder'}
+              {reminderSent ? '✓ Reminded' : 'Remind'}
             </button>
           )}
         </div>
       )}
 
-      {/* Approve Confirmation */}
+      {/* Confirmation Dialogs */}
       {confirmingApprove && (
         <ConfirmDialog
           title="Approve this leave request?"
@@ -315,7 +328,6 @@ export default function ApprovalCard({
         />
       )}
 
-      {/* Reject Confirmation */}
       {confirmingReject && (
         <ConfirmDialog
           title="Reject this leave request?"

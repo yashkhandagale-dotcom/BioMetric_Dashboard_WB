@@ -119,10 +119,10 @@ export default async function LeaveMeHome() {
           <div className="flex items-center gap-2">
             <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold border border-emerald-500/30 bg-emerald-500/15 text-emerald-700 dark:text-emerald-300">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-              {employee.employment_status ?? 'Active'}
+              Active
             </span>
             <span className="inline-flex items-center px-3 py-1.5 rounded-full text-xs font-semibold border border-[var(--border)] bg-[var(--bg-surface)] text-[var(--text-muted)] capitalize">
-              {employee.role?.replace('_', ' ')}
+              {employee.role?.replace(/_/g, ' ')}
             </span>
           </div>
         </div>
