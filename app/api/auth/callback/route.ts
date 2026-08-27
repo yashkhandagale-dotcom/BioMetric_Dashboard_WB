@@ -1,38 +1,34 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
-import { homeRouteForRole, type EmployeeRole } from '@/lib/leaveSupabase/getCurrentEmployee';
+import {
+  homeRouteForRole,
+  type EmployeeRole,
+} from '@/lib/leaveSupabase/getCurrentEmployee';
 
 // GET /api/auth/callback — Supabase Google OAuth redirects here with a
-// `?code=...` after the person approves on Google's consent screen (see
-// app/login/page.tsx: signInWithOAuth({ provider: 'google', options: {
-// redirectTo: `${origin}/api/auth/callback` } })).
+// `?code=...` after the person approves on Google's consent screen.
 //
-// This is the ONLY place account linking happens for Google sign-in — it
-// deliberately reuses the exact same "employee record is the one source
-// of truth for role, auth_user_id is the link" model the password/invite
-// flow already uses (see app/api/leave/admin/employees/[id]/invite/
-// route.ts and lib/leaveSupabase/getCurrentEmployee.ts's header comment).
-// Google only ever proves "this person controls this email address" —
-// it never creates an employee record and never decides a role.
+// Login rules:
+//   1. Existing employee matched by email
+//      -> link Google account and login directly.
 //
-// Rules (see the task's sections 1–3, and the simplified onboarding
-// follow-up — see 0017_pending_signups_and_probation.sql):
-//   - @wonderbiz.in email + a matching employees row  -> link (if not
-//     already linked) and let them in.
-//   - @wonderbiz.in email + NO matching employees row  -> create/refresh
-//     a pending_employee_signups row (name/email/photo only — nothing
-//     HR-owned) and send them to a friendly holding page. This is NOT
-//     "auto-creating a full employee master record" (still explicitly
-//     avoided) — it's a queue entry HR acts on at app/leave/admin (see
-//     the "New sign-ins awaiting setup" panel).
-//   - Non-@wonderbiz.in email                          -> only allowed if
-//     it matches an EXISTING employees row whose role is hr or
-//     hr_super_admin. That row only exists because HR/Admin deliberately
-//     created it with that email (via the Admin panel's Add Employee
-//     form or a DB edit) — that act of creation IS the "explicitly
-//     configured Admin/HR account" the spec asks for (section 1). Any
-//     other external email is rejected outright, no pending row created.
-const COMPANY_EMAIL_DOMAIN = (process.env.COMPANY_EMAIL_DOMAIN || 'wonderbiz.in').toLowerCase();
+//   2. Existing employee whose email is not populated in employees,
+//      but whose full_name matches firstname.lastname@wonderbiz.in
+//      -> link Google account and login directly.
+//
+//   3. @wonderbiz.in account with no matching employee
+//      -> create/refresh pending_employee_signups and send to /leave/pending.
+//
+//   4. Non-company email
+//      -> only allowed for an explicitly configured HR/HR Super Admin account.
+//
+// Existing employees do NOT need acknowledgement/onboarding just because
+// profile_confirmed_at is NULL. If the employee record already exists,
+// Google sign-in is treated as a normal login.
+
+const COMPANY_EMAIL_DOMAIN = (
+  process.env.COMPANY_EMAIL_DOMAIN || 'wonderbiz.in'
+).toLowerCase();
 
 function errorRedirect(origin: string, code: string) {
   const url = new URL('/login', origin);
@@ -50,16 +46,29 @@ export async function GET(req: NextRequest) {
   }
 
   const supabase = await createClient();
-  const { data: sessionData, error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
+
+  const {
+    data: sessionData,
+    error: exchangeError,
+  } = await supabase.auth.exchangeCodeForSession(code);
 
   if (exchangeError || !sessionData?.user) {
     return errorRedirect(origin, 'oauth_exchange_failed');
   }
 
   const user = sessionData.user;
-  const email = (user.email || '').toLowerCase();
-  const googleId = user.user_metadata?.provider_id || user.user_metadata?.sub || null;
-  const avatarUrl = user.user_metadata?.avatar_url || user.user_metadata?.picture || null;
+
+  const email = (user.email || '').trim().toLowerCase();
+
+  const googleId =
+    user.user_metadata?.provider_id ||
+    user.user_metadata?.sub ||
+    null;
+
+  const avatarUrl =
+    user.user_metadata?.avatar_url ||
+    user.user_metadata?.picture ||
+    null;
 
   if (!email) {
     await supabase.auth.signOut();
@@ -69,17 +78,19 @@ export async function GET(req: NextRequest) {
   const domain = email.split('@')[1] || '';
   const isCompanyDomain = domain === COMPANY_EMAIL_DOMAIN;
 
-  // Service client: linking auth_user_id and reading across the whole
-  // employees table must not depend on the wide-open "authenticated"
-  // RLS policy staying exactly as permissive as it is today (see
-  // unified_schema.sql Section 4 / lib/leaveSupabase/getCurrentEmployee.ts's
-  // RLS note) — this route's own authorization logic below IS the access
-  // control here, same pattern every other admin-only route already uses.
+  // Service client is intentionally used here because this route needs
+  // to identify/link employee records independently of normal client RLS.
   const service = createServiceClient();
 
-  const { data: employee, error: lookupError } = await service
+  // -------------------------------------------------------------------------
+  // STEP 1: Try exact email match
+  // -------------------------------------------------------------------------
+
+  let { data: employee, error: lookupError } = await service
     .from('employees')
-    .select('id, email, role, auth_user_id, google_id, profile_confirmed_at, must_change_password')
+    .select(
+      'id, full_name, email, role, auth_user_id, google_id, profile_confirmed_at, must_change_password'
+    )
     .ilike('email', email)
     .maybeSingle();
 
@@ -88,109 +99,205 @@ export async function GET(req: NextRequest) {
     return errorRedirect(origin, 'oauth_lookup_failed');
   }
 
+  // -------------------------------------------------------------------------
+  // STEP 2: Fallback for existing company employees whose email is NULL
+  //
+  // Example:
+  //
+  //   Google email:
+  //     sakshi.gangurde@wonderbiz.in
+  //
+  //   Derived name:
+  //     Sakshi Gangurde
+  //
+  //   employees.full_name:
+  //     Sakshi Gangurde
+  //
+  // If exactly one employee matches, that existing employee is used.
+  // -------------------------------------------------------------------------
+
+  if (!employee && isCompanyDomain) {
+    const localPart = email.split('@')[0];
+
+    const nameParts = localPart
+      .split('.')
+      .map((part) => part.trim())
+      .filter(Boolean);
+
+    if (nameParts.length >= 2) {
+      const firstName = nameParts[0];
+
+      // Everything after the first dot is treated as the last-name portion.
+      //
+      // This also supports:
+      //   sai.kumar.sharma@wonderbiz.in
+      //
+      // -> Sai Kumar Sharma
+      const lastName = nameParts.slice(1).join(' ');
+
+      const derivedFullName = `${firstName} ${lastName}`
+        .replace(/\s+/g, ' ')
+        .trim();
+
+      const {
+        data: nameMatches,
+        error: nameLookupError,
+      } = await service
+        .from('employees')
+        .select(
+          'id, full_name, email, role, auth_user_id, google_id, profile_confirmed_at, must_change_password'
+        )
+        .ilike('full_name', derivedFullName)
+        .limit(2);
+
+      if (nameLookupError) {
+        await supabase.auth.signOut();
+        return errorRedirect(origin, 'oauth_lookup_failed');
+      }
+
+      // Only automatically link when the name uniquely identifies
+      // one employee. Never guess if duplicate names exist.
+      if (nameMatches?.length === 1) {
+        employee = nameMatches[0];
+      }
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // STEP 3: No existing employee found
+  //
+  // Only genuinely new @wonderbiz.in users reach this section.
+  // They remain in the HR acknowledgement/setup flow.
+  // -------------------------------------------------------------------------
+
   if (!employee) {
-    // Section 3 (still honored): never silently create a full employee
-    // master record from a bare login. But the person DID just prove
-    // they own a real @wonderbiz.in Google account — rather than a dead
-    // end, that's exactly the signal HR wants to see. Upsert a
-    // deliberately minimal pending_employee_signups row (name/email/
-    // photo only, nothing HR-owned — see 0017_pending_signups_and_
-    // probation.sql's header comment) and send them to the holding
-    // page. Signing in again before HR acts just refreshes this same
-    // row (unique on auth_user_id), never creates a duplicate.
-    //
-    // Non-company domains still get no pending row at all — those are
-    // rejected outright, same as before.
     if (!isCompanyDomain) {
       await supabase.auth.signOut();
       return errorRedirect(origin, 'unauthorized_email');
     }
 
-    const { error: pendingError } = await service.from('pending_employee_signups').upsert(
-      {
-        auth_user_id: user.id,
-        email,
-        full_name: user.user_metadata?.full_name || user.user_metadata?.name || email,
-        avatar_url: avatarUrl,
-        google_id: googleId,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: 'auth_user_id' }
-    );
+    const { error: pendingError } = await service
+      .from('pending_employee_signups')
+      .upsert(
+        {
+          auth_user_id: user.id,
+          email,
+          full_name:
+            user.user_metadata?.full_name ||
+            user.user_metadata?.name ||
+            email,
+          avatar_url: avatarUrl,
+          google_id: googleId,
+          updated_at: new Date().toISOString(),
+        },
+        {
+          onConflict: 'auth_user_id',
+        }
+      );
 
     if (pendingError) {
       await supabase.auth.signOut();
       return errorRedirect(origin, 'oauth_lookup_failed');
     }
 
-    return NextResponse.redirect(new URL('/leave/pending', origin));
+    return NextResponse.redirect(
+      new URL('/leave/pending', origin)
+    );
   }
 
-  const isAdminRole = employee.role === 'hr' || employee.role === 'hr_super_admin';
+  // -------------------------------------------------------------------------
+  // STEP 4: Existing employee found
+  // -------------------------------------------------------------------------
+
+  const isAdminRole =
+    employee.role === 'hr' ||
+    employee.role === 'hr_super_admin';
+
   if (!isCompanyDomain && !isAdminRole) {
-    // An employees row happens to exist with this email (unlikely, but
-    // possible from bad data), but it's neither a company email nor an
-    // explicitly-configured admin/HR account — do not let it in.
     await supabase.auth.signOut();
     return errorRedirect(origin, 'unauthorized_email');
   }
 
-  if (employee.auth_user_id && employee.auth_user_id !== user.id) {
-    // This email is already linked to a DIFFERENT Supabase auth account
-    // (e.g. an existing password-based account created before Google
-    // login existed). Do not silently repoint it — that would let a new
-    // Google identity hijack an existing linked account by email
-    // coincidence. HR needs to resolve this explicitly.
+  // Never silently steal an employee record that is already linked
+  // to another Supabase auth account.
+  if (
+    employee.auth_user_id &&
+    employee.auth_user_id !== user.id
+  ) {
     await supabase.auth.signOut();
     return errorRedirect(origin, 'already_linked_elsewhere');
   }
 
+  // -------------------------------------------------------------------------
+  // STEP 5: Link/update the existing employee
+  // -------------------------------------------------------------------------
+
   const nowIso = new Date().toISOString();
+
   const update: Record<string, unknown> = {
+    // Important: because we successfully matched the existing employee
+    // through their company email/name, populate the email now.
+    email,
+
     last_login_at: nowIso,
     updated_at: nowIso,
-    // An employee record already exists, so Google sign-in is a login,
-    // not an onboarding/acknowledgement event. Mark the legacy
-    // profile-confirmation gate satisfied so existing employees go
-    // straight to their role home.
-    profile_confirmed_at: employee.profile_confirmed_at || nowIso,
+
+    // Existing employee = normal login.
+    // profile_confirmed_at must NOT block login.
+    //
+    // We mark the legacy confirmation gate as satisfied so older code
+    // cannot redirect an existing employee into onboarding.
+    profile_confirmed_at:
+      employee.profile_confirmed_at || nowIso,
   };
+
+  // First Google login for this employee.
   if (!employee.auth_user_id) {
-    // First Google login for this existing employee record — the "Find
-    // employee by email -> Link auth_user_id" step from section 5.
     update.auth_user_id = user.id;
-  }
-  if (googleId && employee.google_id !== googleId) {
-    update.google_id = googleId;
-  }
-  if (avatarUrl) {
-    update.avatar_url = avatarUrl;
-  }
-  // Only flip auth_provider to 'google' the first time — an existing
-  // password user who also signs in with Google once shouldn't lose the
-  // ability to reason about "were they originally a password account?"
-  // from this field alone if that distinction ever matters later. Simpler
-  // and matches how must_change_password only ever narrows, not widens.
-  if (!employee.auth_user_id) {
     update.auth_provider = 'google';
   }
 
-  const { error: linkError } = await service.from('employees').update(update).eq('id', employee.id);
+  if (googleId && employee.google_id !== googleId) {
+    update.google_id = googleId;
+  }
+
+  if (avatarUrl) {
+    update.avatar_url = avatarUrl;
+  }
+
+  const { error: linkError } = await service
+    .from('employees')
+    .update(update)
+    .eq('id', employee.id);
+
   if (linkError) {
     await supabase.auth.signOut();
     return errorRedirect(origin, 'link_failed');
   }
 
-  // Existing employee = normal login. There is deliberately NO
-  // acknowledgement/onboarding step here. The acknowledgement flow is
-  // only for a Google identity that had no employees row at sign-in time.
-  // Also clean up a stale pending row if one exists from an earlier
-  // sign-in before HR created the employee record.
+  // -------------------------------------------------------------------------
+  // STEP 6: Remove stale pending signup
+  //
+  // This handles cases where the employee previously signed in before
+  // their employee record was created/imported.
+  // -------------------------------------------------------------------------
+
   await service
     .from('pending_employee_signups')
     .delete()
     .eq('auth_user_id', user.id);
 
-  const destination = next || homeRouteForRole(employee.role as EmployeeRole);
-  return NextResponse.redirect(new URL(destination, origin));
+  // -------------------------------------------------------------------------
+  // STEP 7: Existing employee -> DIRECT LOGIN
+  //
+  // There is deliberately NO acknowledgement/onboarding step here.
+  // -------------------------------------------------------------------------
+
+  const destination =
+    next ||
+    homeRouteForRole(employee.role as EmployeeRole);
+
+  return NextResponse.redirect(
+    new URL(destination, origin)
+  );
 }
