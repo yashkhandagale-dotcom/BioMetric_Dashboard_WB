@@ -53,8 +53,8 @@ type Notification = {
 // anywhere in what's been shared so far. Both need a one-line fix here
 // once confirmed; nothing else in this file needs to change.
 const ROUTES = {
-  EMPLOYEE_APPLY_LEAVE: '/leave/apply',
-  ADMIN_APPROVALS: '/leave/admin/approvals',
+  EMPLOYEE_APPLY_LEAVE: '/leave/me',
+  ADMIN_APPROVALS: '/leave/approvals',
 };
 
 // ── Which notification types are "actionable" vs. plain FYI ────────
