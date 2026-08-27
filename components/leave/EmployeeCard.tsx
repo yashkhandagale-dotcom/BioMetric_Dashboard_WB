@@ -1,5 +1,6 @@
 'use client';
 
+import AdjustBalanceButton from '@/app/leave/admin/AdjustBalanceButton';
 import FnFCalculatorButton from '@/app/leave/admin/FnFCalculatorButton';
 import ViolationBadge from './ViolationBadge';
 
@@ -55,7 +56,7 @@ function initials(name: string) {
 
 export default function EmployeeCard({
   employee,
-  fyStartYear: _fyStartYear,
+  fyStartYear,
   violationCount,
 }: {
   employee: EmployeeWithBalances;
@@ -125,8 +126,21 @@ export default function EmployeeCard({
       <HierarchyLine employee={employee} />
 
       {/* Card Actions */}
-      <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-[var(--border-subtle)]">
-        <FnFCalculatorButton employeeId={employee.id} employeeName={employee.name} />
+      <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-[var(--border-subtle)]">
+        <AdjustBalanceButton
+          employeeId={employee.id}
+          employeeName={employee.name}
+          fyStartYear={fyStartYear}
+          currentRole={employee.role}
+          currentStatus={employee.employmentStatus}
+          currentNoticePeriodDays={employee.noticePeriodDays ?? undefined}
+          currentLeadId={employee.reportingLeadId}
+          currentManagerId={employee.reportingManagerId}
+          currentManagedDepartments={employee.managedDepartments ?? []}
+        />
+        {employee.employmentStatus === 'notice_period' && (
+          <FnFCalculatorButton employeeId={employee.id} employeeName={employee.name} />
+        )}
       </div>
     </div>
   );
