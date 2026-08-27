@@ -10,6 +10,7 @@ interface KPICardsProps {
   thresholds?: Thresholds;
   viewMode?: ViewMode;
   onCardClick?: (filter: string) => void;
+  activeFilter?: string;
 }
 
 type Status = 'green' | 'amber' | 'red' | 'neutral';
@@ -26,8 +27,6 @@ function getStatus(value: number, greenThresh: number, amberThresh: number, reve
   }
 }
 
-// e.g. 570 -> "9:30 AM" — used to make card copy reflect the actual
-// configured Shift Start/End instead of a hardcoded "09:30 AM"/"18:30".
 function minsToClockStr(mins: number): string {
   const h = Math.floor(mins / 60);
   const m = mins % 60;
@@ -36,11 +35,35 @@ function minsToClockStr(mins: number): string {
   return `${h12}:${m.toString().padStart(2, '0')} ${ampm}`;
 }
 
-const STATUS_COLORS: Record<Status, { dot: string; text: string; bg: string; border: string }> = {
-  green:   { dot: 'bg-emerald-400', text: 'text-emerald-400', bg: 'bg-emerald-500/5',  border: 'border-emerald-500/20' },
-  amber:   { dot: 'bg-amber-400',   text: 'text-amber-400',   bg: 'bg-amber-500/5',    border: 'border-amber-500/20' },
-  red:     { dot: 'bg-red-400',     text: 'text-red-400',     bg: 'bg-red-500/5',      border: 'border-red-500/20' },
-  neutral: { dot: 'bg-[var(--bg-elevated)]',   text: 'text-[var(--text-muted)]',   bg: 'bg-[var(--bg-elevated)]/40',   border: 'border-[var(--border)]' },
+const STATUS_COLORS: Record<Status, { dot: string; text: string; bg: string; border: string; glow: string }> = {
+  green: {
+    dot: 'bg-emerald-500',
+    text: 'text-emerald-700 dark:text-emerald-300',
+    bg: 'bg-emerald-500/5 dark:bg-emerald-500/10',
+    border: 'border-emerald-500/25 dark:border-emerald-500/30',
+    glow: 'hover:border-emerald-500/50 hover:shadow-emerald-500/10',
+  },
+  amber: {
+    dot: 'bg-amber-500',
+    text: 'text-amber-800 dark:text-amber-300',
+    bg: 'bg-amber-500/5 dark:bg-amber-500/10',
+    border: 'border-amber-500/25 dark:border-amber-500/30',
+    glow: 'hover:border-amber-500/50 hover:shadow-amber-500/10',
+  },
+  red: {
+    dot: 'bg-red-500',
+    text: 'text-red-700 dark:text-red-300',
+    bg: 'bg-red-500/5 dark:bg-red-500/10',
+    border: 'border-red-500/25 dark:border-red-500/30',
+    glow: 'hover:border-red-500/50 hover:shadow-red-500/10',
+  },
+  neutral: {
+    dot: 'bg-[var(--text-muted)]',
+    text: 'text-[var(--text-primary)]',
+    bg: 'bg-[var(--bg-elevated)]/40',
+    border: 'border-[var(--border)]',
+    glow: 'hover:border-[var(--accent)]/50',
+  },
 };
 
 interface CardDef {
@@ -53,29 +76,16 @@ interface CardDef {
   info: { title: string; description: string; formula?: string; example?: string };
 }
 
-export default function KPICards({ kpi, thresholds = DEFAULT_THRESHOLDS, viewMode = 'monthly', onCardClick }: KPICardsProps) {
+export default function KPICards({ kpi, thresholds = DEFAULT_THRESHOLDS, viewMode = 'monthly', onCardClick, activeFilter }: KPICardsProps) {
   const t = thresholds;
   const isDay = viewMode === 'single_day';
 
-  // Bug fix: this component previously hardcoded a 9-hour shift (both in the
-  // status-color math AND in the "vs 9h shift"/"09:30 AM"/"18:30" copy),
-  // ignoring the configured Shift Start/End entirely — every other
-  // late/early/productivity calculation in the app (useDashboardData's own
-  // `kpi`, exportData.ts, exportPDF.ts, DeptProductivityChart) already reads
-  // the real Shift Start/End and compares against the *effective* target
-  // (shift span minus 60min lunch — 8h by default, not the raw 9h span).
-  // Comparing an already lunch-adjusted avgWorkingHours against the raw 9h
-  // span made these two cards read harsher than every other view of the
-  // same data, and they never moved when Shift Start/End was changed in
-  // Settings. targetHours below is what every other consumer already uses.
   const targetMinutes = targetShiftMinutes(t.shiftStartMinutes, t.shiftEndMinutes);
   const targetHours = targetMinutes / 60;
   const shiftStartStr = minsToClockStr(t.shiftStartMinutes);
   const shiftEndStr = minsToClockStr(t.shiftEndMinutes);
 
-  // SRS §12.6.1: in daily view KPIs show raw headcounts except Avg Hours and Productivity Lost
   const cards: CardDef[] = isDay ? [
-    // ── Daily View — raw counts ──────────────────────────────────────────────
     {
       label: 'Present',
       value: `${Math.round(kpi.presentCount)}`,
@@ -156,7 +166,6 @@ export default function KPICards({ kpi, thresholds = DEFAULT_THRESHOLDS, viewMod
       },
     },
   ] : [
-    // ── Monthly / Range View — rates & percentages ───────────────────────────
     {
       label: 'Attendance Rate',
       value: `${kpi.attendanceRate.toFixed(1)}%`,
@@ -170,20 +179,6 @@ export default function KPICards({ kpi, thresholds = DEFAULT_THRESHOLDS, viewMod
         example: '80 present out of 100 scheduled = 80%.',
       },
     },
-    
-    // {
-    //   label: 'Absenteeism Rate',
-    //   value: `${kpi.absenteeismRate.toFixed(1)}%`,
-    //   sub: `${kpi.absentCount} absent of ${kpi.scheduledCount} scheduled`,
-    //   status: getStatus(kpi.absenteeismRate, t.absenteeismRateGreen, t.absenteeismRateAmber, true),
-    //   filter: 'absent',
-    //   info: {
-    //     title: 'Absenteeism Rate',
-    //     description: '% of scheduled working days where employees were absent. Weekly offs and holidays excluded from denominator.',
-    //     formula: '(Absent ÷ Scheduled) × 100%',
-    //     example: '10 absent out of 100 scheduled = 10%.',
-    //   },
-    // },
     {
       label: 'Avg Effective Hours',
       value: minutesToHHMM(Math.round(kpi.avgWorkingHours * 60)),
@@ -236,32 +231,53 @@ export default function KPICards({ kpi, thresholds = DEFAULT_THRESHOLDS, viewMod
         example: '30 min late + 15 min early = 45 min lost ÷ 540 = 8.3%.',
       },
     },
+    {
+      label: 'Short Days',
+      value: `${kpi.shortDayCount}`,
+      sub: `days with < 4h worked`,
+      status: kpi.shortDayCount === 0 ? 'green' : kpi.shortDayCount <= 5 ? 'amber' : 'red',
+      filter: 'shortday',
+      info: {
+        title: 'Short Days',
+        description: 'Working days where employee completed less than the minimum short day duration threshold.',
+        formula: 'Count of days with total working minutes < short day threshold',
+        example: 'Click card to see employees with short days',
+      },
+    },
   ];
 
   return (
     <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
       {cards.map((card) => {
         const c = STATUS_COLORS[card.status];
+        const isSelected = activeFilter === card.filter;
+
         return (
           <div
             key={card.label}
             onClick={() => onCardClick?.(card.filter)}
-            className={`rounded-xl border p-4 ${c.bg} ${c.border} transition-all relative ${onCardClick ? 'cursor-pointer hover:brightness-110' : ''}`}
+            className={`rounded-2xl border p-4 ${c.bg} ${c.border} ${c.glow} transition-all duration-200 relative shadow-sm hover:shadow-md ${
+              onCardClick ? 'cursor-pointer hover:-translate-y-0.5' : ''
+            } ${isSelected ? 'ring-2 ring-[var(--accent)] border-[var(--accent)] shadow-md' : ''}`}
           >
             <div className="flex items-center justify-between mb-2">
-              <span className="text-[var(--text-muted)] text-xs font-medium uppercase tracking-wide leading-tight pr-1">{card.label}</span>
-              <div className="flex items-center gap-1 flex-shrink-0">
+              <span className="text-[var(--text-muted)] text-[11px] font-semibold uppercase tracking-wider leading-tight pr-1 truncate">
+                {card.label}
+              </span>
+              <div className="flex items-center gap-1.5 flex-shrink-0">
                 <InfoTooltip title={card.info.title} description={card.info.description} formula={card.info.formula} example={card.info.example} position="bottom" />
-                <span className={`inline-block w-2 h-2 rounded-full flex-shrink-0 ${c.dot}`} />
+                <span className={`inline-block w-2.5 h-2.5 rounded-full flex-shrink-0 ${c.dot} shadow-sm`} />
               </div>
             </div>
-            <div className="flex items-end gap-1.5 mb-1">
-              <p className={`text-2xl font-bold ${c.text}`}>{card.value}</p>
+            <div className="flex items-baseline gap-1.5 mb-1.5">
+              <p className={`text-2xl sm:text-3xl font-extrabold tracking-tight ${c.text}`}>{card.value}</p>
               {card.badge && (
-                <span className="text-xs text-[var(--text-muted)] font-medium mb-0.5">{card.badge}</span>
+                <span className="text-xs font-semibold text-[var(--text-muted)] bg-[var(--bg-elevated)]/60 px-1.5 py-0.5 rounded-md border border-[var(--border)]">
+                  {card.badge}
+                </span>
               )}
             </div>
-            <p className="text-[var(--text-muted)] text-xs leading-tight">{card.sub}</p>
+            <p className="text-[var(--text-muted)] text-xs leading-snug line-clamp-2">{card.sub}</p>
           </div>
         );
       })}

@@ -5,6 +5,7 @@ import { AlertTriangle, ChevronLeft, ChevronRight, Inbox } from 'lucide-react';
 import type { HalfDayCandidate } from '@/lib/attendanceExceptions';
 import RecordLeaveDrawer from './RecordLeaveDrawer';
 import type { SubmitResult } from './RecordLeaveForm';
+import { useDebounce } from '@/lib/useDebounce';
 
 // Half Day panel — lives inside the "Half Days" tab of the Leave Tracker
 // (app/leave/admin/history/page.tsx). Mirrors AbsenteesPanel's shape but
@@ -267,22 +268,24 @@ export default function HalfDayPanel({
     load();
   }, [load, refreshSignal]);
 
+  const debouncedSearch = useDebounce(search, 200);
+
   const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase();
+    const q = debouncedSearch.trim().toLowerCase();
     return rows.filter((r) => {
       if (department && r.department !== department) return false;
       if (office && r.office !== office) return false;
       if (q && !r.employeeName.toLowerCase().includes(q) && !r.employeeCode.toLowerCase().includes(q)) return false;
       return true;
     });
-  }, [rows, department, office, search]);
+  }, [rows, department, office, debouncedSearch]);
 
   // Any change to the underlying data or filters can shrink the result
   // set below the current page — reset to page 1 rather than showing
   // an out-of-range empty page.
   useEffect(() => {
     setPage(1);
-  }, [department, office, search, rows]);
+  }, [department, office, debouncedSearch, rows]);
 
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize));
   const currentPage = Math.min(page, pageCount);
