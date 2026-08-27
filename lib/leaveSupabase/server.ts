@@ -1,6 +1,7 @@
 import { createServerClient } from '@supabase/ssr';
 import { createClient as createSupabaseJsClient } from '@supabase/supabase-js';
 import { cookies } from 'next/headers';
+import { cache } from 'react';
 
 // Server Components / Route Handlers under app/leave/** only.
 //
@@ -28,7 +29,22 @@ import { cookies } from 'next/headers';
 // versa) even though both already read the same auth.users pool. One
 // cookie now means one login. Role-based authorization is unaffected —
 // still enforced per-route by middleware.ts and each layout guard.
-export async function createLeaveClient() {
+// PERF FIX: wrapped in React's cache() — this file's whole reason to exist
+// (single-DB pivot) means the SAME client config/cookies are now used by
+// middleware, every /leave/** layout, and every /leave/** page for a single
+// request. Without cache(), each of those call sites built its own client
+// object and — much more importantly — every downstream `.auth.getUser()`
+// call is a REAL network round trip to Supabase's Auth server (it validates
+// the token remotely, it does not just decode the cookie locally). A single
+// page render (layout + page + any nested data calls) used to pay for 2-3 of
+// those round trips back to back. cache() memoizes the *result* of this
+// function for the lifetime of one request/render pass, so every caller in
+// that same request gets back the exact same client instance and — because
+// getCurrentEmployee() below is also cached — the exact same already-fetched
+// user, instead of re-authenticating from scratch each time. This resets
+// automatically on the next request, so there's no risk of ever serving a
+// stale session across different requests/users.
+export const createLeaveClient = cache(async function createLeaveClient() {
   const cookieStore = await cookies();
 
   return createServerClient(
@@ -52,7 +68,7 @@ export async function createLeaveClient() {
       },
     }
   );
-}
+});
 
 // Service-role client — bypasses RLS. Use only inside app/leave/api/*
 // route handlers, e.g. for scheduled jobs like the 25-March annual reset.

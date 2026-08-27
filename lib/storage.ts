@@ -26,22 +26,46 @@ const SELECT_PAGE_SIZE = 1000; // Supabase/PostgREST's default max rows per requ
 // silently truncates — e.g. 82 employees * ~30 days = ~2460 rows, only the
 // first 1000 come back, showing roughly the first ~33 employees and quietly
 // dropping the rest with no error. Page through with .range() instead.
+//
+// PERF FIX: pages used to be requested one at a time, each awaited before
+// the next was even started — for a large month (several thousand rows)
+// that serialized 3-5+ network round trips back to back on every single
+// load. There's no cheap way to know the total row count up front without
+// changing every caller to also request a `count`, so instead this fires a
+// small BATCH of page requests concurrently, checks whether the last page
+// in the batch was full, and only starts another batch if so. Any extra
+// page requested past the real end of the data just comes back empty
+// (Supabase's .range() doesn't error past the end), so this is safe even
+// when the true row count doesn't land on a batch boundary.
+const PAGE_BATCH_SIZE = 4; // 4 x 1000 = up to 4000 rows fetched concurrently per round
+
 async function selectAllRows<T>(
   buildQuery: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: unknown }>
 ): Promise<T[]> {
   const all: T[] = [];
   let from = 0;
   for (;;) {
-    const to = from + SELECT_PAGE_SIZE - 1;
-    const { data, error } = await buildQuery(from, to);
-    if (error) {
-      console.error('selectAllRows failed:', error);
-      break;
+    const batchRequests = Array.from({ length: PAGE_BATCH_SIZE }, (_, i) => {
+      const pageFrom = from + i * SELECT_PAGE_SIZE;
+      const pageTo = pageFrom + SELECT_PAGE_SIZE - 1;
+      return buildQuery(pageFrom, pageTo);
+    });
+    const results = await Promise.all(batchRequests);
+
+    let sawError = false;
+    for (const { data, error } of results) {
+      if (error) {
+        console.error('selectAllRows failed:', error);
+        sawError = true;
+        continue; // still keep any good pages already fetched in this batch
+      }
+      all.push(...(data ?? []));
     }
-    const page = data ?? [];
-    all.push(...page);
-    if (page.length < SELECT_PAGE_SIZE) break; // last page
-    from += SELECT_PAGE_SIZE;
+    if (sawError) break;
+
+    const lastPage = results[results.length - 1].data ?? [];
+    if (lastPage.length < SELECT_PAGE_SIZE) break; // reached the end of the table
+    from += PAGE_BATCH_SIZE * SELECT_PAGE_SIZE;
   }
   return all;
 }
@@ -190,6 +214,10 @@ export async function saveRecords(
   // losing attendance data over a directory-sync problem would be worse.
   const syncResult = await ensureEmployeesFromAttendance(records);
 
+  // This month's data just changed — drop it from the cache so the next
+  // getRecords(monthKey) call re-fetches instead of serving stale rows.
+  invalidateMonthRecordsCache(monthKey);
+
   return {
     added,
     updated,
@@ -198,15 +226,42 @@ export async function saveRecords(
   };
 }
 
+// PERF FIX: in-memory cache of raw rows, keyed by monthKey. Before this,
+// DashboardClient re-fetched EVERY uploaded month's attendance data from
+// Supabase from scratch on every mount, every month-dropdown change, and
+// every time the uploaded-months list changed (e.g. re-running its "all
+// uploaded records" effect) — the exact same rows, downloaded again and
+// again, with no caching anywhere in the client. This cache only holds the
+// raw DB rows (pre-directory-overlay), never the final AttendanceRecord[],
+// and is invalidated for a monthKey the moment that month is written to
+// (saveRecords) or the whole cache is cleared on a full backup restore
+// (importAllData) — so a month's cached rows are only ever served up to
+// the point new data for that month is actually saved, never stale.
+// Directory overlays (department reassignment/deletion) are cheap and
+// already cached separately in lib/employeeStore.ts, so re-applying them
+// on every call here (rather than caching the overlaid result) is safe
+// and keeps reassignments reflected immediately without invalidating this
+// cache.
+const monthRecordsCache = new Map<string, Record<string, unknown>[]>();
+
+function invalidateMonthRecordsCache(monthKey?: string) {
+  if (monthKey) monthRecordsCache.delete(monthKey);
+  else monthRecordsCache.clear();
+}
+
 export async function getRecords(monthKey: string): Promise<AttendanceRecord[]> {
-  const supabase = createClient();
-  const data = await selectAllRows<Record<string, unknown>>((from, to) =>
-    supabase
-      .from('attendance_records')
-      .select('*')
-      .eq('month_key', monthKey)
-      .range(from, to)
-  );
+  let data = monthRecordsCache.get(monthKey);
+  if (!data) {
+    const supabase = createClient();
+    data = await selectAllRows<Record<string, unknown>>((from, to) =>
+      supabase
+        .from('attendance_records')
+        .select('*')
+        .eq('month_key', monthKey)
+        .range(from, to)
+    );
+    monthRecordsCache.set(monthKey, data);
+  }
   const records = data.map(fromDbRow);
   // Overlay any HR-made department reassignments / deletions — non-destructive,
   // the underlying DB rows are never touched by this.
@@ -362,6 +417,10 @@ export async function importAllData(backup: BackupFile): Promise<{ imported: num
       imported += batch.length;
     }
   }
+
+  // A restore can touch attendance_records for any/every month — clear the
+  // whole cache rather than trying to figure out which monthKeys changed.
+  invalidateMonthRecordsCache();
 
   return { imported };
 }

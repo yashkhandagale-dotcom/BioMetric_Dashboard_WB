@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { cache } from 'react';
 import { getManagedEmployeeIds } from './organization';
 import type { CurrentEmployee } from './getCurrentEmployee';
 
@@ -8,7 +9,12 @@ import type { CurrentEmployee } from './getCurrentEmployee';
 // approvals page's own query works (department for a manager, direct
 // reports for a lead, everything for HR), from a single place, instead
 // of each layout re-deriving its own slightly different version.
-export async function getPendingApprovalsCount(
+// PERF FIX: cache()'d — since createLeaveClient() and getCurrentEmployee()
+// are both now cache()'d too, `supabase` and `employee` are the same object
+// references on every call within one request, so this dedupes cleanly
+// against any repeat calls in the same render (e.g. if a future page adds
+// its own approvals-badge check alongside its layout's).
+export const getPendingApprovalsCount = cache(async function getPendingApprovalsCount(
   supabase: SupabaseClient,
   employee: CurrentEmployee
 ): Promise<number> {
@@ -44,4 +50,4 @@ export async function getPendingApprovalsCount(
     .eq('status', 'pending')
     .in('employee_id', employeeIds);
   return count ?? 0;
-}
+});

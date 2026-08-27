@@ -1,3 +1,4 @@
+import { cache } from 'react';
 import { createLeaveClient } from '@/lib/leaveSupabase/server';
 
 export type EmployeeRole = 'employee' | 'lead' | 'manager' | 'hr' | 'hr_super_admin';
@@ -44,7 +45,20 @@ export interface CurrentEmployee {
 // tightening is real, separate work (flagged for Sprint C/G, since it
 // mainly matters once the approval endpoints exist) — do not treat page
 // guards built on top of this helper as a data-access boundary yet.
-export async function getCurrentEmployee(): Promise<CurrentEmployee | null> {
+// PERF FIX: wrapped in React's cache(). Every /leave/** layout AND the
+// page.tsx rendered inside it (plus, on several routes, one or more nested
+// data calls) each called this independently — every call re-runs a real
+// network round trip to Supabase's Auth server (auth.getUser() validates
+// the token remotely, it isn't a local cookie decode) PLUS a fresh
+// `employees` table read. That's why a single page view could cost 2-3+
+// of those round trips back to back, and why it repeated in full on every
+// tab switch (each /leave/** tab is a different route segment with its
+// own layout.tsx). cache() memoizes the resolved employee for the
+// lifetime of one request, so the layout's call and the page's call
+// (and anything else in the same render) share one lookup. This resets
+// on every new request/navigation, so a change made via the onboarding
+// or password-change flow is always picked up fresh on the next request.
+export const getCurrentEmployee = cache(async function getCurrentEmployee(): Promise<CurrentEmployee | null> {
   const supabase = await createLeaveClient();
   const {
     data: { user },
@@ -63,7 +77,7 @@ export async function getCurrentEmployee(): Promise<CurrentEmployee | null> {
   if (error || !employee) return null;
 
   return employee as CurrentEmployee;
-}
+});
 
 // Where each role lands right after login / when they hit a route their
 // role doesn't own. Centralized here so the single /login page and every
@@ -103,7 +117,10 @@ export function homeRouteForRole(role: EmployeeRole): string {
 // waiting on HR" — the latter goes to the holding page
 // (app/leave/pending/page.tsx) instead of back to /login, so the person
 // isn't bounced in a loop after they already successfully signed in.
-export async function getPendingSignupRedirect(): Promise<string | null> {
+// PERF FIX: cache()'d for the same reason as getCurrentEmployee above —
+// dedupes its auth.getUser() call against any other call to
+// createLeaveClient()'s underlying client within the same request.
+export const getPendingSignupRedirect = cache(async function getPendingSignupRedirect(): Promise<string | null> {
   const supabase = await createLeaveClient();
   const {
     data: { user },
@@ -117,4 +134,4 @@ export async function getPendingSignupRedirect(): Promise<string | null> {
     .maybeSingle();
 
   return data ? '/leave/pending' : null;
-}
+});
