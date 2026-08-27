@@ -106,11 +106,14 @@ function LoginForm() {
         await supabase.auth.signOut();
         return;
       }
+      // An employee row already exists, so this is a normal login.
+      // The acknowledgement/onboarding flow is only for people who do
+      // NOT yet have an employees row. Keep the explicit password-change
+      // requirement for password accounts, but never send an existing
+      // employee through Google-style profile acknowledgement.
       next = employeeRow.must_change_password
         ? '/leave/change-password'
-        : !employeeRow.profile_confirmed_at
-          ? '/leave/onboarding'
-          : ROLE_HOME[employeeRow.role] || '/leave/me';
+        : ROLE_HOME[employeeRow.role] || '/leave/me';
     }
 
     // Best-effort — surfaced in the Admin panel's "Last login" column.

@@ -149,6 +149,11 @@ export async function GET(req: NextRequest) {
   const update: Record<string, unknown> = {
     last_login_at: nowIso,
     updated_at: nowIso,
+    // An employee record already exists, so Google sign-in is a login,
+    // not an onboarding/acknowledgement event. Mark the legacy
+    // profile-confirmation gate satisfied so existing employees go
+    // straight to their role home.
+    profile_confirmed_at: employee.profile_confirmed_at || nowIso,
   };
   if (!employee.auth_user_id) {
     // First Google login for this existing employee record — the "Find
@@ -176,18 +181,15 @@ export async function GET(req: NextRequest) {
     return errorRedirect(origin, 'link_failed');
   }
 
-  // Routing, same precedence every other /leave/** layout guard already
-  // uses (must_change_password gates everything — see e.g.
-  // app/leave/me/layout.tsx), with the new profile-confirmation step
-  // slotted in right after it, before any role-specific home route.
-  if (employee.must_change_password) {
-    return NextResponse.redirect(new URL('/leave/change-password', origin));
-  }
-  if (!employee.profile_confirmed_at) {
-    const url = new URL('/leave/onboarding', origin);
-    if (next) url.searchParams.set('next', next);
-    return NextResponse.redirect(url);
-  }
+  // Existing employee = normal login. There is deliberately NO
+  // acknowledgement/onboarding step here. The acknowledgement flow is
+  // only for a Google identity that had no employees row at sign-in time.
+  // Also clean up a stale pending row if one exists from an earlier
+  // sign-in before HR created the employee record.
+  await service
+    .from('pending_employee_signups')
+    .delete()
+    .eq('auth_user_id', user.id);
 
   const destination = next || homeRouteForRole(employee.role as EmployeeRole);
   return NextResponse.redirect(new URL(destination, origin));
