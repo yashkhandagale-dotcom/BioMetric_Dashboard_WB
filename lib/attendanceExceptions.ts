@@ -371,14 +371,22 @@ export async function getAttendanceExceptions(
 
   for (const emp of (employees ?? []) as EmployeeRow[]) {
     if (alreadyResolved.has(emp.id)) continue;
-    if (onApprovedLeave.has(emp.id)) continue;
+    // Approved leave does not suppress biometric short-day detection.
+    // Attendance evidence is reconciled against the leave request separately.
     if (exemptEmployeeIds.has(emp.id)) continue;
     if (holidayDatesByOffice.get(emp.office)?.has(date)) continue;
 
     const result = classifyEmployeeDay(emp, date, attendanceByCode.get(emp.employee_code));
     if (!result) continue;
-    if (result.kind === 'absent') absentees.push(result.row);
-    else halfDayCandidates.push(result.row);
+    // Approved leave still permits a biometric short-day candidate to surface,
+    // because that evidence is what changes 1.0 leave to 0.5. A true absence
+    // remains suppressed by approved leave as before.
+    if (result.kind === 'absent') {
+      if (onApprovedLeave.has(emp.id)) continue;
+      absentees.push(result.row);
+    } else {
+      halfDayCandidates.push(result.row);
+    }
   }
 
   return { absentees, halfDayCandidates, date };
@@ -551,13 +559,18 @@ export async function getAttendanceExceptionsRange(
       if (resolvedToday?.has(emp.id)) continue;
       if (exemptToday?.has(emp.id)) continue;
       if (holidayDatesByOffice.get(emp.office)?.has(date)) continue;
-      const empLeaveRanges = leaveRangesByEmployee.get(emp.id);
-      if (empLeaveRanges?.some((l) => l.start <= date && l.end >= date)) continue;
-
       const result = classifyEmployeeDay(emp, date, attendanceByCode?.get(emp.employee_code));
       if (!result) continue;
-      if (result.kind === 'absent') absentees.push(result.row);
-      else halfDayCandidates.push(result.row);
+      const empLeaveRanges = leaveRangesByEmployee.get(emp.id);
+      const onApprovedLeave = empLeaveRanges?.some((l) => l.start <= date && l.end >= date) ?? false;
+      if (result.kind === 'absent') {
+        if (onApprovedLeave) continue;
+        absentees.push(result.row);
+      } else {
+        // Keep biometric short-day candidates visible even when approved leave
+        // covers the date; reconciliation uses this evidence to consume 0.5.
+        halfDayCandidates.push(result.row);
+      }
     }
 
     cursor = new Date(cursor.getTime() + 24 * 60 * 60 * 1000);

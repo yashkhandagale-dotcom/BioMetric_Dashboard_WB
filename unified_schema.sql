@@ -97,7 +97,7 @@ create table if not exists balance_transactions (
   id uuid not null default gen_random_uuid(),
   leave_balance_id uuid not null,
   delta numeric not null,
-  reason text not null check (reason = any (array['comp_off_credit'::text, 'hr_manual_adjustment'::text, 'carry_forward'::text, 'encashment'::text, 'lapse'::text, 'leave_approved'::text, 'leave_cancelled'::text, 'lwp_conversion'::text, 'pro_ration_initial'::text, 'opening_balance_seed'::text])),
+  reason text not null check (reason = any (array['comp_off_credit'::text, 'hr_manual_adjustment'::text, 'carry_forward'::text, 'encashment'::text, 'lapse'::text, 'leave_approved'::text, 'leave_cancelled'::text, 'lwp_conversion'::text, 'pro_ration_initial'::text, 'opening_balance_seed'::text, 'attendance_half_day_adjustment'::text])),
   reference_id uuid,
   created_by uuid,
   note text,
