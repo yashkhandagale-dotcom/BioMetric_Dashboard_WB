@@ -1,10 +1,11 @@
-﻿import type { SupabaseClient } from '@supabase/supabase-js';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { createLeaveServiceClient } from './server';
 import { TrackerLeaveTypeCode } from './leaveTypeMap';
 import { checkCombiningLeaves, getAutoLwpConversionReason, EmployeeForConversionCheck } from '../leavePolicy';
 import { getLeavePolicyConfig } from './leaveConfig';
 import { notifyLeaveEvent as notifyLeaveEventReal } from './notifyLeaveEvent';
 import { getEmployeeBalancesByFY } from './getEmployeeBalances';
+import { reconcileLeaveRequestAgainstAttendance } from './reconcileLeaveAttendance';
 
 // =====================================================================
 // applyLeavePolicyAndMutateBalance
@@ -520,6 +521,17 @@ async function createAndMaybeApprove(
     };
   }
 
+  // Reconcile biometric attendance BEFORE debiting the balance. This is
+  // important when the employee has exactly enough balance for the actual
+  // attendance-adjusted leave (e.g. 2.5 days), but not enough for the raw
+  // 3-day range entered by HR.
+  const attendanceReconciliation = await reconcileLeaveRequestAgainstAttendance(service, created.id);
+  if (!attendanceReconciliation.ok) {
+    policyNotes.push(`Attendance half-day reconciliation could not be completed: ${attendanceReconciliation.error}`);
+  } else if (attendanceReconciliation.adjusted) {
+    policyNotes.push(`Biometric attendance adjusted this leave from ${attendanceReconciliation.previousTotal} to ${attendanceReconciliation.totalDays} day(s). Short-day date(s): ${attendanceReconciliation.shortDates.join(', ')}.`);
+  }
+
   // hr_manual — S1-1: debit the balance atomically.
   // fn_debit_leave_on_approval() raises when the requested paid type
   // (SL/CL/PL) doesn't have enough balance. Per spec, that is never a
@@ -575,8 +587,10 @@ async function createAndMaybeApprove(
     requestId: created.id,
     convertedToLwp,
     policyNotes,
-    totalDays,
-    leaveRequest: { ...created, leave_type_id: finalLeaveType.id },
+    totalDays: attendanceReconciliation.ok ? attendanceReconciliation.totalDays : totalDays,
+    leaveRequest: attendanceReconciliation.adjusted
+      ? { ...created, total_days: attendanceReconciliation.totalDays, leave_type_id: finalLeaveType.id }
+      : { ...created, leave_type_id: finalLeaveType.id },
   };
 }
 
@@ -635,6 +649,17 @@ async function approveExistingRequest(
     };
   }
 
+  // Reconcile before debiting so biometric evidence can prevent an unnecessary
+  // LWP conversion when the raw date range is larger than the actual leave
+  // consumed (for example 3 entered days becoming 2.5 after a short day).
+  const attendanceReconciliation = await reconcileLeaveRequestAgainstAttendance(service, existingRequestId);
+  const approvalPolicyNotes: string[] = [];
+  if (attendanceReconciliation.ok && attendanceReconciliation.adjusted) {
+    approvalPolicyNotes.push(`Biometric attendance adjusted this leave from ${attendanceReconciliation.previousTotal} to ${attendanceReconciliation.totalDays} day(s). Short-day date(s): ${attendanceReconciliation.shortDates.join(', ')}.`);
+  } else if (!attendanceReconciliation.ok) {
+    approvalPolicyNotes.push(`Attendance half-day reconciliation could not be completed: ${attendanceReconciliation.error}`);
+  }
+
   const debitOutcome = await debitWithLwpFallback(service, existingRequestId, currentLeaveType);
   if (debitOutcome.error) {
     // An approval that can't be debited (and can't even fall back to
@@ -648,7 +673,7 @@ async function approveExistingRequest(
     };
   }
 
-  const policyNotes: string[] = [];
+  const policyNotes: string[] = approvalPolicyNotes;
   let convertedToLwp = false;
   let finalLeaveType = currentLeaveType;
   if (debitOutcome.convertedToLwp) {
@@ -680,12 +705,14 @@ async function approveExistingRequest(
     endDate: existing.end_date,
   });
 
+  const { data: persistedRequest } = await service.from('leave_requests').select('*').eq('id', existingRequestId).single();
+  const persisted = persistedRequest ?? existing;
   return {
     requestId: existingRequestId,
     convertedToLwp,
     policyNotes,
-    totalDays: existing.total_days,
-    leaveRequest: { ...existing, leave_type_id: finalLeaveType.id, status: 'approved' },
+    totalDays: Number(persisted.total_days),
+    leaveRequest: { ...persisted, leave_type_id: finalLeaveType.id, status: 'approved' },
   };
 }
 

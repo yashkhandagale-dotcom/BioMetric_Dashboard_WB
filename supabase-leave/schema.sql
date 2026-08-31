@@ -108,7 +108,7 @@ create table if not exists balance_transactions (
     reason              text not null check (reason in
                             ('comp_off_credit', 'hr_manual_adjustment', 'carry_forward',
                              'encashment', 'lapse', 'leave_approved', 'leave_cancelled',
-                             'lwp_conversion', 'pro_ration_initial')),
+                             'lwp_conversion', 'pro_ration_initial', 'attendance_half_day_adjustment')),
     reference_id        uuid,                            -- e.g. leave_requests.id, when applicable
     created_by           uuid references employees(id),   -- who triggered it (HR / system)
     note                text,
@@ -580,7 +580,8 @@ alter table balance_transactions
   add constraint balance_transactions_reason_check check (reason in
       ('comp_off_credit', 'hr_manual_adjustment', 'carry_forward',
        'encashment', 'lapse', 'leave_approved', 'leave_cancelled',
-       'lwp_conversion', 'pro_ration_initial', 'opening_balance_seed'));
+       'lwp_conversion', 'pro_ration_initial', 'opening_balance_seed',
+       'attendance_half_day_adjustment'));
 
 -- ---------------------------------------------------------------------
 -- 7. SEED OPENING BALANCES (S1-3)

@@ -456,6 +456,27 @@ function HRDashboard() {
       // uploaded_months.key. Creating it first avoids a 409/23503 FK violation.
       await addUploadedMonth({ key: monthKey, label: monthLabel, officeCode: pf.officeCode, month: pf.month, year: pf.year });
       const { added, updated, employeesCreated, employeesSyncError } = await saveRecords(monthKey, records);
+
+      // Reconcile newly uploaded biometric attendance against already-approved
+      // leave. This covers the case where leave was approved before the
+      // attendance CSV arrived.
+      try {
+        const dates = records.map(r => r.date).filter(Boolean).sort();
+        if (dates.length > 0) {
+          const reconcileResponse = await fetch('/api/leave/attendance/reconcile', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ startDate: dates[0], endDate: dates[dates.length - 1] }),
+          });
+          if (!reconcileResponse.ok) {
+            const body = await reconcileResponse.json().catch(() => ({}));
+            console.warn('Leave/attendance reconciliation failed:', body.error ?? reconcileResponse.statusText);
+          }
+        }
+      } catch (error) {
+        console.warn('Leave/attendance reconciliation request failed:', error);
+      }
+
       lastMonthKey = monthKey;
       let summary = `${pf.officeCode} ${getMonthName(pf.month)} ${pf.year} (${added} new, ${updated} updated)`;
       if (employeesCreated > 0) {
