@@ -84,81 +84,253 @@ function getOfficeFromKey(key: string): string {
 // their team by the caller (see Home below), the header says "Team View"
 // instead of "Management View", and it gets buttons back to their own
 // leave page / approval queue instead of nothing.
+type DatePreset = 'all' | 'today' | 'yesterday' | 'this_week' | 'this_month' | 'last_month' | 'custom';
+
+function formatYMD(d: Date): string {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function getDateRangeForPreset(preset: DatePreset): { from: string | null; to: string | null } {
+  const now = new Date();
+  if (preset === 'today') {
+    const s = formatYMD(now);
+    return { from: s, to: s };
+  }
+  if (preset === 'yesterday') {
+    const y = new Date(now.getTime() - 86400000);
+    const s = formatYMD(y);
+    return { from: s, to: s };
+  }
+  if (preset === 'this_week') {
+    const day = now.getDay();
+    const diff = (day === 0 ? -6 : 1) - day;
+    const monday = new Date(now);
+    monday.setDate(now.getDate() + diff);
+    return { from: formatYMD(monday), to: formatYMD(now) };
+  }
+  if (preset === 'this_month') {
+    const start = new Date(now.getFullYear(), now.getMonth(), 1);
+    return { from: formatYMD(start), to: formatYMD(now) };
+  }
+  if (preset === 'last_month') {
+    const start = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const end = new Date(now.getFullYear(), now.getMonth(), 0);
+    return { from: formatYMD(start), to: formatYMD(end) };
+  }
+  return { from: null, to: null };
+}
+
 function ManagerView({
   records,
   teamMode,
   teamCodes,
+  managedDepartments,
 }: {
   records: AttendanceRecord[];
   teamMode?: boolean;
   teamCodes?: string[];
+  managedDepartments?: string[];
 }) {
   const [selectedEmp, setSelectedEmp] = useState<EmployeeSummary | null>(null);
-  // Spec v1 §6/§8 open item: the shared-link view previously always used
-  // DEFAULT_THRESHOLDS because it never fetched the real saved thresholds
-  // row from Supabase — so a manager viewing via share link would silently
-  // see Late/Early/Productivity computed against the wrong shift window if
-  // the HR admin had configured something other than the 09:30–18:30
-  // default. Fetch the same single shared thresholds row every other view
-  // reads from.
   const [thresholds, setThresholds] = useState<Thresholds>(DEFAULT_THRESHOLDS);
+  const [uploadedMonths, setUploadedMonths] = useState<UploadedMonth[]>([]);
+
+  // Filtering states
+  const [selectedTeam, setSelectedTeam] = useState<string>('all');
+  const [datePreset, setDatePreset] = useState<DatePreset>('all');
+  const [customFrom, setCustomFrom] = useState<string>('');
+  const [customTo, setCustomTo] = useState<string>('');
+
   useEffect(() => {
     getThresholds().then(setThresholds);
   }, []);
 
-  // Export (teamMode only — the legacy unauthenticated share-link view
-  // stays read-view-only, no download, by original design/FR-10; see the
-  // "Read-only view" banner text below, which still says exactly that for
-  // that path). uploadedMonths drives ExportPanel's own month-range
-  // picker — it's fetched here rather than passed down because it's the
-  // full org's month list (which months exist), not team-scoped data
-  // itself; the actual row-level scoping happens inside ExportPanel via
-  // restrictToEmployeeCodes, so a manager can pick any period that has
-  // data and only ever get their own team's rows out of it.
-  const [uploadedMonths, setUploadedMonths] = useState<UploadedMonth[]>([]);
   useEffect(() => {
     if (!teamMode) return;
     getUploadedMonths().then(setUploadedMonths);
   }, [teamMode]);
 
-  const { kpi, employeeSummaries, dailyTrend, deptAttendance, hoursDistribution } =
-    useDashboardData(records, 'ALL', [], [], [], thresholds);
+  const availableTeams = useMemo(() => {
+    if (managedDepartments && managedDepartments.length > 0) {
+      return managedDepartments;
+    }
+    return Array.from(new Set(records.map((r) => r.department).filter(Boolean))).sort();
+  }, [managedDepartments, records]);
 
-  // Auto-drill: if this team spans exactly one department, jump straight
-  // to the per-employee view — no click needed, nothing to pick between.
-  // DeptAttendanceChart already supports this (selectedDepts.length === 1
-  // triggers its drill-down); it just needed the department passed in.
-  // Manager for >1 department still gets the normal bar-per-department
-  // view with click-to-drill, same as HRDashboard.
+  const effectiveDateRange = useMemo(() => {
+    if (datePreset === 'custom') {
+      return { from: customFrom || null, to: customTo || null };
+    }
+    return getDateRangeForPreset(datePreset);
+  }, [datePreset, customFrom, customTo]);
+
+  const filteredRecords = useMemo(() => {
+    return records.filter((r) => {
+      if (selectedTeam !== 'all' && r.department !== selectedTeam) {
+        return false;
+      }
+      if (effectiveDateRange.from && r.date < effectiveDateRange.from) {
+        return false;
+      }
+      if (effectiveDateRange.to && r.date > effectiveDateRange.to) {
+        return false;
+      }
+      return true;
+    });
+  }, [records, selectedTeam, effectiveDateRange]);
+
+  const { kpi, employeeSummaries, dailyTrend, deptAttendance, hoursDistribution } =
+    useDashboardData(filteredRecords, 'ALL', [], [], [], thresholds);
+
   const teamDepartments = teamMode
-    ? Array.from(new Set(records.map((r) => r.department).filter(Boolean)))
+    ? selectedTeam !== 'all'
+      ? [selectedTeam]
+      : Array.from(new Set(filteredRecords.map((r) => r.department).filter(Boolean)))
     : [];
+
+  const isFilterActive = selectedTeam !== 'all' || datePreset !== 'all' || Boolean(customFrom) || Boolean(customTo);
+
+  function resetFilters() {
+    setSelectedTeam('all');
+    setDatePreset('all');
+    setCustomFrom('');
+    setCustomTo('');
+  }
+
+  const PRESETS: { key: DatePreset; label: string }[] = [
+    { key: 'all', label: 'All Time' },
+    { key: 'today', label: 'Today' },
+    { key: 'yesterday', label: 'Yesterday' },
+    { key: 'this_week', label: 'This Week' },
+    { key: 'this_month', label: 'This Month' },
+    { key: 'last_month', label: 'Last Month' },
+    { key: 'custom', label: 'Custom Range' },
+  ];
 
   return (
     <DashboardShell
       variant={teamMode ? 'team' : 'shared'}
       availableSections={['overview', 'employees', 'departments']}
-      recordCount={records.length}
+      recordCount={filteredRecords.length}
       exportSlot={teamMode ? <ExportPanel uploadedMonths={uploadedMonths} thresholds={thresholds} restrictToEmployeeCodes={teamCodes ?? []} /> : undefined}
     >
       <div className="space-y-6">
-        <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl px-4 py-3 text-sm text-blue-700 dark:text-blue-300">
-          {teamMode
-            ? "Read-only view, scoped to your team \u2014 upload and settings aren't available here, but you can export."
-            : 'Read-only view — upload, export and settings are not available here.'}
+        <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl px-4 py-3 text-sm text-blue-700 dark:text-blue-300 flex items-center justify-between flex-wrap gap-2">
+          <span>
+            {teamMode
+              ? "Read-only view, scoped to your team hierarchy — upload and settings aren't available here, but you can export."
+              : 'Read-only view — upload, export and settings are not available here.'}
+          </span>
+          {isFilterActive && (
+            <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-800 dark:text-blue-200">
+              Showing {filteredRecords.length} of {records.length} records
+            </span>
+          )}
         </div>
+
+        {/* ── Team & Date Filter Bar ────────────────────────────────────────── */}
+        <div className="bg-[var(--bg-elevated)]/60 border border-[var(--border)] rounded-2xl p-4 shadow-sm space-y-3.5">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-3 flex-wrap">
+              {/* Team Filter */}
+              {availableTeams.length > 0 && (
+                <div className="flex items-center gap-2">
+                  <label htmlFor="team-select" className="text-xs font-bold text-[var(--text-muted)] uppercase tracking-wider">
+                    Team:
+                  </label>
+                  <select
+                    id="team-select"
+                    value={selectedTeam}
+                    onChange={(e) => setSelectedTeam(e.target.value)}
+                    className="bg-[var(--bg-surface)] border border-[var(--border)] rounded-xl px-3 py-1.5 text-xs font-bold text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/30"
+                  >
+                    <option value="all">All Teams ({availableTeams.length})</option>
+                    {availableTeams.map((t) => (
+                      <option key={t} value={t}>{t}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              {/* Date Presets */}
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="text-xs font-bold text-[var(--text-muted)] uppercase tracking-wider mr-1">
+                  Duration:
+                </span>
+                <div className="flex items-center gap-1 bg-[var(--bg-surface)] p-1 rounded-xl border border-[var(--border)] flex-wrap">
+                  {PRESETS.map((p) => {
+                    const active = datePreset === p.key;
+                    return (
+                      <button
+                        key={p.key}
+                        type="button"
+                        onClick={() => setDatePreset(p.key)}
+                        className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all ${
+                          active
+                            ? 'bg-[var(--accent)] text-white shadow-xs'
+                            : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'
+                        }`}
+                      >
+                        {p.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            {isFilterActive && (
+              <button
+                type="button"
+                onClick={resetFilters}
+                className="px-3 py-1.5 text-xs font-semibold text-[var(--text-muted)] hover:text-[var(--text-primary)] bg-[var(--bg-surface)] border border-[var(--border)] rounded-xl hover:bg-[var(--bg-elevated)] transition-colors"
+              >
+                Reset Filters
+              </button>
+            )}
+          </div>
+
+          {/* Custom Date Range Inputs */}
+          {datePreset === 'custom' && (
+            <div className="flex items-center gap-3 pt-2 border-t border-[var(--border-subtle)] flex-wrap">
+              <div className="flex items-center gap-2">
+                <label className="text-xs text-[var(--text-muted)] font-medium">From:</label>
+                <input
+                  type="date"
+                  value={customFrom}
+                  onChange={(e) => setCustomFrom(e.target.value)}
+                  className="bg-[var(--bg-surface)] border border-[var(--border)] rounded-xl px-3 py-1.5 text-xs font-semibold text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/30"
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <label className="text-xs text-[var(--text-muted)] font-medium">To:</label>
+                <input
+                  type="date"
+                  value={customTo}
+                  min={customFrom || undefined}
+                  onChange={(e) => setCustomTo(e.target.value)}
+                  className="bg-[var(--bg-surface)] border border-[var(--border)] rounded-xl px-3 py-1.5 text-xs font-semibold text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/30"
+                />
+              </div>
+            </div>
+          )}
+        </div>
+
         <div id="section-overview" className="space-y-6">
           <KPICards kpi={kpi} thresholds={thresholds} />
           <OnLeaveTodayCard />
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
             <DailyTrendChart data={dailyTrend} />
-            <HoursDistributionChart data={hoursDistribution} allRecords={records} />
+            <HoursDistributionChart data={hoursDistribution} allRecords={filteredRecords} />
           </div>
         </div>
         <div id="section-departments">
           <DeptAttendanceChart
             data={deptAttendance}
-            allRecords={records}
+            allRecords={filteredRecords}
             selectedDepts={teamDepartments.length === 1 ? teamDepartments : undefined}
           />
         </div>
@@ -1229,13 +1401,14 @@ function HRDashboard() {
 export default function DashboardClient({
   role,
   teamCodes,
+  managedDepartments,
 }: {
   role: 'hr' | 'manager' | 'lead' | null;
   teamCodes?: string[];
+  managedDepartments?: string[];
 }) {
   const [viewMode, setViewMode] = useState<ViewMode>('loading');
   const [managerRecords, setManagerRecords] = useState<AttendanceRecord[]>([]);
-
 
   useEffect(() => {
     const qp = new URLSearchParams(window.location.search);
@@ -1275,7 +1448,7 @@ export default function DashboardClient({
     </div>
   );
   if (viewMode === 'manager') return <ManagerView records={managerRecords} />;
-  if (viewMode === 'team') return <ManagerView records={managerRecords} teamMode teamCodes={teamCodes} />;
+  if (viewMode === 'team') return <ManagerView records={managerRecords} teamMode teamCodes={teamCodes} managedDepartments={managedDepartments} />;
 
   return (
     <Suspense fallback={<div className="min-h-screen bg-[var(--bg-surface)] p-6 md:p-8"><DashboardSkeleton /></div>}>

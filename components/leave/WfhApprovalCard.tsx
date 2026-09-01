@@ -17,21 +17,14 @@ export type PendingWfhRequest = {
   appliedOn: string;
 };
 
-function formatDate(dateStr: string) {
-  const d = new Date(dateStr);
-  if (Number.isNaN(d.getTime())) return dateStr;
+import { formatOrdinalDate, formatOrdinalDateRange } from '@/lib/dateFormat';
 
-  return d.toLocaleDateString(undefined, {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-  });
+function formatDate(dateStr: string) {
+  return formatOrdinalDate(dateStr);
 }
 
 function formatDateRange(start: string, end: string) {
-  return start === end
-    ? formatDate(start)
-    : `${formatDate(start)} → ${formatDate(end)}`;
+  return formatOrdinalDateRange(start, end);
 }
 
 const FIELD_LABEL_CLASS =

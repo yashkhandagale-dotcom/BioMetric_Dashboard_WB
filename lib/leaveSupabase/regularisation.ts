@@ -80,9 +80,9 @@ export async function listRegularisationsForEmployees(
   const { data, error } = await supabase
     .from('leave_regularisations')
     .select(
-      `id, regularised_date, reason, created_at, status, requested_by,
-       employees:employee_id ( id, full_name, employee_code ),
-       regularised_by_employee:regularised_by ( full_name )`
+      `id, regularised_date, reason, created_at, status, requested_by, employee_id, regularised_by,
+       employees:employees!leave_regularisations_employee_id_fkey ( id, full_name, employee_code ),
+       regularised_by_employee:employees!leave_regularisations_regularised_by_fkey ( full_name )`
     )
     .in('employee_id', employeeIds)
     .order('regularised_date', { ascending: false });
@@ -124,6 +124,13 @@ export async function listRegularisationsForEmployees(
       .filter((r): r is RegularisationRow => r !== null),
     error: null,
   };
+}
+
+export async function listMyRegularisationRequests(
+  supabase: SupabaseClient,
+  employeeId: string
+): Promise<{ rows: RegularisationRow[]; error: string | null }> {
+  return listRegularisationsForEmployees(supabase, [employeeId]);
 }
 
 // =====================================================================

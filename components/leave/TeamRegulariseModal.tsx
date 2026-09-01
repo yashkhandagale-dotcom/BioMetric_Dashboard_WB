@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { AlertCircle, CalendarCheck, Check, CheckSquare, Sparkles, Square, Users, X } from 'lucide-react';
 import type { RosterRow } from './TeamTabs';
+import { DATE_INPUT_MIN, sanitizeDateString } from '@/lib/dateFormat';
 
 const QUICK_REASONS = [
   'Early exit approved for team all-hands',
@@ -151,8 +152,9 @@ export default function TeamRegulariseModal({
                 type="date"
                 required
                 value={date}
+                min={DATE_INPUT_MIN}
                 max={todayYMD}
-                onChange={(e) => setDate(e.target.value)}
+                onChange={(e) => setDate(sanitizeDateString(e.target.value))}
                 className="w-full bg-[var(--bg-surface)] border border-[var(--border)] rounded-xl px-3.5 py-2.5 text-sm text-[var(--text-primary)] font-medium focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/30 focus:border-[var(--accent)] transition-all"
               />
             </div>

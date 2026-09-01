@@ -1,11 +1,13 @@
-﻿'use client';
+'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ChevronLeft, ChevronRight, Inbox } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Inbox, Layers } from 'lucide-react';
 import ConfirmDialog from '../ConfirmDialog';
 import InfoTooltip from '../InfoTooltip';
 import type { ApplyLeaveInitialValues } from './ApplyLeaveForm';
+import { formatOrdinalDate, formatOrdinalDateRange } from '@/lib/dateFormat';
+import { consolidateLeaveRows } from '@/lib/workingDaysCalculator';
 
 export type LeaveHistoryRow = {
   id: string;
@@ -25,16 +27,12 @@ export type LeaveHistoryRow = {
   isLwpOverride: boolean;
   appliedOn: string;
   recordedBy: string;
-  // Present only on a status='cancelled' row that HR reversed after the
-  // fact via the /correct route (see LEAVE_TRACKER correction feature) —
-  // distinct from a normal employee/HR cancel, which leaves these null.
   correctedByName?: string | null;
   correctionReason?: string | null;
+  consolidatedIds?: string[];
+  isConsolidated?: boolean;
+  constituentCount?: number;
 };
-
-function formatDateRange(start: string, end: string) {
-  return start === end ? start : `${start} → ${end}`;
-}
 
 function todayYMD() {
   return new Date().toISOString().slice(0, 10);
@@ -62,9 +60,6 @@ function statusLabel(status: string): string {
   return status.charAt(0).toUpperCase() + status.slice(1);
 }
 
-// Small styled action button shared by the row-level actions below, so
-// Withdraw/Cancel, Reapply, and Correct/Reverse all read as the same
-// control family instead of three differently-weighted text links.
 function RowAction({
   tone,
   disabled,
@@ -97,11 +92,6 @@ function RowAction({
   );
 }
 
-// Shared modal shell (backdrop + header/body/footer chrome) so the two
-// modals this table can open — Cancel/Withdraw confirmation is handled
-// by ConfirmDialog, but the HR "Correct / Reverse" reason prompt lives
-// here — follow one consistent pattern rather than each inventing its
-// own spacing and border rhythm.
 function Modal({
   onClose,
   title,
@@ -132,33 +122,6 @@ function Modal({
   );
 }
 
-// D3-2: every field from the Sprint Tracker's Acceptance Criteria for
-// this file is still surfaced — employee, type, dates, days, half-day
-// flag, LWP-override, applied-on, recorded-by — just laid out as a card
-// instead of a table row. Cards + client-side pagination mirror
-// AbsenteesPanel.tsx / HalfDayPanel.tsx's layout so the Leave Tracker's
-// admin views read as one consistent product.
-//
-// showActions (feedback items #7, #10, #12) — opt-in Actions section, on
-// by default (only /leave/me passes it; /leave/team stays read-only per
-// its own header comment, so it omits the prop and keeps the old
-// behavior unchanged). "Cancel/Withdraw" covers a still-pending OR an
-// already-approved request (the API distinguishes the two — a pending
-// row is simply marked cancelled, an approved one also credits the
-// balance back). "Apply for another leave type" only shows on a
-// rejected row and dispatches a `leave:reapply` event MeNavbar listens
-// for, prefilling the Apply drawer with the same dates/reason.
-//
-// hrCorrection (HR leave-correction feature) — opt-in, separate from
-// showActions on purpose: showActions is "this is MY request, act on
-// it" (withdraw/cancel/reapply); hrCorrection is "I'm HR, fix someone
-// else's already-finished record". Only the admin History table passes
-// it. An approved/auto_lwp row gets a "Correct / Reverse" action
-// regardless of whether its dates have passed (unlike Withdraw/Cancel,
-// which the cancel route blocks once started) — see
-// app/api/leave/requests/[id]/correct/route.ts's header comment for why
-// this is a distinct action from cancellation. A reason is mandatory
-// and shown afterwards via the info icon next to "Cancelled".
 export default function LeaveHistoryTable({
   rows,
   showActions = false,
@@ -170,14 +133,6 @@ export default function LeaveHistoryTable({
   showActions?: boolean;
   hrCorrection?: boolean;
   allowHrCancel?: boolean;
-  // Admin History fetches its own rows client-side rather than via a
-  // Server Component (see app/leave/admin/history/page.tsx), so a
-  // successful correction needs an explicit refetch hook instead of
-  // router.refresh() (which only re-runs Server Components — no-op
-  // there). showActions's own /leave/me caller has no onChanged and
-  // keeps using router.refresh(), unaffected.
-  // allowHrCancel: when true, show the Cancel/Withdraw action for HR
-  // users in admin tables so HR can cancel pre-approved or pending requests.
   onChanged?: () => void;
 }) {
   const router = useRouter();
@@ -189,61 +144,74 @@ export default function LeaveHistoryTable({
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(8);
 
-  // Rows arrive pre-filtered from the parent (search/department/office
-  // filters live upstream) — a new rows array means the result set
-  // changed, so drop back to page 1 rather than risk landing on an
-  // out-of-range empty page.
+  const displayRows = useMemo(() => consolidateLeaveRows(rows), [rows]);
+
   useEffect(() => {
     setPage(1);
-  }, [rows]);
+  }, [displayRows]);
 
   function refresh() {
     if (onChanged) onChanged();
     else router.refresh();
   }
 
-  async function handleConfirmCancel(id: string) {
-    setBusyId(id);
+  async function handleConfirmCancel(targetId: string) {
+    const targetRow = displayRows.find((r) => r.id === targetId);
+    const idsToCancel = targetRow?.consolidatedIds && targetRow.consolidatedIds.length > 0
+      ? targetRow.consolidatedIds
+      : [targetId];
+
+    setBusyId(targetId);
     setRowError(null);
     try {
-      const res = await fetch(`/api/leave/requests/${id}/cancel`, { method: 'POST' });
-      const text = await res.text();
-      const body = text ? JSON.parse(text) : {};
-      if (!res.ok) {
-        setRowError({ id, message: body.error || 'Could not cancel this request.' });
-        return;
+      for (const id of idsToCancel) {
+        const res = await fetch(`/api/leave/requests/${id}/cancel`, { method: 'POST' });
+        const text = await res.text();
+        const body = text ? JSON.parse(text) : {};
+        if (!res.ok) {
+          setRowError({ id: targetId, message: body.error || 'Could not cancel this request.' });
+          return;
+        }
       }
       refresh();
     } catch {
-      setRowError({ id, message: 'Could not reach the server — check your connection and retry.' });
+      setRowError({ id: targetId, message: 'Could not reach the server — check your connection and retry.' });
     } finally {
       setBusyId(null);
       setConfirmingId(null);
     }
   }
 
-  async function handleConfirmCorrect(id: string) {
+  async function handleConfirmCorrect(targetId: string) {
     if (!correctionReason.trim()) {
-      setRowError({ id, message: 'A reason is required.' });
+      setRowError({ id: targetId, message: 'A reason is required.' });
       return;
     }
-    setBusyId(id);
+
+    const targetRow = displayRows.find((r) => r.id === targetId);
+    const idsToCorrect = targetRow?.consolidatedIds && targetRow.consolidatedIds.length > 0
+      ? targetRow.consolidatedIds
+      : [targetId];
+
+    setBusyId(targetId);
     setRowError(null);
     try {
-      const res = await fetch(`/api/leave/requests/${id}/correct`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ reason: correctionReason.trim() }),
-      });
-      const text = await res.text();
-      const body = text ? JSON.parse(text) : {};
-      if (!res.ok) {
-        setRowError({ id, message: body.error || 'Could not correct this request.' });
-        return;
+      for (const id of idsToCorrect) {
+        const res = await fetch(`/api/leave/requests/${id}/correct`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reason: correctionReason.trim() }),
+        });
+        const text = await res.text();
+        const body = text ? JSON.parse(text) : {};
+        if (!res.ok) {
+          setRowError({ id: targetId, message: body.error || 'Could not correct this request.' });
+          return;
+        }
       }
       refresh();
     } catch {
-      setRowError({ id, message: 'Could not reach the server — check your connection and retry.' });
+      setRowError({ id: targetId, message: 'Could not reach the server — check your connection and retry.' });
     } finally {
       setBusyId(null);
       setCorrectingId(null);
@@ -257,7 +225,7 @@ export default function LeaveHistoryTable({
       endDate: row.endDate,
       isHalfDay: row.isHalfDay,
       halfDaySession: (row.halfDaySession as 'AM' | 'PM' | null) ?? undefined,
-      reason: `Reapplying after ${row.leaveTypeLabel} was rejected for ${formatDateRange(row.startDate, row.endDate)}.`,
+      reason: `Reapplying after ${row.leaveTypeLabel} was rejected for ${formatOrdinalDateRange(row.startDate, row.endDate, row.isHalfDay, row.totalDays)}.`,
     };
     window.dispatchEvent(new CustomEvent('leave:reapply', { detail }));
   }
@@ -272,14 +240,14 @@ export default function LeaveHistoryTable({
   }
 
   const hasActionsColumn = showActions || hrCorrection;
-  const pageCount = Math.max(1, Math.ceil(rows.length / pageSize));
+  const pageCount = Math.max(1, Math.ceil(displayRows.length / pageSize));
   const currentPage = Math.min(page, pageCount);
-  const paged = rows.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  const paged = displayRows.slice((currentPage - 1) * pageSize, currentPage * pageSize);
 
   return (
     <div>
       <p className="text-xs text-[var(--text-muted)] mb-3">
-        {rows.length} leave record{rows.length === 1 ? '' : 's'}
+        {displayRows.length} leave record{displayRows.length === 1 ? '' : 's'}
       </p>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3 gap-3 items-stretch">
@@ -325,14 +293,21 @@ export default function LeaveHistoryTable({
 
               <div className="flex items-center justify-between gap-3 bg-[var(--bg-surface)]/60 rounded-lg px-3 py-2">
                 <div className="min-w-0">
-                  <p className="text-[var(--text-primary)] text-sm font-medium truncate">{r.leaveTypeLabel}</p>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <p className="text-[var(--text-primary)] text-sm font-medium truncate">{r.leaveTypeLabel}</p>
+                    {r.isConsolidated && (
+                      <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-700 dark:text-emerald-400 bg-emerald-500/15 border border-emerald-500/20 rounded px-1.5 py-0.5">
+                        <Layers size={10} /> Continuous
+                      </span>
+                    )}
+                  </div>
                   <p className="text-[var(--text-muted)] text-xs mt-0.5 whitespace-nowrap">
-                    {formatDateRange(r.startDate, r.endDate)}
+                    {formatOrdinalDateRange(r.startDate, r.endDate, r.isHalfDay, r.totalDays)}
                   </p>
                 </div>
                 <p className="shrink-0 text-right">
                   <span className="text-[var(--text-primary)] text-lg font-semibold tabular-nums">
-                    {r.totalDays.toFixed(2)}
+                    {r.totalDays.toFixed(1)}
                   </span>
                   <span className="text-[10px] text-[var(--text-muted)] ml-1">days</span>
                 </p>
@@ -358,7 +333,7 @@ export default function LeaveHistoryTable({
                 <div>
                   <p className="text-[10px] text-[var(--text-muted)] uppercase tracking-wide">Applied</p>
                   <p className="text-xs text-[var(--text-primary)] mt-0.5">
-                    {new Date(r.appliedOn).toLocaleDateString()}
+                    {formatOrdinalDate(r.appliedOn)}
                   </p>
                 </div>
                 <div className="min-w-0">
@@ -424,7 +399,7 @@ export default function LeaveHistoryTable({
 
         <div className="flex items-center gap-3 text-xs text-[var(--text-muted)]">
           <span>
-            {(currentPage - 1) * pageSize + 1}–{Math.min(currentPage * pageSize, rows.length)} of {rows.length}
+            {(currentPage - 1) * pageSize + 1}–{Math.min(currentPage * pageSize, displayRows.length)} of {displayRows.length}
           </span>
           <div className="flex items-center gap-1">
             <button

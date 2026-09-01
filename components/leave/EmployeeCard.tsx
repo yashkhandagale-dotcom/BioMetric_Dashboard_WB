@@ -3,6 +3,7 @@
 import AdjustBalanceButton from '@/app/leave/admin/AdjustBalanceButton';
 import FnFCalculatorButton from '@/app/leave/admin/FnFCalculatorButton';
 import ViolationBadge from './ViolationBadge';
+import { formatOrdinalDate } from '@/lib/dateFormat';
 
 export type EmployeeWithBalances = {
   id: string;
@@ -99,7 +100,9 @@ export default function EmployeeCard({
             {employee.noticePeriodDays != null ? `${employee.noticePeriodDays}d notice` : 'Notice'}
           </span>
         )}
-        <span className="text-[var(--text-muted)] text-[11px]">DOJ: {employee.dateOfJoining}</span>
+        {employee.dateOfJoining && (
+          <span className="text-[var(--text-muted)] text-[11px]">DOJ: {formatOrdinalDate(employee.dateOfJoining)}</span>
+        )}
       </div>
 
       {/* Login & Auth info */}
@@ -111,7 +114,7 @@ export default function EmployeeCard({
           <span className="text-[var(--text-muted)]">· Google SSO</span>
         )}
         {employee.hasLogin && employee.lastLoginAt && (
-          <span className="text-[var(--text-muted)]">· Active {new Date(employee.lastLoginAt).toLocaleDateString()}</span>
+          <span className="text-[var(--text-muted)]">· Active {formatOrdinalDate(employee.lastLoginAt)}</span>
         )}
       </div>
 
@@ -133,6 +136,7 @@ export default function EmployeeCard({
           fyStartYear={fyStartYear}
           currentRole={employee.role}
           currentStatus={employee.employmentStatus}
+          currentDepartment={employee.department}
           currentNoticePeriodDays={employee.noticePeriodDays ?? undefined}
           currentLeadId={employee.reportingLeadId}
           currentManagerId={employee.reportingManagerId}

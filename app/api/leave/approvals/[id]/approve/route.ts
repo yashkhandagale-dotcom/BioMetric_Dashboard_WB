@@ -1,7 +1,7 @@
-﻿import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { createLeaveClient } from '@/lib/leaveSupabase/server';
 import { applyLeavePolicyAndMutateBalance } from '@/lib/leaveSupabase/applyLeavePolicyAndMutateBalance';
-import { getEffectiveApproverId } from '@/lib/leaveSupabase/organization';
+import { getEffectiveApproverId, getManagedEmployeeIds } from '@/lib/leaveSupabase/organization';
 
 export async function POST(req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -39,8 +39,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
   const isEffectiveApprover = !!approverId && approverId === actingEmployee.id;
   const isHr = actingEmployee.role === 'hr' || actingEmployee.role === 'hr_super_admin';
+  let isManaged = false;
   if (!isEffectiveApprover && !isHr) {
-    return NextResponse.json({ error: 'You can only approve requests from your own direct reports' }, { status: 403 });
+    const { employeeIds: managedIds } = await getManagedEmployeeIds(sessionClient, actingEmployee.id);
+    isManaged = managedIds.includes(request.employee_id);
+  }
+
+  if (!isEffectiveApprover && !isHr && !isManaged) {
+    return NextResponse.json({ error: 'You can only approve requests from employees in your management hierarchy' }, { status: 403 });
   }
 
   const result = await applyLeavePolicyAndMutateBalance({

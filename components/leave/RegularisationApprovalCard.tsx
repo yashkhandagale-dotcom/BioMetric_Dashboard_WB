@@ -13,30 +13,14 @@ export type PendingRegularisationRequest = {
   createdAt: string;
 };
 
+import { formatOrdinalDate } from '@/lib/dateFormat';
+
 function formatDate(dateStr: string) {
-  const d = new Date(dateStr);
-
-  if (Number.isNaN(d.getTime())) return dateStr;
-
-  return d.toLocaleDateString(undefined, {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-  });
+  return formatOrdinalDate(dateStr);
 }
 
 function formatDateTime(dateStr: string) {
-  const d = new Date(dateStr);
-
-  if (Number.isNaN(d.getTime())) return dateStr;
-
-  return d.toLocaleString(undefined, {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  });
+  return formatOrdinalDate(dateStr);
 }
 
 const FIELD_LABEL_CLASS =

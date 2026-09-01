@@ -1,6 +1,9 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { calculateEndDateFromWorkingDays, calculateWorkingDays } from '@/lib/workingDaysCalculator';
+import { formatOrdinalDateRange, DATE_INPUT_MIN, DATE_INPUT_MAX, sanitizeDateString } from '@/lib/dateFormat';
+import { Calendar } from 'lucide-react';
 
 type EmployeeOption = { id: string; full_name: string; employee_code: string };
 
@@ -68,7 +71,33 @@ export default function RecordLeaveForm({
   const [halfDaySession, setHalfDaySession] = useState<'AM' | 'PM'>('AM');
   const [startDate, setStartDate] = useState(presetDate ?? '');
   const [endDate, setEndDate] = useState('');
+  const [numDays, setNumDays] = useState<number>(1);
   const [reason, setReason] = useState('');
+
+  function handleStartDateChange(newStartDate: string) {
+    setStartDate(newStartDate);
+    if (newStartDate && !isHalfDay) {
+      const calculatedEnd = calculateEndDateFromWorkingDays(newStartDate, numDays);
+      setEndDate(calculatedEnd);
+    }
+  }
+
+  function handleNumDaysChange(daysVal: number) {
+    const validDays = Math.max(1, daysVal);
+    setNumDays(validDays);
+    if (startDate && !isHalfDay) {
+      const calculatedEnd = calculateEndDateFromWorkingDays(startDate, validDays);
+      setEndDate(calculatedEnd);
+    }
+  }
+
+  function handleEndDateChange(newEndDate: string) {
+    setEndDate(newEndDate);
+    if (startDate && newEndDate && newEndDate >= startDate) {
+      const calculatedWorkingDays = calculateWorkingDays(startDate, newEndDate);
+      setNumDays(Math.max(1, calculatedWorkingDays));
+    }
+  }
 
   const [error, setError] = useState<string | null>(null);
   const [employeesError, setEmployeesError] = useState<string | null>(null);
@@ -274,7 +303,9 @@ export default function RecordLeaveForm({
               <input
                 type="date"
                 value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
+                min={DATE_INPUT_MIN}
+                max={DATE_INPUT_MAX}
+                onChange={(e) => setStartDate(sanitizeDateString(e.target.value))}
                 className="w-full bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)]"
                 required
               />
@@ -292,27 +323,54 @@ export default function RecordLeaveForm({
             </div>
           </div>
         ) : (
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs text-[var(--text-muted)] mb-1">Start Date</label>
-              <input
-                type="date"
-                value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
-                className="w-full bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)]"
-                required
-              />
+          <div className="space-y-2">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div>
+                <label className="block text-xs text-[var(--text-muted)] mb-1">Start Date</label>
+                <input
+                  type="date"
+                  value={startDate}
+                  min={DATE_INPUT_MIN}
+                  max={DATE_INPUT_MAX}
+                  onChange={(e) => handleStartDateChange(sanitizeDateString(e.target.value))}
+                  className="w-full bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)]"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-[var(--text-muted)] mb-1">No. of Working Days</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={60}
+                  step={1}
+                  value={numDays}
+                  onChange={(e) => handleNumDaysChange(parseInt(e.target.value, 10) || 1)}
+                  className="w-full bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)]"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-[var(--text-muted)] mb-1">Calculated End Date</label>
+                <input
+                  type="date"
+                  value={endDate}
+                  min={startDate || DATE_INPUT_MIN}
+                  max={DATE_INPUT_MAX}
+                  onChange={(e) => handleEndDateChange(sanitizeDateString(e.target.value))}
+                  className="w-full bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)]"
+                  required
+                />
+              </div>
             </div>
-            <div>
-              <label className="block text-xs text-[var(--text-muted)] mb-1">End Date</label>
-              <input
-                type="date"
-                value={endDate}
-                onChange={(e) => setEndDate(e.target.value)}
-                className="w-full bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)]"
-                required
-              />
-            </div>
+            {startDate && endDate && (
+              <div className="flex items-center gap-2 bg-[var(--bg-elevated)]/50 border border-[var(--border)] rounded-lg px-3 py-1.5 text-xs text-[var(--text-muted)]">
+                <Calendar size={13} className="text-[var(--accent)] shrink-0" />
+                <span>
+                  Continuous Span: <strong className="text-[var(--text-primary)]">{formatOrdinalDateRange(startDate, endDate, false, numDays)}</strong> (weekends/holidays skipped).
+                </span>
+              </div>
+            )}
           </div>
         )}
 

@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { AlertCircle } from 'lucide-react';
+import { DATE_INPUT_MAX, sanitizeDateString } from '@/lib/dateFormat';
 
 export type WfhSubmitResult = { id: string };
 
@@ -92,7 +93,8 @@ export default function WfhApplyForm({
             type="date"
             value={startDate}
             min={min}
-            onChange={(e) => setStartDate(e.target.value)}
+            max={DATE_INPUT_MAX}
+            onChange={(e) => setStartDate(sanitizeDateString(e.target.value))}
             className={FIELD_CLASS}
             required
           />
@@ -103,7 +105,8 @@ export default function WfhApplyForm({
             type="date"
             value={endDate}
             min={startDate || min}
-            onChange={(e) => setEndDate(e.target.value)}
+            max={DATE_INPUT_MAX}
+            onChange={(e) => setEndDate(sanitizeDateString(e.target.value))}
             className={FIELD_CLASS}
             required
           />

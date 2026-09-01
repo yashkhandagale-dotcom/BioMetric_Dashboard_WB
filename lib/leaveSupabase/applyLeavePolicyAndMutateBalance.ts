@@ -44,6 +44,12 @@ import { reconcileLeaveRequestAgainstAttendance } from './reconcileLeaveAttendan
 
 export type ApplyLeaveSource = 'self_apply' | 'manager_approval' | 'manager_reject' | 'hr_manual' | 'cancellation' | 'hr_correction';
 
+export interface DayBreakdownItem {
+  date: string;
+  isHalfDay: boolean;
+  session?: 'AM' | 'PM';
+}
+
 export interface ApplyLeavePolicyAndMutateBalanceParams {
   employeeId: string;
   leaveTypeCode: TrackerLeaveTypeCode;
@@ -53,6 +59,8 @@ export interface ApplyLeavePolicyAndMutateBalanceParams {
   endDate?: string | null;
   isHalfDay: boolean;
   halfDaySession?: 'AM' | 'PM';
+  totalDays?: number;
+  dayBreakdown?: DayBreakdownItem[];
   reason: string;
   actionPlan?: string;
   source: ApplyLeaveSource;
@@ -233,6 +241,8 @@ export interface PreviewLeavePolicyParams {
   startDate: string;
   endDate?: string | null;
   isHalfDay: boolean;
+  totalDays?: number;
+  dayBreakdown?: DayBreakdownItem[];
 }
 
 export interface PreviewLeavePolicyResult {
@@ -251,14 +261,33 @@ export async function previewLeavePolicy(
   params: PreviewLeavePolicyParams
 ): Promise<PreviewLeavePolicyResult> {
   const service = createLeaveServiceClient();
-  const { employeeId, leaveTypeCode, isHalfDay, startDate } = params;
+  const { employeeId, leaveTypeCode, isHalfDay, startDate, dayBreakdown } = params;
   const effectiveEndDate = isHalfDay ? startDate : (params.endDate || startDate);
 
   if (new Date(`${effectiveEndDate}T00:00:00Z`) < new Date(`${startDate}T00:00:00Z`)) {
     return { totalDays: 0, notes: [], wouldBeLwp: false, currentBalance: null, error: 'End date cannot be before start date.' };
   }
 
-  const totalDays = isHalfDay ? 0.5 : daysBetweenInclusive(startDate, effectiveEndDate);
+  let totalDays: number;
+  if (dayBreakdown && dayBreakdown.length > 0) {
+    totalDays = dayBreakdown.reduce((sum, d) => sum + (d.isHalfDay ? 0.5 : 1.0), 0);
+  } else if (typeof params.totalDays === 'number' && params.totalDays > 0) {
+    totalDays = params.totalDays;
+  } else if (isHalfDay) {
+    totalDays = 0.5;
+  } else {
+    totalDays = daysBetweenInclusive(startDate, effectiveEndDate);
+  }
+
+  if (totalDays <= 0 || Math.round(totalDays * 10) % 5 !== 0) {
+    return {
+      totalDays: 0,
+      notes: [],
+      wouldBeLwp: false,
+      currentBalance: null,
+      error: 'Leave duration must be in half-day increments (e.g. 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5...).',
+    };
+  }
 
   const { data: employee, error: empError } = await service
     .from('employees')
@@ -365,7 +394,7 @@ async function createAndMaybeApprove(
   service: SupabaseClient,
   params: ApplyLeavePolicyAndMutateBalanceParams
 ): Promise<ApplyLeavePolicyAndMutateBalanceResult> {
-  const { employeeId, leaveTypeCode, isHalfDay, halfDaySession, reason, actionPlan, source, actingEmployeeId } = params;
+  const { employeeId, leaveTypeCode, isHalfDay, halfDaySession, reason, actionPlan, source, actingEmployeeId, dayBreakdown } = params;
   const startDate = params.startDate;
   const effectiveEndDate = isHalfDay ? startDate : (params.endDate || startDate);
 
@@ -377,7 +406,24 @@ async function createAndMaybeApprove(
     };
   }
 
-  const totalDays = isHalfDay ? 0.5 : daysBetweenInclusive(startDate, effectiveEndDate);
+  let totalDays: number;
+  if (dayBreakdown && dayBreakdown.length > 0) {
+    totalDays = dayBreakdown.reduce((sum, d) => sum + (d.isHalfDay ? 0.5 : 1.0), 0);
+  } else if (typeof params.totalDays === 'number' && params.totalDays > 0) {
+    totalDays = params.totalDays;
+  } else if (isHalfDay) {
+    totalDays = 0.5;
+  } else {
+    totalDays = daysBetweenInclusive(startDate, effectiveEndDate);
+  }
+
+  if (totalDays <= 0 || Math.round(totalDays * 10) % 5 !== 0) {
+    return {
+      requestId: null,
+      violation: { type: 'invalid_duration', reason: 'Leave duration must be in half-day increments (e.g. 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5...).' },
+      convertedToLwp: false, policyNotes: [], totalDays: 0, leaveRequest: null,
+    };
+  }
 
   const { data: employee, error: empError } = await service
     .from('employees')

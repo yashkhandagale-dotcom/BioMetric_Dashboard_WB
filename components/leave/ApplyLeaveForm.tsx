@@ -1,7 +1,9 @@
-﻿'use client';
+'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { CheckCircle2, AlertTriangle, AlertCircle, Info } from 'lucide-react';
+import { CheckCircle2, AlertTriangle, AlertCircle, Info, Calendar } from 'lucide-react';
+import { formatOrdinalDate, formatOrdinalDateRange, DATE_INPUT_MAX, DATE_INPUT_MIN, sanitizeDateString } from '@/lib/dateFormat';
+import { calculateEndDateFromWorkingDays, calculateWorkingDays } from '@/lib/workingDaysCalculator';
 
 const LEAVE_TYPES: { code: 'SL' | 'CL' | 'PL' | 'LWP'; label: string }[] = [
   { code: 'SL', label: 'Sick Leave' },
@@ -26,38 +28,23 @@ type PreviewState = {
 };
 
 const EMPTY_PREVIEW: PreviewState = {
-  loading: false, totalDays: null, notes: [], wouldBeLwp: false, currentBalance: null, error: null,
+  loading: false,
+  totalDays: null,
+  notes: [],
+  wouldBeLwp: false,
+  currentBalance: null,
+  error: null,
 };
 
 function todayYMD() {
   return new Date().toISOString().slice(0, 10);
 }
 
-// Shared field styling so every input/select/textarea in this form is
-// visually identical — including a real focus ring, which the previous
-// version had on none of them.
 const FIELD_CLASS =
-  'w-full bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)] outline-none transition-shadow focus:ring-2 focus:ring-[var(--accent)]/30 focus:border-[var(--accent)]';
+  'w-full bg-[var(--bg-surface)] border border-[var(--border)] rounded-xl px-3 py-2 text-sm text-[var(--text-primary)] outline-none transition-shadow focus:ring-2 focus:ring-[var(--accent)]/30 focus:border-[var(--accent)]';
 
-const LABEL_CLASS = 'block text-xs font-medium text-[var(--text-muted)] mb-1.5';
+const LABEL_CLASS = 'block text-xs font-semibold text-[var(--text-muted)] mb-1.5 uppercase tracking-wider';
 
-// A5 — self-service version of RecordLeaveForm.tsx: same underlying
-// validation/POST contract (minus employee-picker, since it's always
-// "me"), plus action_plan (required for Planned, per schema) which
-// RecordLeaveForm never collects. On submit, a policy violation is
-// never submit-blocking — shown as a warning banner and the request
-// still completes, exactly as A5 specifies.
-//
-// Live preview: every time type/dates/half-day changes, a debounced call
-// to /api/leave/me/requests/preview runs the exact same policy engine as
-// a dry run and surfaces the same warnings inline, before the employee
-// ever hits submit — so nobody finds out about a notice-period shortfall
-// or an LWP conversion only after the fact.
-// Feedback item #7 — "Reapply after rejection": prefills the form from
-// a just-rejected request (dates/half-day/reason carried over, leave
-// type deliberately NOT carried over — the whole point is picking a
-// DIFFERENT applicable type) when opened via LeaveHistoryTable's
-// "Apply for another leave type" action.
 export type ApplyLeaveInitialValues = {
   startDate?: string;
   endDate?: string;
@@ -96,10 +83,10 @@ function Banner({
   const Icon = styles.icon;
 
   return (
-    <div className={`flex items-start gap-2 text-xs rounded-lg px-3 py-2.5 border ${styles.wrap}`}>
-      <Icon className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+    <div className={`flex items-start gap-2 text-xs rounded-xl px-3.5 py-2.5 border ${styles.wrap}`}>
+      <Icon className="h-4 w-4 shrink-0 mt-0.5" />
       <div className="space-y-1 min-w-0">
-        {title && <p className="font-medium">{title}</p>}
+        {title && <p className="font-bold">{title}</p>}
         {children}
       </div>
     </div>
@@ -118,6 +105,7 @@ export default function ApplyLeaveForm({
   const [halfDaySession, setHalfDaySession] = useState<'AM' | 'PM'>(initialValues?.halfDaySession ?? 'AM');
   const [startDate, setStartDate] = useState(initialValues?.startDate ?? '');
   const [endDate, setEndDate] = useState(initialValues?.endDate ?? '');
+  const [numDays, setNumDays] = useState<number>(1);
   const [reason, setReason] = useState(initialValues?.reason ?? '');
   const [actionPlan, setActionPlan] = useState('');
 
@@ -128,12 +116,38 @@ export default function ApplyLeaveForm({
   const [preview, setPreview] = useState<PreviewState>(EMPTY_PREVIEW);
   const previewSeq = useRef(0);
 
-  // Planned Leave is, by definition, planned ahead of time — unlike
-  // Sick/Casual/LWP, which are routinely applied for after the fact
-  // (e.g. you were out sick yesterday and are only applying today), so
-  // the past-date restriction is scoped to PL only.
   const isPlanned = leaveTypeCode === 'PL';
   const minDate = isPlanned ? todayYMD() : undefined;
+
+  // Handle start date change: auto-calculate end date based on numDays
+  function handleStartDateChange(rawStartDate: string) {
+    const newStartDate = sanitizeDateString(rawStartDate);
+    setStartDate(newStartDate);
+    if (newStartDate && newStartDate.length === 10 && !isHalfDay) {
+      const calculatedEnd = calculateEndDateFromWorkingDays(newStartDate, numDays);
+      setEndDate(calculatedEnd);
+    }
+  }
+
+  // Handle number of days change: auto-calculate end date
+  function handleNumDaysChange(daysVal: number) {
+    const validDays = Math.max(1, daysVal);
+    setNumDays(validDays);
+    if (startDate && startDate.length === 10 && !isHalfDay) {
+      const calculatedEnd = calculateEndDateFromWorkingDays(startDate, validDays);
+      setEndDate(calculatedEnd);
+    }
+  }
+
+  // Handle end date change: recalculate working days
+  function handleEndDateChange(rawEndDate: string) {
+    const newEndDate = sanitizeDateString(rawEndDate);
+    setEndDate(newEndDate);
+    if (startDate && newEndDate && newEndDate.length === 10 && newEndDate >= startDate) {
+      const calculatedWorkingDays = calculateWorkingDays(startDate, newEndDate);
+      setNumDays(Math.max(1, calculatedWorkingDays));
+    }
+  }
 
   useEffect(() => {
     const hasDates = isHalfDay ? !!startDate : !!startDate && !!endDate;
@@ -153,11 +167,12 @@ export default function ApplyLeaveForm({
             start_date: startDate,
             end_date: isHalfDay ? startDate : endDate,
             is_half_day: isHalfDay,
+            total_days: isHalfDay ? 0.5 : numDays,
           }),
         });
         const text = await res.text();
         const body = text ? JSON.parse(text) : {};
-        if (seq !== previewSeq.current) return; // a newer request superseded this one
+        if (seq !== previewSeq.current) return;
         if (!res.ok) {
           setPreview({ ...EMPTY_PREVIEW, error: body.error || 'Could not check policy for these dates.' });
           return;
@@ -172,12 +187,14 @@ export default function ApplyLeaveForm({
         });
       } catch {
         if (seq !== previewSeq.current) return;
-        setPreview({ ...EMPTY_PREVIEW, error: 'Could not reach the server to check policy — will still check on submit.' });
+        setPreview({
+          ...EMPTY_PREVIEW,
+          error: 'Could not reach the server to check policy — will still check on submit.',
+        });
       }
     }, 400);
     return () => clearTimeout(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [leaveTypeCode, startDate, endDate, isHalfDay]);
+  }, [leaveTypeCode, startDate, endDate, isHalfDay, numDays]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -218,6 +235,7 @@ export default function ApplyLeaveForm({
           end_date: isHalfDay ? startDate : endDate,
           is_half_day: isHalfDay,
           half_day_session: isHalfDay ? halfDaySession : undefined,
+          total_days: isHalfDay ? 0.5 : numDays,
           reason,
           action_plan: leaveTypeCode === 'PL' ? actionPlan : undefined,
         }),
@@ -239,6 +257,7 @@ export default function ApplyLeaveForm({
     setResult(body);
     setStartDate('');
     setEndDate('');
+    setNumDays(1);
     setReason('');
     setActionPlan('');
     setPreview(EMPTY_PREVIEW);
@@ -252,13 +271,13 @@ export default function ApplyLeaveForm({
       {result && (
         <div className="space-y-2">
           <Banner tone="success">
-            Submitted — {result.leave_request.total_days} day(s) requested. Sent for manager approval.
+            Submitted — {result.leave_request.total_days} day(s) requested. Sent for manager &amp; HR approval.
           </Banner>
           {result.converted_to_lwp && (
             <Banner tone="warning">This entry was auto-converted to Leave Without Pay (LWP) per policy.</Banner>
           )}
           {result.policy_notes.length > 0 && (
-            <Banner tone="warning" title="This request violates policy — it will still be sent for approval:">
+            <Banner tone="warning" title="Policy advisory notes:">
               <ul className="list-disc pl-4 space-y-1">
                 {result.policy_notes.map((note, i) => (
                   <li key={i}>{note}</li>
@@ -284,24 +303,28 @@ export default function ApplyLeaveForm({
             </select>
           </div>
 
-          {/* Matched height + baseline to the select beside it: same
-              label-then-control structure, so the two controls in this
-              row line up exactly instead of the toggle floating at a
-              different vertical position. */}
           <div>
             <label className={LABEL_CLASS}>Duration</label>
             <button
               type="button"
               role="switch"
               aria-checked={isHalfDay}
-              onClick={() => setIsHalfDay((v) => !v)}
-              className={`w-full flex items-center justify-between gap-2 rounded-lg border px-3 py-2 text-sm transition-colors ${
+              onClick={() => {
+                const nextHalf = !isHalfDay;
+                setIsHalfDay(nextHalf);
+                if (nextHalf) {
+                  setEndDate(startDate);
+                } else if (startDate) {
+                  setEndDate(calculateEndDateFromWorkingDays(startDate, numDays));
+                }
+              }}
+              className={`w-full flex items-center justify-between gap-2 rounded-xl border px-3 py-2 text-sm transition-colors ${
                 isHalfDay
                   ? 'border-[var(--accent)] bg-[var(--accent)]/10 text-[var(--accent)]'
                   : 'border-[var(--border)] bg-[var(--bg-surface)] text-[var(--text-primary)]'
               }`}
             >
-              <span>{isHalfDay ? 'Half day' : 'Full day(s)'}</span>
+              <span className="font-semibold">{isHalfDay ? 'Half day' : 'Full day(s)'}</span>
               <span
                 className={`relative inline-flex h-4 w-7 shrink-0 items-center rounded-full transition-colors ${
                   isHalfDay ? 'bg-[var(--accent)]' : 'bg-[var(--border)]'
@@ -324,8 +347,13 @@ export default function ApplyLeaveForm({
               <input
                 type="date"
                 value={startDate}
-                min={minDate}
-                onChange={(e) => setStartDate(e.target.value)}
+                min={minDate ?? DATE_INPUT_MIN}
+                max={DATE_INPUT_MAX}
+                onChange={(e) => {
+                  const v = sanitizeDateString(e.target.value);
+                  setStartDate(v);
+                  setEndDate(v);
+                }}
                 className={FIELD_CLASS}
                 required
               />
@@ -337,35 +365,63 @@ export default function ApplyLeaveForm({
                 onChange={(e) => setHalfDaySession(e.target.value as 'AM' | 'PM')}
                 className={FIELD_CLASS}
               >
-                <option value="AM">AM</option>
-                <option value="PM">PM</option>
+                <option value="AM">AM (Morning Half)</option>
+                <option value="PM">PM (Afternoon Half)</option>
               </select>
             </div>
           </div>
         ) : (
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className={LABEL_CLASS}>Start Date</label>
-              <input
-                type="date"
-                value={startDate}
-                min={minDate}
-                onChange={(e) => setStartDate(e.target.value)}
-                className={FIELD_CLASS}
-                required
-              />
+          <div className="space-y-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div>
+                <label className={LABEL_CLASS}>Start Date</label>
+                <input
+                  type="date"
+                  value={startDate}
+                  min={minDate ?? DATE_INPUT_MIN}
+                  max={DATE_INPUT_MAX}
+                  onChange={(e) => handleStartDateChange(e.target.value)}
+                  className={FIELD_CLASS}
+                  required
+                />
+              </div>
+
+              <div>
+                <label className={LABEL_CLASS}>No. of Working Days</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={60}
+                  step={1}
+                  value={numDays}
+                  onChange={(e) => handleNumDaysChange(parseInt(e.target.value, 10) || 1)}
+                  className={FIELD_CLASS}
+                  required
+                />
+              </div>
+
+              <div>
+                <label className={LABEL_CLASS}>Calculated End Date</label>
+                <input
+                  type="date"
+                  value={endDate}
+                  min={startDate || minDate || DATE_INPUT_MIN}
+                  max={DATE_INPUT_MAX}
+                  onChange={(e) => handleEndDateChange(e.target.value)}
+                  className={FIELD_CLASS}
+                  required
+                />
+              </div>
             </div>
-            <div>
-              <label className={LABEL_CLASS}>End Date</label>
-              <input
-                type="date"
-                value={endDate}
-                min={minDate ?? (startDate || undefined)}
-                onChange={(e) => setEndDate(e.target.value)}
-                className={FIELD_CLASS}
-                required
-              />
-            </div>
+
+            {startDate && endDate && (
+              <div className="flex items-center gap-2 bg-[var(--bg-elevated)]/50 border border-[var(--border)] rounded-xl px-3 py-2 text-xs text-[var(--text-muted)] font-medium">
+                <Calendar size={14} className="text-[var(--accent)] shrink-0" />
+                <span>
+                  Continuous Span: <strong className="text-[var(--text-primary)]">{formatOrdinalDateRange(startDate, endDate, false, numDays)}</strong> (weekends &amp; official holidays skipped).
+                </span>
+              </div>
+            )}
           </div>
         )}
 
@@ -376,6 +432,7 @@ export default function ApplyLeaveForm({
             onChange={(e) => setReason(e.target.value)}
             rows={2}
             className={FIELD_CLASS}
+            placeholder="Brief reason for your leave request"
             required
           />
         </div>
@@ -387,34 +444,36 @@ export default function ApplyLeaveForm({
               value={actionPlan}
               onChange={(e) => setActionPlan(e.target.value)}
               rows={2}
-              placeholder="Who's covering your work while you're away, handover notes, etc."
+              placeholder="Who is covering your work while you're away, handover notes, etc."
               className={FIELD_CLASS}
               required
             />
           </div>
         )}
 
-        {/* Live policy check — same engine as the real submit, run as a
-            dry run so the employee sees any warning (notice shortfall,
-            insufficient balance, probation/notice-period LWP, medical
-            certificate requirement, combining-leave adjacency) before
-            they submit, not only in the after-the-fact banner above. */}
+        {/* Live policy check & balance comparison */}
         {preview.loading && (
-          <p className="text-xs text-[var(--text-muted)]">Checking against leave policy…</p>
+          <p className="text-xs text-[var(--text-muted)] animate-pulse font-medium">Checking against leave balance &amp; policy…</p>
         )}
         {!preview.loading && preview.error && (
-          <p className="text-xs text-[var(--text-muted)]">{preview.error}</p>
+          <p className="text-xs text-red-500 font-medium">{preview.error}</p>
         )}
         {!preview.loading && !preview.error && preview.totalDays !== null && (
           <div className="space-y-2">
-            <p className="text-xs text-[var(--text-muted)]">
-              {preview.totalDays} day(s) requested
-              {preview.currentBalance !== null && ` · ${preview.currentBalance} day(s) of ${leaveTypeCode} remaining`}
-            </p>
+            <div className="flex items-center justify-between text-xs bg-[var(--bg-surface)] border border-[var(--border)] rounded-xl px-3 py-2">
+              <span className="font-semibold text-[var(--text-primary)]">
+                Requested: <span className="text-[var(--accent)]">{preview.totalDays} day(s)</span>
+              </span>
+              {preview.currentBalance !== null && (
+                <span className="text-[var(--text-muted)]">
+                  Available Balance: <strong className="text-[var(--text-primary)]">{preview.currentBalance} {leaveTypeCode}</strong>
+                </span>
+              )}
+            </div>
             {preview.notes.length > 0 && (
               <Banner
                 tone={preview.wouldBeLwp ? 'danger' : 'warning'}
-                title={preview.wouldBeLwp ? 'Heads up — this will be Leave Without Pay:' : 'Heads up, per the leave policy:'}
+                title={preview.wouldBeLwp ? 'Heads up — this will be Leave Without Pay:' : 'Policy Advisory:'}
               >
                 <ul className="list-disc pl-4 space-y-1">
                   {preview.notes.map((note, i) => (
@@ -429,7 +488,7 @@ export default function ApplyLeaveForm({
         <button
           type="submit"
           disabled={loading}
-          className="bg-[var(--accent)] hover:bg-[var(--accent)]/90 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+          className="w-full bg-[var(--accent)] hover:bg-[var(--accent)]/90 disabled:opacity-50 text-white text-sm font-bold px-4 py-2.5 rounded-xl transition-all shadow-md"
         >
           {loading ? 'Submitting…' : 'Apply for Leave'}
         </button>

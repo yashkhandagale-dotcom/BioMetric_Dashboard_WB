@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { DATE_INPUT_MIN, DATE_INPUT_MAX, sanitizeDateString } from '@/lib/dateFormat';
 
 type EmployeeOption = { id: string; full_name: string; employee_code: string; department: string; office: string };
 
@@ -178,7 +179,9 @@ export default function BulkEventsModal({ onClose }: { onClose: () => void }) {
               <input
                 type="date"
                 value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
+                min={DATE_INPUT_MIN}
+                max={DATE_INPUT_MAX}
+                onChange={(e) => setStartDate(sanitizeDateString(e.target.value))}
                 className="w-full bg-[var(--bg-elevated)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)]"
                 required
               />
@@ -188,7 +191,9 @@ export default function BulkEventsModal({ onClose }: { onClose: () => void }) {
               <input
                 type="date"
                 value={endDate}
-                onChange={(e) => setEndDate(e.target.value)}
+                min={startDate || DATE_INPUT_MIN}
+                max={DATE_INPUT_MAX}
+                onChange={(e) => setEndDate(sanitizeDateString(e.target.value))}
                 className="w-full bg-[var(--bg-elevated)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)]"
                 required
               />

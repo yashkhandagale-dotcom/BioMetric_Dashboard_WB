@@ -34,11 +34,15 @@ export async function POST(req: NextRequest) {
     start_date,
     end_date,
     is_half_day,
+    total_days,
+    day_breakdown,
   }: {
     leave_type_code?: string;
     start_date?: string;
     end_date?: string;
     is_half_day?: boolean;
+    total_days?: number;
+    day_breakdown?: { date: string; isHalfDay: boolean; session?: 'AM' | 'PM' }[];
   } = body;
 
   if (!leave_type_code || !start_date) {
@@ -54,6 +58,8 @@ export async function POST(req: NextRequest) {
     startDate: start_date,
     endDate: end_date ?? null,
     isHalfDay: !!is_half_day,
+    totalDays: total_days,
+    dayBreakdown: day_breakdown,
   });
 
   if (result.error) {

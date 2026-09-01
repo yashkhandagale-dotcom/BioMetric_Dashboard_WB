@@ -3,12 +3,15 @@
 import { Calendar, ChevronLeft, ChevronRight, Flag } from 'lucide-react';
 import { WEEKDAY_LABELS, buildMonthGrid, monthLabel } from '@/lib/leaveCalendar';
 import type { CalendarDayEntry } from '@/lib/leaveCalendar';
+import { formatOrdinalDate } from '@/lib/dateFormat';
 
-const MAX_VISIBLE_DOTS = 4;
+const MAX_VISIBLE_BADGES = 3;
 
-function dotClass(colorClass: string): string {
-  const bgPart = colorClass.split(' ')[0] ?? 'bg-[var(--text-muted)]';
-  return bgPart.replace('/20', '/70');
+function getInitials(name: string): string {
+  if (!name) return 'U';
+  const parts = name.trim().split(/\s+/);
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return ((parts[0][0] || '') + (parts[parts.length - 1][0] || '')).toUpperCase();
 }
 
 export default function LeaveCalendar({
@@ -46,7 +49,7 @@ export default function LeaveCalendar({
 
   return (
     <div
-      className="flex flex-col h-[min(78dvh,720px)] border border-[var(--border)] rounded-3xl p-5 shadow-lg"
+      className="flex flex-col h-[min(82dvh,760px)] border border-[var(--border)] rounded-3xl p-5 shadow-lg"
       style={{
         background: 'linear-gradient(170deg, var(--bg-card) 0%, var(--bg-elevated) 100%)',
       }}
@@ -111,13 +114,22 @@ export default function LeaveCalendar({
           const resolved = entries.filter((e) => e.status !== 'unrecorded');
           const holidayNames = holidaysByDate.get(date);
           const isToday = date === todayYMD;
-          const visibleDots = resolved.slice(0, MAX_VISIBLE_DOTS);
-          const dotOverflow = resolved.length - visibleDots.length;
+
+          // Ordered entries: unmarked first (red), then approved/resolved (green), then pending (amber)
+          const allEntries = [
+            ...unresolved,
+            ...resolved.filter((e) => e.status === 'approved'),
+            ...resolved.filter((e) => e.status === 'pending'),
+          ];
+
+          const visibleBadges = allEntries.slice(0, MAX_VISIBLE_BADGES);
+          const overflowCount = allEntries.length - visibleBadges.length;
 
           const tooltipParts = [
-            ...unresolved.map((e) => `${e.employeeName} — unmarked leave`),
-            ...resolved.map((e) => `${e.employeeName} — ${e.label}`),
-            ...(holidayNames ?? []),
+            formatOrdinalDate(date),
+            ...unresolved.map((e) => `• [UNMARKED] ${e.employeeName}`),
+            ...resolved.map((e) => `• [${e.status === 'approved' ? 'MARKED / APPROVED' : 'PENDING'}] ${e.employeeName} (${e.label})`),
+            ...(holidayNames ? holidayNames.map((h) => `• Holiday: ${h}`) : []),
           ];
 
           return (
@@ -126,54 +138,71 @@ export default function LeaveCalendar({
               type="button"
               onClick={() => onDayClick(date)}
               title={tooltipParts.length > 0 ? tooltipParts.join('\n') : undefined}
-              className={`relative flex flex-col items-center justify-between gap-1 border-b border-r p-1.5 transition-all duration-150 ${
+              className={`relative flex flex-col justify-between p-1 sm:p-1.5 border-b border-r transition-all duration-150 text-left ${
                 unresolved.length > 0
-                  ? 'border-red-500/30 bg-red-500/[0.08] hover:bg-red-500/15 text-[var(--text-primary)]'
+                  ? 'border-red-500/30 bg-red-500/[0.06] hover:bg-red-500/12'
                   : inMonth
                   ? 'border-[var(--border)] bg-[var(--bg-surface)] text-[var(--text-primary)] hover:bg-[var(--bg-elevated)]'
                   : 'border-[var(--border)] bg-[var(--bg-elevated)]/25 text-[var(--text-muted)]/40 hover:bg-[var(--bg-elevated)]/50'
               }`}
             >
-              {/* Unmarked leave flag */}
-              {unresolved.length > 0 && (
-                <span className="absolute top-1.5 right-1.5 flex items-center gap-0.5 text-red-500">
-                  <Flag size={11} className="fill-red-500/30 animate-pulse" />
-                  {unresolved.length > 1 && (
-                    <span className="text-[9px] font-black leading-none">{unresolved.length}</span>
-                  )}
-                </span>
-              )}
-
-              {holidayNames && holidayNames.length > 0 && (
+              {/* Top row: Date Number + Holiday flag */}
+              <div className="flex items-center justify-between w-full">
                 <span
-                  className="absolute top-1.5 left-1.5 w-1.5 h-1.5 rounded-full bg-amber-500 ring-2 ring-amber-500/20"
-                  aria-hidden
-                />
-              )}
-
-              <span
-                className={`inline-flex h-6 w-6 sm:h-7 sm:w-7 items-center justify-center rounded-xl text-xs sm:text-sm font-bold transition-all ${
-                  isToday
-                    ? 'bg-gradient-to-br from-[var(--accent)] to-[var(--accent-hover)] text-white shadow-md shadow-[var(--accent)]/30 ring-2 ring-[var(--accent)]/40 ring-offset-2 ring-offset-[var(--bg-surface)]'
-                    : inMonth
-                    ? 'bg-[var(--bg-elevated)]/70 text-[var(--text-primary)]'
-                    : 'bg-transparent text-[var(--text-muted)]/40'
-                }`}
-              >
-                {Number(date.slice(8, 10))}
-              </span>
-
-              {/* Resolved leave dots */}
-              {visibleDots.length > 0 && (
-                <span className="flex items-center gap-1">
-                  {visibleDots.map((entry) => (
-                    <span key={entry.employeeId} className={`w-1.5 h-1.5 rounded-full shadow-sm ${dotClass(entry.colorClass)}`} />
-                  ))}
-                  {dotOverflow > 0 && (
-                    <span className="text-[8px] leading-none text-[var(--text-muted)] font-bold">+{dotOverflow}</span>
-                  )}
+                  className={`inline-flex h-5 w-5 sm:h-6 sm:w-6 items-center justify-center rounded-lg text-[11px] sm:text-xs font-bold transition-all ${
+                    isToday
+                      ? 'bg-gradient-to-br from-[var(--accent)] to-[var(--accent-hover)] text-white shadow-md ring-2 ring-[var(--accent)]/40'
+                      : inMonth
+                      ? 'text-[var(--text-primary)]'
+                      : 'text-[var(--text-muted)]/40'
+                  }`}
+                >
+                  {Number(date.slice(8, 10))}
                 </span>
-              )}
+
+                {/* Holiday marker */}
+                {holidayNames && holidayNames.length > 0 && (
+                  <span
+                    className="w-1.5 h-1.5 rounded-full bg-amber-500 ring-2 ring-amber-500/20"
+                    title={`Holiday: ${holidayNames.join(', ')}`}
+                    aria-hidden
+                  />
+                )}
+              </div>
+
+              {/* Employee Initials Badges list */}
+              <div className="flex flex-wrap items-center gap-1 mt-1 min-h-[20px]">
+                {visibleBadges.map((entry) => {
+                  const initials = getInitials(entry.employeeName);
+                  const isUnmarked = entry.status === 'unrecorded';
+                  const isPending = entry.status === 'pending';
+
+                  const badgeClass = isUnmarked
+                    ? 'bg-red-500/15 border-red-500/35 text-red-700 dark:text-red-300'
+                    : isPending
+                    ? 'bg-amber-500/15 border-amber-500/35 text-amber-700 dark:text-amber-300'
+                    : 'bg-emerald-500/15 border-emerald-500/35 text-emerald-700 dark:text-emerald-300';
+
+                  return (
+                    <span
+                      key={`${entry.employeeId}-${entry.status}`}
+                      title={`${entry.employeeName} (${isUnmarked ? 'Unmarked Leave' : entry.label})`}
+                      className={`inline-flex items-center justify-center px-1.5 py-0.5 rounded-md text-[9px] sm:text-[10px] font-bold border shadow-2xs leading-none ${badgeClass}`}
+                    >
+                      {initials}
+                    </span>
+                  );
+                })}
+
+                {overflowCount > 0 && (
+                  <span
+                    title={`${overflowCount} more employees on leave`}
+                    className="inline-flex items-center justify-center px-1 py-0.5 rounded-md text-[9px] font-bold bg-[var(--bg-elevated)] border border-[var(--border)] text-[var(--text-muted)] leading-none"
+                  >
+                    +{overflowCount}
+                  </span>
+                )}
+              </div>
             </button>
           );
         })}
@@ -187,15 +216,26 @@ export default function LeaveCalendar({
 function Legend() {
   return (
     <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5 mt-3 pt-2.5 border-t border-[var(--border)] text-[11px] text-[var(--text-muted)] shrink-0">
-      <span className="flex items-center gap-1.5 font-medium text-red-500 dark:text-red-400">
-        <Flag size={11} className="fill-red-500/30" />
-        Unmarked leave
+      <span className="flex items-center gap-1.5 font-semibold text-red-600 dark:text-red-400">
+        <span className="w-2.5 h-2.5 rounded-md bg-red-500/20 border border-red-500/40 inline-flex items-center justify-center text-[8px] font-bold text-red-600">
+          ●
+        </span>
+        Red Initials: Unmarked Leave
+      </span>
+      <span className="flex items-center gap-1.5 font-semibold text-emerald-600 dark:text-emerald-400">
+        <span className="w-2.5 h-2.5 rounded-md bg-emerald-500/20 border border-emerald-500/40 inline-flex items-center justify-center text-[8px] font-bold text-emerald-600">
+          ●
+        </span>
+        Green Initials: Marked / Approved Leave
+      </span>
+      <span className="flex items-center gap-1.5 font-semibold text-amber-600 dark:text-amber-400">
+        <span className="w-2.5 h-2.5 rounded-md bg-amber-500/20 border border-amber-500/40 inline-flex items-center justify-center text-[8px] font-bold text-amber-600">
+          ●
+        </span>
+        Amber Initials: Pending Approval
       </span>
       <span className="flex items-center gap-1.5 font-medium">
         <span className="w-2 h-2 rounded-full bg-amber-500" /> Holiday
-      </span>
-      <span className="flex items-center gap-1.5 font-medium">
-        <span className="w-2 h-2 rounded-full bg-[var(--accent)]" /> Leave (click date for details)
       </span>
     </div>
   );

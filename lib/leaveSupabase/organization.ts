@@ -80,27 +80,94 @@ export type ManagerSummary = {
 // to), not for who reports to them; using it for scoping was the bug that
 // made a freshly-assigned department manager see an empty approval queue
 // and an empty team dashboard despite the assignment existing.
+// Recursive Manager Hierarchy Resolution:
+// Head Manager -> Subordinate Managers -> Subordinate Teams / Employees.
+// Traverses reporting_manager_id chains recursively to collect all managers,
+// their assigned departments from department_managers, and all employees/leads
+// within those departments or reporting to any manager/lead in the subtree.
 export async function getManagedEmployeeIds(
   supabase: SupabaseClient,
   managerId: string
 ): Promise<{ employeeIds: string[]; departments: string[]; error: string | null }> {
+  // 1. Recursively find all managers/leads in this manager's subtree
+  const allSubtreeManagerIds = new Set<string>([managerId]);
+  let currentLevel = [managerId];
+  const visited = new Set<string>([managerId]);
+
+  while (currentLevel.length > 0) {
+    const { data: subRows, error: subError } = await supabase
+      .from('employees')
+      .select('id')
+      .in('reporting_manager_id', currentLevel);
+
+    if (subError) {
+      return { employeeIds: [], departments: [], error: subError.message };
+    }
+
+    const nextLevel: string[] = [];
+    for (const r of subRows ?? []) {
+      if (!visited.has(r.id)) {
+        visited.add(r.id);
+        allSubtreeManagerIds.add(r.id);
+        nextLevel.push(r.id);
+      }
+    }
+    currentLevel = nextLevel;
+  }
+
+  const managerIdList = Array.from(allSubtreeManagerIds);
+
+  // 2. Fetch all departments managed by ANY manager in this subtree
   const { data: deptRows, error: deptError } = await supabase
     .from('department_managers')
     .select('department')
-    .eq('manager_id', managerId);
-  if (deptError) return { employeeIds: [], departments: [], error: deptError.message };
+    .in('manager_id', managerIdList);
 
-  const departments = (deptRows ?? []).map((d) => d.department);
-  if (departments.length === 0) return { employeeIds: [], departments: [], error: null };
+  if (deptError) {
+    return { employeeIds: [], departments: [], error: deptError.message };
+  }
 
-  const { data: empRows, error: empError } = await supabase
+  const departments = Array.from(
+    new Set((deptRows ?? []).map((d) => d.department).filter((d): d is string => !!d))
+  ).sort((a, b) => a.localeCompare(b));
+
+  const employeeIdSet = new Set<string>();
+
+  // 3. Include all role='employee'/'lead' members belonging to those managed departments
+  if (departments.length > 0) {
+    const { data: empRows, error: empError } = await supabase
+      .from('employees')
+      .select('id')
+      .in('department', departments)
+      .in('role', ['employee', 'lead']);
+
+    if (empError) {
+      return { employeeIds: [], departments, error: empError.message };
+    }
+    for (const e of empRows ?? []) {
+      employeeIdSet.add(e.id);
+    }
+  }
+
+  // 4. Also include direct reports to any manager/lead in the subtree (via reporting_manager_id or reporting_lead_id)
+  const { data: directReports, error: dirError } = await supabase
     .from('employees')
     .select('id')
-    .in('department', departments)
-    .in('role', ['employee', 'lead']);
-  if (empError) return { employeeIds: [], departments, error: empError.message };
+    .or(`reporting_manager_id.in.(${managerIdList.join(',')}),reporting_lead_id.in.(${managerIdList.join(',')})`);
 
-  return { employeeIds: (empRows ?? []).map((e) => e.id), departments, error: null };
+  if (!dirError && directReports) {
+    for (const r of directReports) {
+      if (r.id !== managerId) {
+        employeeIdSet.add(r.id);
+      }
+    }
+  }
+
+  return {
+    employeeIds: Array.from(employeeIdSet),
+    departments,
+    error: null,
+  };
 }
 
 // Resolves the ONE person who should approve/be notified about a given

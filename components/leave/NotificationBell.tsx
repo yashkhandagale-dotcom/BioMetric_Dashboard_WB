@@ -36,6 +36,8 @@ const GAP = 8;
 
 type PanelStyle = React.CSSProperties;
 
+import { formatOrdinalDate } from '@/lib/dateFormat';
+
 function timeAgo(iso: string): string {
   const diffMs = Date.now() - new Date(iso).getTime();
   const mins = Math.floor(diffMs / 60000);
@@ -45,7 +47,7 @@ function timeAgo(iso: string): string {
   if (hours < 24) return `${hours}h ago`;
   const days = Math.floor(hours / 24);
   if (days < 7) return `${days}d ago`;
-  return new Date(iso).toLocaleDateString('en-US', { day: 'numeric', month: 'short' });
+  return formatOrdinalDate(iso);
 }
 
 function iconFor(type: string, title: string): { Icon: React.ComponentType<{ size?: number; className?: string }>; className: string } {

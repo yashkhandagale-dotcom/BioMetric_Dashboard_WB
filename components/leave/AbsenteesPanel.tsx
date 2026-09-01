@@ -538,10 +538,10 @@ export default function AbsenteesPanel({
   );
 }
 
+import { formatOrdinalDate } from '@/lib/dateFormat';
+
 function formatShortDate(dateStr: string) {
-  const d = new Date(`${dateStr}T00:00:00`);
-  if (Number.isNaN(d.getTime())) return dateStr;
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  return formatOrdinalDate(dateStr);
 }
 
 // Live "Available in Xh Ym" / "Xm" label for a disabled Remind button —

@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react';
 import { CalendarCheck, Sparkles } from 'lucide-react';
 import LeaveHistoryTable, { LeaveHistoryRow } from './LeaveHistoryTable';
 import TeamRegulariseModal from './TeamRegulariseModal';
+import { formatOrdinalDate } from '@/lib/dateFormat';
 
 export type OnLeaveTodayRow = {
   employeeId: string;
@@ -214,6 +215,7 @@ export default function TeamTabs({
 }) {
   const [tab, setTab] = useState<TabId>('today');
   const [teamRegModalOpen, setTeamRegModalOpen] = useState(false);
+  const [selectedTeam, setSelectedTeam] = useState<string>('all');
 
   const [regPage, setRegPage] = useState(1);
 
@@ -223,28 +225,47 @@ export default function TeamTabs({
   const [historySearch, setHistorySearch] = useState('');
   const [historyPage, setHistoryPage] = useState(1);
 
+  const availableTeams = useMemo(() => {
+    return Array.from(new Set(reports.map((r) => r.department).filter(Boolean))).sort();
+  }, [reports]);
+
+  const teamFilteredToday = useMemo(() => {
+    if (selectedTeam === 'all') return onLeaveToday;
+    return onLeaveToday.filter((r) => r.department === selectedTeam);
+  }, [onLeaveToday, selectedTeam]);
+
+  const teamFilteredReports = useMemo(() => {
+    if (selectedTeam === 'all') return reports;
+    return reports.filter((r) => r.department === selectedTeam);
+  }, [reports, selectedTeam]);
+
+  const teamFilteredHistory = useMemo(() => {
+    if (selectedTeam === 'all') return history;
+    return history.filter((r) => r.department === selectedTeam);
+  }, [history, selectedTeam]);
+
   const filteredReports = useMemo(() => {
     const q = rosterSearch.trim().toLowerCase();
-    if (!q) return reports;
-    return reports.filter(
+    if (!q) return teamFilteredReports;
+    return teamFilteredReports.filter(
       (r) =>
         r.full_name.toLowerCase().includes(q) ||
         r.employee_code.toLowerCase().includes(q) ||
         r.department.toLowerCase().includes(q)
     );
-  }, [reports, rosterSearch]);
+  }, [teamFilteredReports, rosterSearch]);
 
   const filteredHistory = useMemo(() => {
     const q = historySearch.trim().toLowerCase();
-    if (!q) return history;
-    return history.filter(
+    if (!q) return teamFilteredHistory;
+    return teamFilteredHistory.filter(
       (r) =>
         r.employeeName.toLowerCase().includes(q) ||
         r.employeeCode.toLowerCase().includes(q) ||
         r.leaveTypeLabel.toLowerCase().includes(q) ||
         r.status.toLowerCase().includes(q)
     );
-  }, [history, historySearch]);
+  }, [teamFilteredHistory, historySearch]);
 
   const regTotalPages = Math.max(1, Math.ceil(regularisations.length / REGULARISATIONS_PAGE_SIZE));
   const regPageClamped = Math.min(regPage, regTotalPages);
@@ -269,10 +290,45 @@ export default function TeamTabs({
 
   return (
     <div className="space-y-4">
+      {/* Team Filter selector when multiple teams exist */}
+      {availableTeams.length > 1 && (
+        <div className="flex items-center justify-between bg-[var(--bg-elevated)]/50 border border-[var(--border)] rounded-2xl px-4 py-2.5 shadow-xs">
+          <div className="flex items-center gap-2">
+            <label htmlFor="team-tab-select" className="text-xs font-bold text-[var(--text-muted)] uppercase tracking-wider">
+              Team Filter:
+            </label>
+            <select
+              id="team-tab-select"
+              value={selectedTeam}
+              onChange={(e) => {
+                setSelectedTeam(e.target.value);
+                setRosterPage(1);
+                setHistoryPage(1);
+              }}
+              className="bg-[var(--bg-surface)] border border-[var(--border)] rounded-xl px-3 py-1.5 text-xs font-bold text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/30"
+            >
+              <option value="all">All Teams ({availableTeams.length})</option>
+              {availableTeams.map((t) => (
+                <option key={t} value={t}>{t}</option>
+              ))}
+            </select>
+          </div>
+          {selectedTeam !== 'all' && (
+            <button
+              type="button"
+              onClick={() => setSelectedTeam('all')}
+              className="text-xs font-semibold text-[var(--accent)] hover:underline"
+            >
+              Show All Teams
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Tab bar header + Action button */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[var(--border)] pb-1 mb-5">
         <div role="tablist" className="flex items-center gap-6 overflow-x-auto">
-          <TabButton active={tab === 'today'} dot="emerald" label="On Leave Today" count={onLeaveToday.length} onClick={() => setTab('today')} />
+          <TabButton active={tab === 'today'} dot="emerald" label="On Leave Today" count={teamFilteredToday.length} onClick={() => setTab('today')} />
           <TabButton
             active={tab === 'regularisations'}
             dot="amber"
@@ -280,8 +336,8 @@ export default function TeamTabs({
             count={regularisations.length}
             onClick={() => setTab('regularisations')}
           />
-          <TabButton active={tab === 'roster'} label="Roster & Balances" count={reports.length} onClick={() => setTab('roster')} />
-          <TabButton active={tab === 'history'} label="Team Leave History" count={history.length} onClick={() => setTab('history')} />
+          <TabButton active={tab === 'roster'} label="Roster & Balances" count={teamFilteredReports.length} onClick={() => setTab('roster')} />
+          <TabButton active={tab === 'history'} label="Team Leave History" count={teamFilteredHistory.length} onClick={() => setTab('history')} />
         </div>
 
         {/* Manager Action: Regularise Team Day */}
@@ -346,7 +402,7 @@ export default function TeamTabs({
                     <li key={row.id} className="py-3">
                       <div className="flex items-baseline justify-between gap-3">
                         <p className="text-sm font-medium text-[var(--text-primary)] truncate">{row.employeeName}</p>
-                        <p className="text-xs text-[var(--text-muted)] shrink-0">{row.date}</p>
+                        <p className="text-xs text-[var(--text-muted)] shrink-0 font-medium">{formatOrdinalDate(row.date)}</p>
                       </div>
                       <p className="text-xs text-[var(--text-muted)] mt-0.5">
                         {row.reason} <span className="text-[var(--text-muted)]/70">— by {row.regularisedByName}</span>

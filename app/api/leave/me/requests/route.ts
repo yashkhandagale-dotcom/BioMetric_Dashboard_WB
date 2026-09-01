@@ -1,4 +1,4 @@
-﻿import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { createLeaveClient } from '@/lib/leaveSupabase/server';
 import { TrackerLeaveTypeCode } from '@/lib/leaveSupabase/leaveTypeMap';
 import { applyLeavePolicyAndMutateBalance } from '@/lib/leaveSupabase/applyLeavePolicyAndMutateBalance';
@@ -45,6 +45,8 @@ export async function POST(req: NextRequest) {
     end_date,
     is_half_day,
     half_day_session,
+    total_days,
+    day_breakdown,
     reason,
     action_plan,
   }: {
@@ -53,6 +55,8 @@ export async function POST(req: NextRequest) {
     end_date?: string;
     is_half_day?: boolean;
     half_day_session?: 'AM' | 'PM';
+    total_days?: number;
+    day_breakdown?: { date: string; isHalfDay: boolean; session?: 'AM' | 'PM' }[];
     reason?: string;
     action_plan?: string;
   } = body;
@@ -66,17 +70,9 @@ export async function POST(req: NextRequest) {
   if (!VALID_CODES.includes(leave_type_code as TrackerLeaveTypeCode)) {
     return NextResponse.json({ error: `leave_type_code must be one of ${VALID_CODES.join(', ')}` }, { status: 400 });
   }
-  if (is_half_day && half_day_session !== 'AM' && half_day_session !== 'PM') {
+  if (is_half_day && total_days === 0.5 && half_day_session !== 'AM' && half_day_session !== 'PM') {
     return NextResponse.json({ error: 'half_day_session (AM or PM) is required when is_half_day is true' }, { status: 400 });
   }
-  // Schema requires action_plan for Planned leave (see supabase-leave/
-  // schema.sql's leave_requests.action_plan comment: "required for
-  // planned/non-emergency leave"). Enforced here as request-shape
-  // validation, same tier as the other required-field checks above —
-  // not a policy-engine violation, so it's the one thing about this
-  // form that genuinely blocks submission per A5's own wording ("same
-  // underlying validation as RecordLeaveForm.tsx" + the schema's
-  // existing requirement, not a new policy rule).
   if (leave_type_code === 'PL' && !action_plan?.trim()) {
     return NextResponse.json({ error: 'An action plan is required for Planned leave.' }, { status: 400 });
   }
@@ -88,6 +84,8 @@ export async function POST(req: NextRequest) {
     endDate: end_date ?? null,
     isHalfDay: !!is_half_day,
     halfDaySession: is_half_day ? half_day_session : undefined,
+    totalDays: total_days,
+    dayBreakdown: day_breakdown,
     reason,
     actionPlan: action_plan,
     source: 'self_apply',

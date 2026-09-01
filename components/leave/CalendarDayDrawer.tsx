@@ -6,16 +6,10 @@ import RecordLeaveDrawer from './RecordLeaveDrawer';
 import ViolationBadge from './ViolationBadge';
 import type { SubmitResult } from './RecordLeaveForm';
 import type { CalendarDayEntry } from '@/lib/leaveCalendar';
+import { formatOrdinalDateWithWeekday } from '@/lib/dateFormat';
 
 function formatDrawerDate(date: string) {
-  const d = new Date(`${date}T00:00:00`);
-  if (Number.isNaN(d.getTime())) return date;
-  return d.toLocaleDateString('en-US', {
-    weekday: 'long',
-    month: 'long',
-    day: 'numeric',
-    year: 'numeric',
-  });
+  return formatOrdinalDateWithWeekday(date);
 }
 
 function initials(name: string) {

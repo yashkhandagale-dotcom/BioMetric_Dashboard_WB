@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { DATE_INPUT_MIN, DATE_INPUT_MAX, sanitizeDateString } from '@/lib/dateFormat';
 
 // Feedback item #2 — Leave Regularisation. Small inline modal (not the
 // full slide-over drawer pattern used for Apply/Record Leave — this is
@@ -91,7 +92,9 @@ export default function RegulariseButton({ employeeId, employeeName }: { employe
                     <input
                       type="date"
                       value={date}
-                      onChange={(e) => setDate(e.target.value)}
+                      min={DATE_INPUT_MIN}
+                      max={DATE_INPUT_MAX}
+                      onChange={(e) => setDate(sanitizeDateString(e.target.value))}
                       className="w-full bg-[var(--bg-elevated)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)]"
                     />
                   </div>

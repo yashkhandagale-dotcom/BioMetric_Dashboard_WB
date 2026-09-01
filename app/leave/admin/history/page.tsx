@@ -15,6 +15,7 @@ import type { AbsenteeCandidate, HalfDayCandidate } from '@/lib/attendanceExcept
 import { currentMonthKey, mergeCalendarDay, monthBounds } from '@/lib/leaveCalendar';
 import type { CalendarDayEntry } from '@/lib/leaveCalendar';
 import { useDebounce } from '@/lib/useDebounce';
+import { DATE_INPUT_MIN, DATE_INPUT_MAX, sanitizeDateString } from '@/lib/dateFormat';
 
 type EmployeeOption = { id: string; full_name: string; employee_code: string; department: string; office: string };
 
@@ -521,7 +522,9 @@ export default function LeaveTrackerPage() {
                     <input
                       type="date"
                       value={attendanceDate}
-                      onChange={(e) => setAttendanceDate(e.target.value)}
+                      min={DATE_INPUT_MIN}
+                      max={DATE_INPUT_MAX}
+                      onChange={(e) => setAttendanceDate(sanitizeDateString(e.target.value))}
                       className="w-full bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)]"
                     />
                   </div>
@@ -530,8 +533,9 @@ export default function LeaveTrackerPage() {
                     <input
                       type="date"
                       value={attendanceEndDate}
-                      min={attendanceDate || undefined}
-                      onChange={(e) => setAttendanceEndDate(e.target.value)}
+                      min={attendanceDate || DATE_INPUT_MIN}
+                      max={DATE_INPUT_MAX}
+                      onChange={(e) => setAttendanceEndDate(sanitizeDateString(e.target.value))}
                       placeholder="Same as From Date"
                       className="w-full bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)]"
                     />
@@ -591,7 +595,9 @@ export default function LeaveTrackerPage() {
                     <input
                       type="date"
                       value={startDate}
-                      onChange={(e) => setStartDate(e.target.value)}
+                      min={DATE_INPUT_MIN}
+                      max={DATE_INPUT_MAX}
+                      onChange={(e) => setStartDate(sanitizeDateString(e.target.value))}
                       className="w-full bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)]"
                     />
                   </div>
@@ -600,7 +606,9 @@ export default function LeaveTrackerPage() {
                     <input
                       type="date"
                       value={endDate}
-                      onChange={(e) => setEndDate(e.target.value)}
+                      min={startDate || DATE_INPUT_MIN}
+                      max={DATE_INPUT_MAX}
+                      onChange={(e) => setEndDate(sanitizeDateString(e.target.value))}
                       className="w-full bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)]"
                     />
                   </div>

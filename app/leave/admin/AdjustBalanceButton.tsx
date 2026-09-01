@@ -47,6 +47,7 @@ export default function AdjustBalanceButton({
   fyStartYear,
   currentRole,
   currentStatus,
+  currentDepartment,
   currentNoticePeriodDays,
   currentLeadId,
   currentManagerId,
@@ -57,6 +58,7 @@ export default function AdjustBalanceButton({
   fyStartYear: number;
   currentRole?: string;
   currentStatus?: string;
+  currentDepartment?: string;
   currentNoticePeriodDays?: number;
   currentLeadId?: string | null;
   currentManagerId?: string | null;
@@ -78,6 +80,7 @@ export default function AdjustBalanceButton({
   // Details tab state
   const [role, setRole] = useState(currentRole ?? 'employee');
   const [status, setStatus] = useState(currentStatus ?? 'active');
+  const [department, setDepartment] = useState(currentDepartment ?? '');
   const [noticePeriodDays, setNoticePeriodDays] = useState(String(currentNoticePeriodDays ?? 30));
   const [leadId, setLeadId] = useState(currentLeadId ?? '');
   const [managerId, setManagerId] = useState(currentManagerId ?? '');
@@ -95,6 +98,7 @@ export default function AdjustBalanceButton({
     if (open) {
       setRole(currentRole ?? 'employee');
       setStatus(currentStatus ?? 'active');
+      setDepartment(currentDepartment ?? '');
       setNoticePeriodDays(String(currentNoticePeriodDays ?? 30));
       setLeadId(currentLeadId ?? '');
       setManagerId(currentManagerId ?? '');
@@ -102,7 +106,7 @@ export default function AdjustBalanceButton({
       setError(null);
       setSuccess(null);
     }
-  }, [open, currentRole, currentStatus, currentNoticePeriodDays, currentLeadId, currentManagerId, currentManagedDepartments]);
+  }, [open, currentRole, currentStatus, currentDepartment, currentNoticePeriodDays, currentLeadId, currentManagerId, currentManagedDepartments]);
 
   useEffect(() => {
     if (!open || tab !== 'details') return;
@@ -210,6 +214,7 @@ export default function AdjustBalanceButton({
     const payload: Record<string, unknown> = {
       role,
       employment_status: status,
+      department: department || null,
     };
     if (status === 'notice_period') {
       const days = parseInt(noticePeriodDays, 10);
@@ -396,6 +401,23 @@ export default function AdjustBalanceButton({
                 >
                   {ROLES.map((r) => (
                     <option key={r.value} value={r.value}>{r.label}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Department Selector */}
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1.5">
+                  Department
+                </label>
+                <select
+                  value={department}
+                  onChange={(e) => setDepartment(e.target.value)}
+                  className="w-full bg-[var(--bg-surface)] border border-[var(--border)] rounded-xl px-3.5 py-2.5 text-sm font-semibold text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/30 focus:border-[var(--accent)]"
+                >
+                  <option value="">— Select Department —</option>
+                  {departments.map((d) => (
+                    <option key={d.department} value={d.department}>{d.department}</option>
                   ))}
                 </select>
               </div>

@@ -284,6 +284,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const {
     role,
     employment_status,
+    department,
     reporting_lead_id,
     reporting_manager_id,
     managed_departments, // string[] — only meaningful when role (new or existing) === 'manager'
@@ -294,7 +295,7 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   // below to clear out fields that don't apply to the resolved role.
   const { data: existing, error: existingError } = await supabase
     .from('employees')
-    .select('id, role')
+    .select('id, role, department')
     .eq('id', id)
     .maybeSingle();
   if (existingError) {
@@ -311,6 +312,9 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
 
   const update: Record<string, unknown> = { updated_at: new Date().toISOString() };
   if (role !== undefined) update.role = role;
+  if (department !== undefined && typeof department === 'string' && department.trim()) {
+    update.department = department.trim();
+  }
 
   if (employment_status !== undefined) {
     if (!STATUSES.includes(employment_status)) {

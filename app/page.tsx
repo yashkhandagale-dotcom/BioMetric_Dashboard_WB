@@ -50,24 +50,12 @@ export default async function Page({
   }
 
   let teamCodes: string[] | undefined;
+  let managedDepartments: string[] | undefined;
   if (employee.role === 'manager' || employee.role === 'lead') {
     const supabase = await createLeaveClient();
     if (employee.role === 'manager') {
-      // Department-based, matching /leave/approvals and /leave/team —
-      // see getManagedEmployeeIds's comment for why reporting_manager_id
-      // is the wrong field here (it's a manager's own reporting chain,
-      // not who reports to them). Using the wrong field here specifically
-      // was the second half of the bug where a freshly department-
-      // assigned manager saw an empty "Team Dashboard" alongside an
-      // empty approval queue.
-      //
-      // Deliberately NOT including employee.employee_code (the manager's
-      // own attendance) here — "Team Dashboard" means the team under
-      // them, not their own row mixed in. A manager is (by construction,
-      // per getManagedEmployeeIds) never a role='employee'/'lead' member
-      // of the department they manage, so this was never needed for
-      // completeness either — it was just wrong.
-      const { employeeIds } = await getManagedEmployeeIds(supabase, employee.id);
+      const { employeeIds, departments } = await getManagedEmployeeIds(supabase, employee.id);
+      managedDepartments = departments;
       if (employeeIds.length > 0) {
         const { data: reports } = await supabase.from('employees').select('employee_code').in('id', employeeIds);
         teamCodes = (reports ?? []).map((r) => r.employee_code);
@@ -77,13 +65,14 @@ export default async function Page({
     } else {
       const { data: reports } = await supabase
         .from('employees')
-        .select('employee_code')
+        .select('employee_code, department')
         .eq('reporting_lead_id', employee.id);
       teamCodes = (reports ?? []).map((r) => r.employee_code);
+      managedDepartments = Array.from(new Set((reports ?? []).map((r) => r.department).filter(Boolean)));
     }
   }
 
   const role = employee.role === 'hr' || employee.role === 'hr_super_admin' ? 'hr' : employee.role;
 
-  return <DashboardClient role={role} teamCodes={teamCodes} />;
+  return <DashboardClient role={role} teamCodes={teamCodes} managedDepartments={managedDepartments} />;
 }
