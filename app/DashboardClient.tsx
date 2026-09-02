@@ -423,8 +423,9 @@ function HRDashboard() {
       ]);
       if (cancelled) return;
       setHolidays(h);
+      let l: LeaveRecord[] = [];
       try {
-        const l = await getLeaveRecords(selectedMonthKey);
+        l = await getLeaveRecords(selectedMonthKey);
         if (!cancelled) setLeaveRecords(l);
       } catch (err) {
         if (!cancelled) {
