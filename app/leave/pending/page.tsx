@@ -33,7 +33,7 @@ export default async function PendingSignupPage() {
 
   const { data: pending } = await supabase
     .from('pending_employee_signups')
-    .select('full_name, email, avatar_url')
+    .select('full_name, email, avatar_url, status, rejection_reason')
     .eq('auth_user_id', user.id)
     .maybeSingle();
 
@@ -42,6 +42,46 @@ export default async function PendingSignupPage() {
     // being promoted, or this is a stray session). Don't strand them on
     // a blank page; the login page's own error messaging covers this.
     redirect('/login?error=no_employee_record');
+  }
+
+  // If the signup was rejected by HR, show rejection message
+  if (pending.status === 'rejected') {
+    const firstName = pending.full_name?.split(' ')[0] || 'there';
+    return (
+      <div className="min-h-screen bg-[var(--bg-surface)] text-[var(--text-primary)] flex flex-col">
+        <div className="flex items-center justify-end px-4 sm:px-6 py-4">
+          <LeaveThemeSync />
+        </div>
+
+        <div className="flex-1 flex items-center justify-center px-4 pb-16">
+          <div className="w-full max-w-md text-center space-y-5">
+            <div className="w-16 h-16 rounded-full bg-red-500/10 border border-red-600/30 flex items-center justify-center text-3xl mx-auto">
+              ✕
+            </div>
+
+            <div>
+              <h1 className="text-xl font-semibold text-red-600 dark:text-red-400">Registration Rejected</h1>
+              <p className="text-[var(--text-muted)] text-sm mt-2 leading-relaxed">
+                Your registration has been rejected by HR. Please contact your HR department for more information.
+              </p>
+            </div>
+
+            {pending.rejection_reason && (
+              <div className="bg-red-500/10 border border-red-600/30 rounded-xl p-4 text-left">
+                <p className="text-xs text-red-700 dark:text-red-300 font-medium mb-1">Reason:</p>
+                <p className="text-xs text-red-600 dark:text-red-400">{pending.rejection_reason}</p>
+              </div>
+            )}
+
+            <div className="bg-[var(--bg-elevated)]/40 border border-[var(--border)] rounded-xl p-4 text-left text-xs text-[var(--text-muted)]">
+              <p>
+                <span className="text-[var(--text-primary)] font-medium">Account:</span> {pending.email}
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   const firstName = pending.full_name?.split(' ')[0] || 'there';

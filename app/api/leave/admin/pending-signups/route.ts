@@ -8,6 +8,8 @@ import { getCurrentEmployee } from '@/lib/leaveSupabase/getCurrentEmployee';
 // 0017_pending_signups_and_probation.sql and app/api/auth/callback/
 // route.ts for how rows land here in the first place — always a Google
 // sign-in with no matching employees row yet, never anything HR typed.
+// Only returns signups with status='pending' — acknowledged and rejected
+// ones are filtered out from the queue.
 export async function GET() {
   const requester = await getCurrentEmployee();
   if (!requester || (requester.role !== 'hr' && requester.role !== 'hr_super_admin')) {
@@ -18,6 +20,7 @@ export async function GET() {
   const { data, error } = await service
     .from('pending_employee_signups')
     .select('id, auth_user_id, email, full_name, avatar_url, created_at')
+    .eq('status', 'pending')
     .order('created_at', { ascending: true });
 
   if (error) {

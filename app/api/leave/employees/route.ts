@@ -167,10 +167,15 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: linkExistingError.message }, { status: 400 });
     }
 
-    await service
-      .from('pending_employee_signups')
-      .delete()
-      .eq('id', pending_signup_id);
+    // Update status to 'acknowledged' instead of deleting to preserve
+    // the audit trail (when acknowledged, who, and the creation/rejection
+    // history).
+    await service.from('pending_employee_signups').update({
+      status: 'acknowledged',
+      acknowledged_at: new Date().toISOString(),
+      acknowledged_by: requester.id,
+      updated_at: new Date().toISOString(),
+    }).eq('id', pending_signup_id);
 
     return NextResponse.json({
       employee: linkedEmployee,
@@ -216,8 +221,15 @@ export async function POST(req: NextRequest) {
   if (pending_signup_id) {
     // Best-effort cleanup — the employee row is already created and
     // linked at this point regardless, so a failure here is surfaced as
-    // a warning, not rolled back into an error.
-    await service.from('pending_employee_signups').delete().eq('id', pending_signup_id);
+    // a warning, not rolled back into an error. Update status to
+    // 'acknowledged' instead of deleting to preserve the audit trail
+    // (when acknowledged, who, and the creation/rejection history).
+    await service.from('pending_employee_signups').update({
+      status: 'acknowledged',
+      acknowledged_at: new Date().toISOString(),
+      acknowledged_by: requester.id,
+      updated_at: new Date().toISOString(),
+    }).eq('id', pending_signup_id);
   }
 
   if (role === 'manager' && Array.isArray(managed_departments) && managed_departments.length > 0) {

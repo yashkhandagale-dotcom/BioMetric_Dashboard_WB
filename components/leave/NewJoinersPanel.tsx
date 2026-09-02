@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { UserRoundPlus, X } from 'lucide-react';
+import { UserRoundPlus, X, AlertCircle } from 'lucide-react';
 import AddEmployeeForm, { type PendingSignup } from '@/app/leave/admin/employees/AddEmployeeForm';
 
 type SignupRow = {
@@ -11,6 +11,12 @@ type SignupRow = {
   full_name: string | null;
   avatar_url: string | null;
   created_at: string;
+};
+
+type RejectState = {
+  signup: SignupRow;
+  reason: string;
+  isSubmitting: boolean;
 };
 
 // Simplified onboarding flow: shows the queue of people who've already
@@ -39,6 +45,7 @@ export default function NewJoinersPanel() {
   const router = useRouter();
   const [signups, setSignups] = useState<SignupRow[] | null>(null);
   const [acking, setAcking] = useState<PendingSignup | null>(null);
+  const [rejecting, setRejecting] = useState<RejectState | null>(null);
   const [mounted, setMounted] = useState(false);
 
   async function load() {
@@ -53,27 +60,57 @@ export default function NewJoinersPanel() {
     }
   }
 
+  async function handleReject() {
+    if (!rejecting) return;
+
+    setRejecting({ ...rejecting, isSubmitting: true });
+
+    try {
+      const res = await fetch(`/api/leave/admin/pending-signups/${rejecting.signup.id}/reject`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rejectionReason: rejecting.reason }),
+      });
+
+      if (res.ok) {
+        setRejecting(null);
+        load();
+        router.refresh();
+      } else {
+        const error = await res.json();
+        alert(`Error: ${error.error || 'Failed to reject signup'}`);
+        setRejecting({ ...rejecting, isSubmitting: false });
+      }
+    } catch (error) {
+      alert(`Error: ${error instanceof Error ? error.message : 'Failed to reject signup'}`);
+      setRejecting({ ...rejecting, isSubmitting: false });
+    }
+  }
+
   useEffect(() => {
     load();
   }, []);
 
   useEffect(() => {
-    if (!acking) {
+    if (!acking && !rejecting) {
       setMounted(false);
       return;
     }
     const frame = requestAnimationFrame(() => setMounted(true));
     return () => cancelAnimationFrame(frame);
-  }, [acking]);
+  }, [acking, rejecting]);
 
   useEffect(() => {
-    if (!acking) return;
+    if (!acking && !rejecting) return;
     function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') setAcking(null);
+      if (e.key === 'Escape') {
+        setAcking(null);
+        setRejecting(null);
+      }
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [acking]);
+  }, [acking, rejecting]);
 
   if (!signups || signups.length === 0) return null;
 
@@ -132,17 +169,28 @@ export default function NewJoinersPanel() {
                   </p>
                 </div>
               </div>
-              <button
-                type="button"
-                onClick={() =>
-                  setAcking({ id: s.id, email: s.email, fullName: s.full_name || s.email, avatarUrl: s.avatar_url })
-                }
-                className={`shrink-0 border border-emerald-600/40 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-500/10 text-xs font-medium px-3.5 py-1.5 rounded-full transition-colors ${
-                  index === 0 ? 'pulse-attention' : ''
-                }`}
-              >
-                Acknowledge
-              </button>
+              <div className="shrink-0 flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setAcking({ id: s.id, email: s.email, fullName: s.full_name || s.email, avatarUrl: s.avatar_url })
+                  }
+                  className={`border border-emerald-600/40 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-500/10 text-xs font-medium px-3.5 py-1.5 rounded-full transition-colors ${
+                    index === 0 ? 'pulse-attention' : ''
+                  }`}
+                >
+                  Acknowledge
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setRejecting({ signup: s, reason: '', isSubmitting: false })
+                  }
+                  className="border border-red-600/40 text-red-700 dark:text-red-400 hover:bg-red-500/10 text-xs font-medium px-3.5 py-1.5 rounded-full transition-colors"
+                >
+                  Reject
+                </button>
+              </div>
             </div>
           ))}
         </div>
@@ -177,6 +225,87 @@ export default function NewJoinersPanel() {
                 router.refresh();
               }}
             />
+          </div>
+        </div>
+      )}
+
+      {rejecting && (
+        <div
+          className={`fixed inset-0 z-50 bg-black/50 backdrop-blur-[2px] flex items-start sm:items-center justify-center p-4 overflow-y-auto transition-opacity duration-150 ease-out ${
+            mounted ? 'opacity-100' : 'opacity-0'
+          }`}
+          onClick={() => !rejecting.isSubmitting && setRejecting(null)}
+        >
+          <div
+            className={`relative w-full max-w-md my-8 transition-all duration-150 ease-out ${
+              mounted ? 'opacity-100 translate-y-0 scale-100' : 'opacity-0 translate-y-1 scale-[0.98]'
+            }`}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              type="button"
+              onClick={() => !rejecting.isSubmitting && setRejecting(null)}
+              aria-label="Close"
+              className="absolute -top-2 -right-2 z-10 w-8 h-8 rounded-full bg-[var(--bg-elevated)] border border-[var(--border)] flex items-center justify-center text-[var(--text-muted)] hover:text-[var(--text-primary)] shadow-sm transition-colors disabled:opacity-50"
+              disabled={rejecting.isSubmitting}
+            >
+              <X size={16} />
+            </button>
+
+            <div className="bg-[var(--bg-elevated)] rounded-xl border border-[var(--border)] overflow-hidden">
+              <div className="p-6 space-y-4">
+                <div className="flex items-start gap-3">
+                  <div className="w-10 h-10 rounded-full bg-red-500/10 flex items-center justify-center flex-shrink-0">
+                    <AlertCircle size={20} className="text-red-600 dark:text-red-400" />
+                  </div>
+                  <div>
+                    <h3 className="font-semibold text-[var(--text-primary)]">Reject signup?</h3>
+                    <p className="text-xs text-[var(--text-muted)] mt-1">
+                      This will remove {rejecting.signup.full_name || rejecting.signup.email} from the onboarding queue.
+                    </p>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-[var(--text-primary)] mb-2">
+                    Reason for rejection (optional)
+                  </label>
+                  <textarea
+                    value={rejecting.reason}
+                    onChange={(e) =>
+                      setRejecting({ ...rejecting, reason: e.target.value })
+                    }
+                    placeholder="e.g., Duplicate account, Invalid credentials, etc."
+                    className="w-full text-xs px-3 py-2 bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:ring-2 focus:ring-red-500/30 disabled:opacity-50"
+                    rows={3}
+                    disabled={rejecting.isSubmitting}
+                    maxLength={500}
+                  />
+                  <p className="text-[10px] text-[var(--text-muted)] mt-1">
+                    {rejecting.reason.length}/500
+                  </p>
+                </div>
+
+                <div className="flex gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => !rejecting.isSubmitting && setRejecting(null)}
+                    className="flex-1 text-xs font-medium px-3 py-2 rounded-lg bg-[var(--bg-surface)] hover:bg-[var(--bg-surface)]/80 text-[var(--text-primary)] transition-colors disabled:opacity-50"
+                    disabled={rejecting.isSubmitting}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleReject}
+                    className="flex-1 text-xs font-medium px-3 py-2 rounded-lg bg-red-600 hover:bg-red-700 text-white transition-colors disabled:opacity-50"
+                    disabled={rejecting.isSubmitting}
+                  >
+                    {rejecting.isSubmitting ? 'Rejecting...' : 'Reject'}
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       )}
