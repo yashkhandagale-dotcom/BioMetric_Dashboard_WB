@@ -42,11 +42,17 @@ export interface LeaveTypeConfig {
 export async function getLeavePolicyConfig(
   supabase: SupabaseClient
 ): Promise<{ config: LeavePolicyConfig; error: string | null }> {
+  // Defensive read: if the table somehow contains duplicate rows for id=1,
+  // prefer the most-recent row instead of throwing. Order by updated_at
+  // descending and limit to 1 so we always get a single row even when
+  // duplicates exist in the DB (data-fix should be applied later).
   const { data, error } = await supabase
     .from('leave_policy_config')
     .select('probation_unlock_months, notice_period_default_days, reminder_interval_hours, final_reminder_day, manual_reminder_cooldown_hours')
     .eq('id', 1)
-    .single();
+    .order('updated_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
   if (error || !data) {
     // Same defaults the old hardcoded lib/leavePolicy.ts used — a missing
     // config row should degrade to the old behavior, not break the app.
