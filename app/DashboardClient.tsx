@@ -8,9 +8,9 @@ import {
   getMapping, saveMapping, getRecords, saveRecords, addUploadedMonth, getUploadedMonths,
 } from '@/lib/storage';
 import { getThresholds, saveThresholds, DEFAULT_THRESHOLDS } from '@/lib/settings';
-import { getLeaveRecords } from '@/lib/leaveTrackerRead';
+import { getLeaveRecords, lookupLeavesForItems } from '@/lib/leaveTrackerRead';
 import { getAllKnownDepartments, loadEmployeeDirectory, useEmployeeDirectorySync } from '@/lib/employeeStore';
-import { buildLeaveMap } from '@/lib/useDashboardData';
+import { buildLeaveMap, isAbsent } from '@/lib/useDashboardData';
 import { parseCSVHeaders, parseCSVWithMapping } from '@/lib/parseCSV';
 import { validateFile } from '@/lib/validateFile';
 import { readSharedData } from '@/lib/sharedLink';
@@ -437,6 +437,33 @@ function HRDashboard() {
       const officeRecs = (await Promise.all(sameMonth.map(m => getRecords(m.key)))).flat();
       if (cancelled) return;
       setAllOfficeRecords(officeRecs);
+
+      // Fallback: some absent days may be marked in the Leave Tracker under
+      // statuses not included in the monthly read. For any absent day that
+      // wasn't returned in the initial monthly leave fetch, call the batch
+      // lookup endpoint and merge results into the leaveRecords state.
+      try {
+        const missingItems: { employeeCode: string; date: string; officeCode: string }[] = [];
+        const existingLeaves = Array.isArray(l) ? l : [];
+        for (const r of officeRecs) {
+          if (isAbsent(r.status)) {
+            const found = existingLeaves.some(le => le.employeeCode === r.employeeCode && le.date === r.date);
+            if (!found) missingItems.push({ employeeCode: r.employeeCode, date: r.date, officeCode: r.officeCode });
+          }
+        }
+        if (missingItems.length > 0) {
+          const lookup = await lookupLeavesForItems(missingItems);
+          // merge deduplicated
+          const merged = [...existingLeaves];
+          for (const rec of lookup) {
+            if (!merged.some(m => m.employeeCode === rec.employeeCode && m.date === rec.date)) merged.push(rec);
+          }
+          if (!cancelled) setLeaveRecords(merged);
+        }
+      } catch (err) {
+        // failure of the fallback should not block the dashboard — log and continue
+        console.warn('leave lookup batch failed', err);
+      }
     })();
     return () => { cancelled = true; };
   }, [selectedMonthKey]);

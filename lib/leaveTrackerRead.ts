@@ -84,3 +84,33 @@ export async function getAllWorkforceEvents(monthKeys: string[]): Promise<Workfo
 export async function getWorkforceEvents(monthKey: string): Promise<WorkforceEvent[]> {
   return getAllWorkforceEvents([monthKey]);
 }
+
+/**
+ * Batch lookup helper: accepts an array of { employeeCode, date, officeCode }
+ * and returns any matching LeaveRecord entries from the Leave Tracker.
+ * Used as a fallback when an absent day was not present in the monthly
+ * leave-records response (for example, because the tracker used a different
+ * status like 'auto_lwp').
+ */
+export async function lookupLeavesForItems(items: { employeeCode: string; date: string; officeCode: string }[]) : Promise<LeaveRecord[]> {
+  if (!items || items.length === 0) return [];
+  const res = await fetch('/api/dashboard/leave-lookup-batch', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ items }),
+  });
+  const text = await res.text();
+  if (res.status === 404) {
+    const excerpt = (text || '').slice(0, 200).replace(/\n/g, ' ');
+    throw new Error(`Leave lookup route not found (404). Response excerpt: ${excerpt}`);
+  }
+  let body: any = {};
+  if (text) {
+    try { body = JSON.parse(text); } catch (err) {
+      const excerpt = text.slice(0, 200).replace(/\n/g, ' ');
+      throw new Error(`Unexpected non-JSON response from leave-lookup-batch (status ${res.status}): ${excerpt}`);
+    }
+  }
+  if (!res.ok) throw new Error(body.error || `Failed to load leave lookup (${res.status})`);
+  return (body.records ?? []) as LeaveRecord[];
+}
