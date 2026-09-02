@@ -346,6 +346,9 @@ function ManagerView({
         graceMinutes={thresholds.graceMinutes}
         shiftStartMinutes={thresholds.shiftStartMinutes}
         shiftEndMinutes={thresholds.shiftEndMinutes}
+        holidays={holidays}
+        leaveMap={leaveMap}
+        monthKey={selectedMonthKey}
       />
     </DashboardShell>
   );
