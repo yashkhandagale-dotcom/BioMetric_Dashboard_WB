@@ -346,7 +346,7 @@ function ManagerView({
         graceMinutes={thresholds.graceMinutes}
         shiftStartMinutes={thresholds.shiftStartMinutes}
         shiftEndMinutes={thresholds.shiftEndMinutes}
-      />
+            />
     </DashboardShell>
   );
 }
