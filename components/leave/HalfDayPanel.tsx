@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, ChevronLeft, ChevronRight, Inbox } from 'lucide-react';
 import type { HalfDayCandidate } from '@/lib/attendanceExceptions';
 import RecordLeaveDrawer from './RecordLeaveDrawer';
@@ -69,7 +69,7 @@ export default function HalfDayPanel({
   // Which row's "Record Leave" drawer is currently open, if any.
   const [recordLeaveFor, setRecordLeaveFor] = useState<{ employeeId: string; employeeName: string; date: string } | null>(null);
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(9);
+  const [pageSize, setPageSize] = useState(15);
   // See AbsenteesPanel's identical guard — prevents a slower, older
   // request (e.g. June) from landing after a newer one (April) and
   // silently overwriting it with stale data.
@@ -301,11 +301,12 @@ export default function HalfDayPanel({
 
   if (loading) {
     return (
-      <div>
-        <p className="text-xs text-[var(--text-muted)] mb-3">Loading…</p>
-        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
+      <div className="space-y-3.5">
+        <div className="h-12 rounded-2xl bg-[var(--bg-elevated)]/50 border border-[var(--border)] animate-pulse" />
+        <div className="overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--bg-elevated)]/30 shadow-xs animate-pulse">
+          <div className="h-9 bg-[var(--bg-surface)]/90 border-b border-[var(--border)]" />
           {Array.from({ length: 6 }).map((_, i) => (
-            <CardSkeleton key={i} />
+            <div key={i} className="h-12 border-b border-[var(--border)]/50 last:border-0 bg-[var(--bg-elevated)]/20" />
           ))}
         </div>
       </div>
@@ -313,189 +314,225 @@ export default function HalfDayPanel({
   }
 
   return (
-    <div>
+    <div className="space-y-3.5">
       {error && (
-        <div className="mb-3 bg-red-50 dark:bg-red-500/15 border border-red-500/40 text-red-700 dark:text-red-300 text-xs font-medium rounded-lg px-3 py-2">
+        <div className="bg-red-50 dark:bg-red-500/15 border border-red-500/40 text-red-700 dark:text-red-300 text-xs font-medium rounded-2xl px-4 py-2.5">
           {error}
         </div>
       )}
-      <p className="text-xs text-[var(--text-muted)] mb-3 flex items-center justify-between flex-wrap gap-2">
-        <span>
-          {filtered.length} record{filtered.length === 1 ? '' : 's'} to review for {periodLabel}
-        </span>
+
+      {/* ── Summary & Action Strip ──────────────────────────────────────── */}
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5 bg-[var(--bg-elevated)]/50 border border-[var(--border)] rounded-2xl p-3 shadow-2xs">
+        <div className="flex items-center gap-2 flex-wrap text-xs">
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-[var(--bg-surface)] border border-[var(--border-subtle)] text-[var(--text-primary)] font-semibold shadow-2xs">
+            <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
+            {filtered.length} To Review
+          </span>
+          {remindableCount > 0 && (
+            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-sky-500/10 border border-sky-500/20 text-sky-700 dark:text-sky-300 font-medium">
+              {remindableCount} Remindable
+            </span>
+          )}
+          <span className="text-[var(--text-muted)] font-normal">{periodLabel}</span>
+        </div>
         {filtered.length > 0 && (
           <button
             type="button"
             onClick={remindAll}
             disabled={remindingAll || remindableCount === 0}
             title={remindableCount === 0 ? 'Every row is resolved or still in its reminder cooldown' : `Send a reminder to all ${remindableCount} eligible row(s) currently in view`}
-            className="text-xs font-medium border border-[var(--border)] text-[var(--text-primary)] hover:border-[var(--accent)] hover:text-[var(--accent)] disabled:opacity-50 disabled:cursor-not-allowed px-3 py-1.5 rounded-lg transition-colors"
+            className="shrink-0 text-xs font-semibold border border-[var(--border)] text-[var(--text-primary)] hover:border-[var(--accent)] hover:text-[var(--accent)] disabled:opacity-50 disabled:cursor-not-allowed px-3 py-1.5 rounded-xl transition-colors bg-[var(--bg-surface)] shadow-2xs"
           >
             {remindingAll ? 'Sending reminders…' : `Remind All${remindableCount > 0 ? ` (${remindableCount})` : ''}`}
           </button>
         )}
-      </p>
+      </div>
+
       {bulkResult && (
-        <div className="mb-3 bg-[var(--bg-elevated)]/60 border border-[var(--border)] text-[var(--text-primary)] text-xs font-medium rounded-lg px-3 py-2">
+        <div className="bg-[var(--bg-elevated)]/60 border border-[var(--border)] text-[var(--text-primary)] text-xs font-medium rounded-2xl px-4 py-2.5">
           {bulkResult}
         </div>
       )}
 
       {filtered.length === 0 ? (
-        <div className="bg-[var(--bg-elevated)]/40 border border-[var(--border)] rounded-xl px-4 py-14 flex flex-col items-center gap-2 text-center">
-          <Inbox size={26} className="text-[var(--text-muted)]" />
-          <p className="text-[var(--text-muted)] text-sm">
+        <div className="bg-[var(--bg-elevated)]/40 border border-[var(--border)] rounded-2xl px-6 py-14 flex flex-col items-center gap-2 text-center">
+          <Inbox size={28} className="text-[var(--text-muted)]" />
+          <p className="text-[var(--text-primary)] font-medium text-sm">No candidates found</p>
+          <p className="text-[var(--text-muted)] text-xs">
             No half-day or missed-punch candidates for this {isMultiDate ? 'period' : 'date'}
             {department || office || search ? ' matching your filters' : ''}.
           </p>
         </div>
       ) : (
         <>
-          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3 items-stretch">
-            {paged.map((r) => {
-              const key = `${r.employeeId}-${r.date}`;
-              const target = escalation.get(`${r.employeeId}__${r.date}`);
-              const reminderCount = target?.reminderCount ?? 0;
-              const inCooldown = !!target?.nextAllowedAt && new Date(target.nextAllowedAt).getTime() > nowTick;
-              const rowError = rowErrors.get(key);
+          {/* ── Table Container ─────────────────────────────────────────── */}
+          <div className="overflow-hidden rounded-2xl border border-[var(--border)] bg-[var(--bg-elevated)]/30 shadow-xs">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead>
+                  <tr className="bg-[var(--bg-surface)]/90 border-b border-[var(--border)] text-[10px] font-bold text-[var(--text-muted)] uppercase tracking-wider">
+                    <th className="py-3 px-4">Employee</th>
+                    {isMultiDate && <th className="py-3 px-4">Date</th>}
+                    <th className="py-3 px-4">Dept / Office</th>
+                    <th className="py-3 px-4 text-center">First In</th>
+                    <th className="py-3 px-4 text-center">Last Out</th>
+                    <th className="py-3 px-4 text-center">Hours</th>
+                    <th className="py-3 px-4">Flag</th>
+                    <th className="py-3 px-4 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[var(--border)]/60">
+                  {paged.map((r) => {
+                    const key = `${r.employeeId}-${r.date}`;
+                    const target = escalation.get(`${r.employeeId}__${r.date}`);
+                    const reminderCount = target?.reminderCount ?? 0;
+                    const inCooldown = !!target?.nextAllowedAt && new Date(target.nextAllowedAt).getTime() > nowTick;
+                    const rowError = rowErrors.get(key);
 
-              return (
-                <div
-                  key={key}
-                  className="h-full flex flex-col gap-3 bg-[var(--bg-elevated)]/40 border border-[var(--border)] rounded-xl p-4 hover:border-[var(--accent)]/40 transition-colors"
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="flex items-start gap-3 min-w-0">
-                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--accent)]/15 text-[var(--accent)] text-xs font-semibold">
-                        {initials(r.employeeName)}
-                      </div>
-                      <div className="min-w-0">
-                        <p className="text-[var(--text-primary)] text-sm font-medium truncate">{r.employeeName}</p>
-                        <p className="text-[var(--text-muted)] text-xs truncate mt-0.5">{r.employeeCode}</p>
-                      </div>
-                    </div>
-                    {isMultiDate && (
-                      <span className="shrink-0 text-[11px] text-[var(--text-muted)] bg-[var(--bg-surface)] border border-[var(--border)] rounded-full px-2 py-0.5">
-                        {formatShortDate(r.date)}
-                      </span>
-                    )}
-                  </div>
+                    return (
+                      <Fragment key={key}>
+                        <tr className="hover:bg-[var(--bg-surface)]/60 transition-colors group">
+                          {/* Employee */}
+                          <td className="py-3 px-4 align-top">
+                            <div className="flex items-center gap-2.5">
+                              <div className="h-7 w-7 shrink-0 flex items-center justify-center rounded-lg bg-[var(--accent)]/15 text-[var(--accent)] text-[10px] font-bold">
+                                {initials(r.employeeName)}
+                              </div>
+                              <div className="min-w-0">
+                                <p className="font-semibold text-[var(--text-primary)] text-xs truncate max-w-[150px]">{r.employeeName}</p>
+                                <p className="text-[10px] text-[var(--text-muted)] mt-0.5">{r.employeeCode}</p>
+                              </div>
+                            </div>
+                          </td>
 
-                  <div className="flex flex-wrap gap-1.5">
-                    <span className="text-[11px] text-[var(--text-muted)] bg-[var(--bg-surface)] border border-[var(--border)] rounded-full px-2 py-0.5">
-                      {r.department}
-                    </span>
-                    <span className="text-[11px] text-[var(--text-muted)] bg-[var(--bg-surface)] border border-[var(--border)] rounded-full px-2 py-0.5">
-                      {r.office}
-                    </span>
-                  </div>
+                          {/* Date (only multi-date views) */}
+                          {isMultiDate && (
+                            <td className="py-3 px-4 align-top whitespace-nowrap text-xs text-[var(--text-muted)]">
+                              {formatShortDate(r.date)}
+                            </td>
+                          )}
 
-                  <div className="grid grid-cols-3 gap-2 text-center bg-[var(--bg-surface)]/60 rounded-lg py-2">
-                    <div>
-                      <p className="text-[10px] text-[var(--text-muted)] uppercase tracking-wide">First</p>
-                      <p className="text-xs text-[var(--text-primary)] font-medium mt-0.5">{r.firstPunch ?? '--'}</p>
-                    </div>
-                    <div>
-                      <p className="text-[10px] text-[var(--text-muted)] uppercase tracking-wide">Last</p>
-                      <p className="text-xs text-[var(--text-primary)] font-medium mt-0.5">{r.lastPunch ?? '--'}</p>
-                    </div>
-                    <div>
-                      <p className="text-[10px] text-[var(--text-muted)] uppercase tracking-wide">Hours</p>
-                      <p className="text-xs text-[var(--text-primary)] font-medium mt-0.5">{r.workingHours}</p>
-                    </div>
-                  </div>
+                          {/* Dept / Office */}
+                          <td className="py-3 px-4 align-top">
+                            <p className="text-xs font-medium text-[var(--text-primary)]">{r.department}</p>
+                            <p className="text-[10px] text-[var(--text-muted)] mt-0.5">{r.office}</p>
+                          </td>
 
-                  <div className="flex items-center justify-between gap-2 flex-wrap">
-                    <span className="inline-flex items-center gap-1 border border-amber-500/40 bg-amber-50 dark:bg-amber-500/15 text-amber-800 dark:text-amber-300 rounded-full px-2 py-0.5 text-xs font-medium">
-                      <AlertTriangle size={11} className="shrink-0" />
-                      {r.reason}
-                    </span>
-                    {reminderCount > 0 && (
-                      <span className="text-[10px] text-[var(--text-muted)]">Reminder sent</span>
-                    )}
-                  </div>
+                          {/* First punch */}
+                          <td className="py-3 px-4 align-top text-center whitespace-nowrap text-xs text-[var(--text-primary)] tabular-nums">
+                            {r.firstPunch ?? <span className="text-[var(--text-muted)]">—</span>}
+                          </td>
 
-                  {rowError && (
-                    <p className="text-[11px] text-red-600 dark:text-red-400 -mt-1">{rowError}</p>
-                  )}
+                          {/* Last punch */}
+                          <td className="py-3 px-4 align-top text-center whitespace-nowrap text-xs text-[var(--text-primary)] tabular-nums">
+                            {r.lastPunch ?? <span className="text-[var(--text-muted)]">—</span>}
+                          </td>
 
-                  {/* mt-auto pins actions to the bottom of every card, so a
-                     shorter reason/badge line on one card never leaves its
-                     buttons sitting at a different height than its neighbors. */}
-                  <div className="flex items-center gap-2 mt-auto pt-1">
-                    <button
-                      type="button"
-                      onClick={() => sendReminder(r.employeeId, r.date)}
-                      disabled={!target || remindingKey === key || inCooldown}
-                      title={inCooldown && target?.nextAllowedAt ? `Available again in ${fmtCountdown(target.nextAllowedAt, nowTick)}` : 'Nudge the employee to respond via My Leave'}
-                      className="flex-1 text-xs border border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--text-primary)] disabled:opacity-50 font-medium px-2.5 py-1.5 rounded-lg transition-colors"
-                    >
-                      {remindingKey === key
-                        ? 'Sending…'
-                        : inCooldown && target?.nextAllowedAt
-                          ? `Available in ${fmtCountdown(target.nextAllowedAt, nowTick)}`
-                          : 'Remind'}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setRecordLeaveFor({ employeeId: r.employeeId, employeeName: r.employeeName, date: r.date })}
-                      title="Record the actual leave for this employee/day"
-                      className="flex-1 text-xs bg-emerald-600 hover:bg-emerald-500 text-white font-medium px-2.5 py-1.5 rounded-lg transition-colors"
-                    >
-                      Record Leave
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
+                          {/* Working hours */}
+                          <td className="py-3 px-4 align-top text-center whitespace-nowrap">
+                            <span className="text-xs font-bold text-[var(--accent)] tabular-nums">{r.workingHours}</span>
+                          </td>
+
+                          {/* Flag / reason */}
+                          <td className="py-3 px-4 align-top">
+                            <span className="inline-flex items-center gap-1 border border-amber-500/25 bg-amber-500/15 text-amber-800 dark:text-amber-300 rounded-lg px-2.5 py-1 text-[10px] font-semibold">
+                              <AlertTriangle size={10} className="shrink-0" />
+                              {r.reason}
+                            </span>
+                            {reminderCount > 0 && (
+                              <p className="text-[10px] text-[var(--text-muted)] mt-1">Reminded</p>
+                            )}
+                          </td>
+
+                          {/* Actions */}
+                          <td className="py-3 px-4 align-top text-right">
+                            <div className="flex items-center justify-end gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => sendReminder(r.employeeId, r.date)}
+                                disabled={!target || remindingKey === key || inCooldown}
+                                title={inCooldown && target?.nextAllowedAt ? `Available again in ${fmtCountdown(target.nextAllowedAt, nowTick)}` : 'Nudge the employee to respond via My Leave'}
+                                className="px-2.5 py-1 rounded-lg text-xs font-semibold text-[var(--text-muted)] bg-[var(--bg-elevated)] hover:bg-[var(--border)]/40 disabled:opacity-40 disabled:cursor-not-allowed transition-colors border border-[var(--border)]"
+                              >
+                                {remindingKey === key
+                                  ? 'Sending…'
+                                  : inCooldown && target?.nextAllowedAt
+                                    ? fmtCountdown(target.nextAllowedAt, nowTick)
+                                    : 'Remind'}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setRecordLeaveFor({ employeeId: r.employeeId, employeeName: r.employeeName, date: r.date })}
+                                title="Record the actual leave for this employee/day"
+                                className="px-2.5 py-1 rounded-lg text-xs font-semibold text-emerald-700 dark:text-emerald-400 bg-emerald-500/10 hover:bg-emerald-500/20 transition-colors"
+                              >
+                                Record Leave
+                              </button>
+                            </div>
+                            {rowError && (
+                              <p className="text-red-500 text-[10px] mt-1 text-right font-medium">{rowError}</p>
+                            )}
+                          </td>
+                        </tr>
+                      </Fragment>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           </div>
 
-          <div className="flex items-center justify-between gap-3 flex-wrap mt-4">
-            <div className="flex items-center gap-2 text-xs text-[var(--text-muted)]">
-              <span>Cards per page</span>
-              <select
-                value={pageSize}
-                onChange={(e) => {
-                  setPageSize(Number(e.target.value));
-                  setPage(1);
-                }}
-                className="bg-[var(--bg-elevated)] border border-[var(--border)] rounded-lg px-2 py-1 text-xs text-[var(--text-primary)]"
-              >
-                <option value={9}>9</option>
-                <option value={18}>18</option>
-                <option value={36}>36</option>
-              </select>
-            </div>
+          {/* ── Pagination ─────────────────────────────────────────────── */}
+          {pageCount > 1 && (
+            <div className="flex items-center justify-between gap-3 flex-wrap pt-1">
+              <div className="flex items-center gap-2 text-xs text-[var(--text-muted)]">
+                <span>Show</span>
+                <select
+                  value={pageSize}
+                  onChange={(e) => {
+                    setPageSize(Number(e.target.value));
+                    setPage(1);
+                  }}
+                  className="bg-[var(--bg-elevated)] border border-[var(--border)] rounded-xl px-2.5 py-1 text-xs text-[var(--text-primary)]"
+                >
+                  <option value={15}>15</option>
+                  <option value={25}>25</option>
+                  <option value={50}>50</option>
+                </select>
+                <span>per page</span>
+              </div>
 
-            <div className="flex items-center gap-3 text-xs text-[var(--text-muted)]">
-              <span>
-                {(currentPage - 1) * pageSize + 1}–{Math.min(currentPage * pageSize, filtered.length)} of {filtered.length}
-              </span>
-              <div className="flex items-center gap-1">
-                <button
-                  type="button"
-                  onClick={() => setPage((p) => Math.max(1, p - 1))}
-                  disabled={currentPage === 1}
-                  aria-label="Previous page"
-                  className="p-1.5 rounded-lg border border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--text-primary)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                >
-                  <ChevronLeft size={14} />
-                </button>
-                <span className="text-[var(--text-primary)] px-1">
-                  {currentPage} / {pageCount}
+              <div className="flex items-center gap-2 text-xs text-[var(--text-muted)]">
+                <span>
+                  {(currentPage - 1) * pageSize + 1}–{Math.min(currentPage * pageSize, filtered.length)} of{' '}
+                  {filtered.length}
                 </span>
-                <button
-                  type="button"
-                  onClick={() => setPage((p) => Math.min(pageCount, p + 1))}
-                  disabled={currentPage === pageCount}
-                  aria-label="Next page"
-                  className="p-1.5 rounded-lg border border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--text-primary)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                >
-                  <ChevronRight size={14} />
-                </button>
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                    disabled={currentPage === 1}
+                    aria-label="Previous page"
+                    className="p-1.5 rounded-lg border border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--border)]/30 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  >
+                    <ChevronLeft size={14} />
+                  </button>
+                  <span className="text-[var(--text-primary)] font-medium px-2">
+                    {currentPage} / {pageCount}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setPage((p) => Math.min(pageCount, p + 1))}
+                    disabled={currentPage === pageCount}
+                    aria-label="Next page"
+                    className="p-1.5 rounded-lg border border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--border)]/30 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  >
+                    <ChevronRight size={14} />
+                  </button>
+                </div>
               </div>
             </div>
-          </div>
+          )}
         </>
       )}
 
@@ -539,20 +576,4 @@ function initials(name: string) {
     .map((part) => part[0]?.toUpperCase())
     .join('');
 }
-
-function CardSkeleton() {
-  return (
-    <div className="bg-[var(--bg-elevated)]/40 border border-[var(--border)] rounded-xl p-4 animate-pulse space-y-3">
-      <div className="flex items-center gap-3">
-        <div className="h-9 w-9 rounded-full bg-[var(--border)]" />
-        <div className="flex-1 space-y-1.5">
-          <div className="h-3 w-2/3 rounded bg-[var(--border)]" />
-          <div className="h-2.5 w-1/3 rounded bg-[var(--border)]" />
-        </div>
-      </div>
-      <div className="h-14 rounded-lg bg-[var(--border)]/60" />
-      <div className="h-6 w-1/2 rounded-full bg-[var(--border)]" />
-      <div className="h-8 rounded-lg bg-[var(--border)]" />
-    </div>
-  );
-}
+

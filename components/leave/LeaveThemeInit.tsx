@@ -32,13 +32,16 @@ export default function LeaveThemeInit() {
     fetch('/api/leave/theme')
       .then((r) => (r.ok ? r.json() : null))
       .then((body) => {
+        // Only override when the employee has an *explicitly saved* preference.
+        // If the API returns null (no DB row set yet, not logged in, or DB error)
+        // we leave next-themes alone — it will already have the correct value from
+        // localStorage (which persists across Ctrl+Shift+R hard reloads).
         if (body?.theme === 'dark' || body?.theme === 'light') {
           setTheme(body.theme);
         }
       })
       .catch(() => {
-        // Not logged in yet, or the fetch failed — fall back to
-        // whatever next-themes already resolved locally.
+        // Network failure — next-themes localStorage value stays active.
       });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

@@ -16,7 +16,7 @@ import type { ReactNode } from 'react';
 // detection instead of an explicit default.
 export default function ThemeProvider({ children }: { children: ReactNode }) {
   return (
-    <NextThemesProvider attribute="class" defaultTheme="dark" enableSystem={false}>
+    <NextThemesProvider attribute="class" defaultTheme="system" enableSystem={true}>
       {children}
     </NextThemesProvider>
   );

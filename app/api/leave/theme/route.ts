@@ -10,7 +10,8 @@ import { createLeaveClient } from '@/lib/leaveSupabase/server';
 export async function GET() {
   const employee = await getCurrentEmployee();
   if (!employee) {
-    return NextResponse.json({ theme: 'dark' });
+    // Not logged in — return null so next-themes localStorage wins
+    return NextResponse.json({ theme: null });
   }
 
   const supabase = await createLeaveClient();
@@ -21,10 +22,14 @@ export async function GET() {
     .maybeSingle();
 
   if (error) {
-    return NextResponse.json({ theme: 'dark' });
+    // DB error — return null so next-themes localStorage wins
+    return NextResponse.json({ theme: null });
   }
 
-  return NextResponse.json({ theme: data?.theme_preference ?? 'dark' });
+  // Only return a real value if the employee has explicitly saved a preference.
+  // Returning null means "no saved preference — let the browser/localStorage decide".
+  const saved = data?.theme_preference;
+  return NextResponse.json({ theme: (saved === 'dark' || saved === 'light') ? saved : null });
 }
 
 // PUT: persist a theme choice against the logged-in employee's row.

@@ -336,16 +336,6 @@ export default function LeaveHistoryTable({
     window.dispatchEvent(new CustomEvent('leave:reapply', { detail }));
   }
 
-  if (rows.length === 0) {
-    return (
-      <div className="bg-[var(--bg-elevated)]/40 border border-[var(--border)] rounded-2xl px-6 py-14 flex flex-col items-center gap-2 text-center">
-        <Inbox size={28} className="text-[var(--text-muted)]" />
-        <p className="text-[var(--text-primary)] font-medium text-sm">No leave records</p>
-        <p className="text-[var(--text-muted)] text-xs">No leave history entries match the current view.</p>
-      </div>
-    );
-  }
-
   const hasActionsColumn = showActions || hrCorrection;
 
   // Pagination slicing
@@ -378,6 +368,16 @@ export default function LeaveHistoryTable({
     }
     return groups;
   }, [groupByMonth, pagedRows]);
+
+  if (rows.length === 0) {
+    return (
+      <div className="bg-[var(--bg-elevated)]/40 border border-[var(--border)] rounded-2xl px-6 py-14 flex flex-col items-center gap-2 text-center">
+        <Inbox size={28} className="text-[var(--text-muted)]" />
+        <p className="text-[var(--text-primary)] font-medium text-sm">No leave records</p>
+        <p className="text-[var(--text-muted)] text-xs">No leave history entries match the current view.</p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-3.5">
