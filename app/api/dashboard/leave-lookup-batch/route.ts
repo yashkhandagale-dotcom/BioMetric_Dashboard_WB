@@ -38,7 +38,6 @@ export async function POST(req: NextRequest) {
         .from('leave_requests')
         .select('id, start_date, end_date, is_half_day, reason, applied_on, leave_types(code), employees!leave_requests_employee_id_fkey!inner(employee_code, office)')
         .eq('employees.employee_code', it.employeeCode)
-        .eq('employees.office', it.officeCode)
         .lte('start_date', date)
         .gte('end_date', date)
         .in('status', ['approved', 'auto_lwp'])

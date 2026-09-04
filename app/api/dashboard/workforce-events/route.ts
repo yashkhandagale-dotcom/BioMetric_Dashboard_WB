@@ -43,14 +43,23 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ events: [] as WorkforceEvent[] });
   }
 
-  const byOffice = new Map<string, { year: string; month: string }[]>();
+  // Extract unique (year, month) pairs across all requested monthKeys.
+  // We no longer filter by office in the query — matching is done purely on
+  // employee_code + date so variations in office naming never drop events.
+  const uniqueMonths = new Map<string, { year: string; month: string }>();
   for (const key of monthKeys) {
     const parts = key.split('_');
-    if (parts.length < 3) continue;
-    const [year, month, officeCode] = parts;
-    const list = byOffice.get(officeCode) ?? [];
-    list.push({ year, month });
-    byOffice.set(officeCode, list);
+    if (parts.length >= 2 && parts[0] && parts[1]) {
+      const ym = `${parts[0]}_${parts[1]}`;
+      if (!uniqueMonths.has(ym)) {
+        uniqueMonths.set(ym, { year: parts[0], month: parts[1] });
+      }
+    }
+  }
+
+  const months = Array.from(uniqueMonths.values());
+  if (months.length === 0) {
+    return NextResponse.json({ events: [] as WorkforceEvent[] });
   }
 
   let leaveService;
@@ -64,39 +73,42 @@ export async function GET(req: NextRequest) {
     );
   }
 
+  const bounds = months.map((m) => monthBounds(m.year, m.month));
+  const rangeStart = bounds.reduce((min, b) => (b.start < min ? b.start : min), bounds[0].start);
+  const rangeEnd = bounds.reduce((max, b) => (b.end > max ? b.end : max), bounds[0].end);
+
+  const { data, error } = await leaveService
+    .from('workforce_events')
+    .select('event_type, event_date, note, employees!inner(employee_code, office)')
+    .gte('event_date', rangeStart)
+    .lte('event_date', rangeEnd)
+    .returns<WorkforceEventRow[]>();
+
+  if (error) {
+    return NextResponse.json(
+      { error: `Could not read workforce events from the Leave Tracker: ${error.message}`, events: [] },
+      { status: 502 }
+    );
+  }
+
   const allEvents: WorkforceEvent[] = [];
+  const seen = new Set<string>();
 
-  for (const [officeCode, months] of byOffice) {
-    const bounds = months.map((m) => monthBounds(m.year, m.month));
-    const rangeStart = bounds.reduce((min, b) => (b.start < min ? b.start : min), bounds[0].start);
-    const rangeEnd = bounds.reduce((max, b) => (b.end > max ? b.end : max), bounds[0].end);
+  for (const row of data ?? []) {
+    const employee = firstOf(row.employees);
+    if (!employee) continue;
 
-    const { data, error } = await leaveService
-      .from('workforce_events')
-      .select('event_type, event_date, note, employees!inner(employee_code, office)')
-      .eq('employees.office', officeCode)
-      .gte('event_date', rangeStart)
-      .lte('event_date', rangeEnd)
-      .returns<WorkforceEventRow[]>();
+    const dedupeKey = `${employee.employee_code}_${row.event_date}_${row.event_type}`;
+    if (seen.has(dedupeKey)) continue;
+    seen.add(dedupeKey);
 
-    if (error) {
-      return NextResponse.json(
-        { error: `Could not read workforce events from the Leave Tracker: ${error.message}`, events: [] },
-        { status: 502 }
-      );
-    }
-
-    for (const row of data ?? []) {
-      const employee = firstOf(row.employees);
-      if (!employee) continue;
-      allEvents.push({
-        employeeCode: employee.employee_code,
-        officeCode: employee.office,
-        date: row.event_date,
-        eventType: row.event_type,
-        note: row.note ?? undefined,
-      });
-    }
+    allEvents.push({
+      employeeCode: employee.employee_code,
+      officeCode: employee.office,
+      date: row.event_date,
+      eventType: row.event_type,
+      note: row.note ?? undefined,
+    });
   }
 
   return NextResponse.json({ events: allEvents });

@@ -1,6 +1,6 @@
-﻿import { redirect } from 'next/navigation';
+import { redirect } from 'next/navigation';
 import { ClipboardCheck, AlertCircle } from 'lucide-react';
-import { createLeaveClient } from '@/lib/leaveSupabase/server';
+import { createLeaveClient, createLeaveServiceClient } from '@/lib/leaveSupabase/server';
 import { getCurrentEmployee } from '@/lib/leaveSupabase/getCurrentEmployee';
 import { getEmployeeBalanceBreakdown } from '@/lib/leaveSupabase/getEmployeeBalances';
 import { getManagedEmployeeIds } from '@/lib/leaveSupabase/organization';
@@ -10,6 +10,11 @@ import ApprovalsList from '@/components/leave/ApprovalsList';
 import LeavePageHeader from '@/components/leave/LeavePageHeader';
 import { PendingWfhRequest } from '@/components/leave/WfhApprovalCard';
 import { PendingRegularisationRequest } from '@/components/leave/RegularisationApprovalCard';
+import { PendingMissedPunchRequest } from '@/components/leave/MissedPunchApprovalCard';
+
+// Always fetch fresh — pending requests must appear the moment they're
+// submitted, no cached version is acceptable here.
+export const dynamic = 'force-dynamic';
 
 type PendingRow = {
   id: string;
@@ -52,6 +57,12 @@ export default async function LeaveApprovalsHome() {
   }
 
   const supabase = await createLeaveClient();
+  // Use service role for the actual data queries so RLS never hides a
+  // pending request from HR (even if an RLS policy on leave_requests
+  // doesn't cover all auth.uid() combinations for the HR user's session).
+  // Authorization scoping (which employees a manager/lead/HR can see) is
+  // enforced below in the application layer, not via RLS.
+  const queryClient = isHr ? createLeaveServiceClient() : supabase;
 
   // Manager's queue is scoped by department (department_managers — see
   // getManagedEmployeeIds's own comment for why that's the correct field,
@@ -65,7 +76,7 @@ export default async function LeaveApprovalsHome() {
     managedIds = employeeIds;
   }
 
-  let query = supabase
+  let query = queryClient
     .from('leave_requests')
     .select(
       `
@@ -120,7 +131,7 @@ export default async function LeaveApprovalsHome() {
   // query time. Confirm the exact constraint name against your schema
   // (`wfh_requests_employee_id_fkey` is a guess based on the
   // leave_requests naming convention) if this still errors.
-  let wfhQuery = supabase
+  let wfhQuery = queryClient
     .from('wfh_requests')
     .select(
       `id, start_date, end_date, is_half_day, half_day_session, reason, applied_on,
@@ -161,7 +172,7 @@ export default async function LeaveApprovalsHome() {
   // them.
   let regularisationEmployeeIds: string[] = [];
   if (isHr) {
-    const { data: allEmployees } = await supabase.from('employees').select('id');
+    const { data: allEmployees } = await queryClient.from('employees').select('id');
     regularisationEmployeeIds = (allEmployees ?? []).map((e) => e.id);
   } else if (isManager) {
     regularisationEmployeeIds = managedIds;
@@ -170,7 +181,7 @@ export default async function LeaveApprovalsHome() {
     regularisationEmployeeIds = (reports ?? []).map((r) => r.id);
   }
 
-  const { rows: regularisationRows } = await listRegularisationsForEmployees(supabase, regularisationEmployeeIds);
+  const { rows: regularisationRows } = await listRegularisationsForEmployees(queryClient, regularisationEmployeeIds);
   const regularisationRequests: PendingRegularisationRequest[] = regularisationRows
     .filter((r) => r.status === 'pending')
     .map((r) => ({
@@ -190,7 +201,7 @@ export default async function LeaveApprovalsHome() {
   const balanceByEmployee = new Map<string, Awaited<ReturnType<typeof getEmployeeBalanceBreakdown>>['rows']>();
   await Promise.all(
     Array.from(new Set(rows.map((r) => r.employee_id))).map(async (employeeId) => {
-      const { rows: breakdown } = await getEmployeeBalanceBreakdown(supabase, employeeId);
+      const { rows: breakdown } = await getEmployeeBalanceBreakdown(queryClient, employeeId);
       balanceByEmployee.set(employeeId, breakdown);
     })
   );
@@ -217,6 +228,55 @@ export default async function LeaveApprovalsHome() {
     };
   });
 
+  // Missed Punch entries (self-resolved exceptions) — shown in HR/Manager queue
+  // as informational notices (no approve/reject action needed, no leave deducted).
+  let mpQuery = queryClient
+    .from('attendance_exceptions')
+    .select(
+      `id, employee_id, exception_date, exception_type, first_punch, last_punch, employee_note, updated_at,
+       employees!attendance_exceptions_employee_id_fkey!inner ( full_name, employee_code, department, reporting_lead_id )`
+    )
+    .eq('employee_choice', 'missed_punch')
+    .order('exception_date', { ascending: false });
+
+  if (isLead) {
+    mpQuery = mpQuery.eq('employees.reporting_lead_id', employee.id);
+  } else if (isManager) {
+    mpQuery = managedIds.length > 0
+      ? mpQuery.in('employee_id', managedIds)
+      : mpQuery.eq('employee_id', '00000000-0000-0000-0000-000000000000');
+  }
+
+  type RawMissedPunchRow = {
+    id: string;
+    employee_id: string;
+    exception_date: string;
+    exception_type: string;
+    first_punch: string | null;
+    last_punch: string | null;
+    employee_note: string | null;
+    updated_at: string;
+    employees: { full_name: string; employee_code: string; department: string; reporting_lead_id: string | null } | null;
+  };
+
+  const { data: rawMissedPunches, error: mpError } = await mpQuery.returns<RawMissedPunchRow[]>();
+
+  const missedPunchRequests: PendingMissedPunchRequest[] = (rawMissedPunches ?? [])
+    .filter((r) => r.employees)
+    .map((r) => ({
+      id: r.id,
+      employeeId: r.employee_id,
+      employeeName: r.employees!.full_name,
+      employeeCode: r.employees!.employee_code,
+      department: r.employees!.department,
+      exceptionDate: r.exception_date,
+      exceptionType: r.exception_type,
+      firstPunch: r.first_punch,
+      lastPunch: r.last_punch,
+      note: r.employee_note ?? '',
+      submittedAt: r.updated_at,
+    }));
+
   const totalPending = requests.length + wfhRequests.length + regularisationRequests.length;
 
   // Raw Postgres/PostgREST error text (relationship names, constraint
@@ -225,6 +285,7 @@ export default async function LeaveApprovalsHome() {
   // show a plain, actionable message in the UI instead.
   if (error) console.error('[LeaveApprovalsHome] leave_requests query failed:', error);
   if (wfhError) console.error('[LeaveApprovalsHome] wfh_requests query failed:', wfhError);
+  if (mpError) console.error('[LeaveApprovalsHome] attendance_exceptions query failed:', mpError);
   const anyLoadError = error || wfhError;
 
   return (
@@ -261,6 +322,7 @@ export default async function LeaveApprovalsHome() {
         requests={requests}
         wfhRequests={wfhRequests}
         regularisationRequests={regularisationRequests}
+        missedPunchRequests={missedPunchRequests}
         isHr={isHr}
         canApprove={canApprove}
         canRemind={canRemind}

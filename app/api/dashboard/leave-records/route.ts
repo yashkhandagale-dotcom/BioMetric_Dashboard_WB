@@ -65,16 +65,24 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ records: [] as LeaveRecord[] });
   }
 
-  // Group by officeCode so we issue one query per office covering the
-  // union of its requested months, instead of one query per monthKey.
-  const byOffice = new Map<string, { year: string; month: string }[]>();
+  // Extract unique (year, month) pairs across all requested monthKeys.
+  // We no longer filter by office in the query — matching is done purely on
+  // employee_code + date so differences between office naming (e.g. MUM vs Mumbai)
+  // never silently drop approved leaves.
+  const uniqueMonths = new Map<string, { year: string; month: string }>();
   for (const key of monthKeys) {
     const parts = key.split('_');
-    if (parts.length < 3) continue;
-    const [year, month, officeCode] = parts;
-    const list = byOffice.get(officeCode) ?? [];
-    list.push({ year, month });
-    byOffice.set(officeCode, list);
+    if (parts.length >= 2 && parts[0] && parts[1]) {
+      const ym = `${parts[0]}_${parts[1]}`;
+      if (!uniqueMonths.has(ym)) {
+        uniqueMonths.set(ym, { year: parts[0], month: parts[1] });
+      }
+    }
+  }
+
+  const months = Array.from(uniqueMonths.values());
+  if (months.length === 0) {
+    return NextResponse.json({ records: [] as LeaveRecord[] });
   }
 
   let leaveService;
@@ -88,48 +96,50 @@ export async function GET(req: NextRequest) {
     );
   }
 
+  const bounds = months.map((m) => monthBounds(m.year, m.month));
+  const rangeStart = bounds.reduce((min, b) => (b.start < min ? b.start : min), bounds[0].start);
+  const rangeEnd = bounds.reduce((max, b) => (b.end > max ? b.end : max), bounds[0].end);
+
+  const { data, error } = await leaveService
+    .from('leave_requests')
+    .select('id, start_date, end_date, is_half_day, reason, applied_on, leave_types(code), employees!leave_requests_employee_id_fkey!inner(employee_code, office)')
+    .in('status', ['approved', 'auto_lwp'])
+    .lte('start_date', rangeEnd)
+    .gte('end_date', rangeStart)
+    .returns<TrackerLeaveRow[]>();
+
+  if (error) {
+    return NextResponse.json(
+      { error: `Could not read leave data from the Leave Tracker: ${error.message}`, records: [] },
+      { status: 502 }
+    );
+  }
+
   const allRecords: LeaveRecord[] = [];
+  const seen = new Set<string>();
 
-  for (const [officeCode, months] of byOffice) {
-    const bounds = months.map((m) => monthBounds(m.year, m.month));
-    const rangeStart = bounds.reduce((min, b) => (b.start < min ? b.start : min), bounds[0].start);
-    const rangeEnd = bounds.reduce((max, b) => (b.end > max ? b.end : max), bounds[0].end);
+  for (const row of data ?? []) {
+    const employee = firstOf(row.employees);
+    const leaveType = firstOf(row.leave_types);
+    if (!employee || !leaveType) continue;
 
-    const { data, error } = await leaveService
-      .from('leave_requests')
-      .select('id, start_date, end_date, is_half_day, reason, applied_on, leave_types(code), employees!leave_requests_employee_id_fkey!inner(employee_code, office)')
-      .in('status', ['approved', 'auto_lwp'])
-      .eq('employees.office', officeCode)
-      .lte('start_date', rangeEnd)
-      .gte('end_date', rangeStart)
-      .returns<TrackerLeaveRow[]>();
+    for (const bound of bounds) {
+      const days = expandClipped(row.start_date, row.end_date, bound.start, bound.end);
+      for (const date of days) {
+        const dedupeKey = `${employee.employee_code}_${date}`;
+        if (seen.has(dedupeKey)) continue;
+        seen.add(dedupeKey);
 
-    if (error) {
-      return NextResponse.json(
-        { error: `Could not read leave data from the Leave Tracker: ${error.message}`, records: [] },
-        { status: 502 }
-      );
-    }
-
-    for (const row of data ?? []) {
-      const employee = firstOf(row.employees);
-      const leaveType = firstOf(row.leave_types);
-      if (!employee || !leaveType) continue;
-
-      for (const bound of bounds) {
-        const days = expandClipped(row.start_date, row.end_date, bound.start, bound.end);
-        for (const date of days) {
-          const { leaveType: mainType, halfDayLeaveType } = mapTrackerLeaveType(leaveType.code, !!row.is_half_day);
-          allRecords.push({
-            employeeCode: employee.employee_code,
-            officeCode: employee.office,
-            date,
-            leaveType: mainType,
-            halfDayLeaveType,
-            markedAt: row.applied_on,
-            note: row.reason ?? undefined,
-          } satisfies LeaveRecord);
-        }
+        const { leaveType: mainType, halfDayLeaveType } = mapTrackerLeaveType(leaveType.code, !!row.is_half_day);
+        allRecords.push({
+          employeeCode: employee.employee_code,
+          officeCode: employee.office,
+          date,
+          leaveType: mainType,
+          halfDayLeaveType,
+          markedAt: row.applied_on,
+          note: row.reason ?? undefined,
+        } satisfies LeaveRecord);
       }
     }
   }

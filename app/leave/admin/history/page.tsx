@@ -700,15 +700,12 @@ export default function LeaveTrackerPage() {
               {loading ? (
                 <AttendanceTableSkeleton columns={7} />
               ) : (
-                <>
-                  <p className="text-xs text-[var(--text-muted)]">{rows.length} record(s)</p>
-                  <LeaveHistoryTable
-                    rows={department || office ? rows.filter((r) => (!department || r.department === department) && (!office || r.office === office)) : rows}
-                    hrCorrection
-                    allowHrCancel
-                    onChanged={fetchHistory}
-                  />
-                </>
+                <LeaveHistoryTable
+                  rows={department || office ? rows.filter((r) => (!department || r.department === department) && (!office || r.office === office)) : rows}
+                  hrCorrection
+                  allowHrCancel
+                  onChanged={fetchHistory}
+                />
               )}
             </>
           )}

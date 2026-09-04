@@ -5,13 +5,15 @@ import { Search, ChevronLeft, ChevronRight } from 'lucide-react';
 import ApprovalCard, { PendingApprovalRequest } from './ApprovalCard';
 import WfhApprovalCard, { PendingWfhRequest } from './WfhApprovalCard';
 import RegularisationApprovalCard, { PendingRegularisationRequest } from './RegularisationApprovalCard';
+import MissedPunchApprovalCard, { PendingMissedPunchRequest } from './MissedPunchApprovalCard';
 
-type RequestKind = 'all' | 'leave' | 'wfh' | 'regularisation';
+type RequestKind = 'all' | 'leave' | 'wfh' | 'regularisation' | 'missed_punch';
 
 type CombinedItem =
   | { kind: 'leave'; id: string; data: PendingApprovalRequest }
   | { kind: 'wfh'; id: string; data: PendingWfhRequest }
-  | { kind: 'regularisation'; id: string; data: PendingRegularisationRequest };
+  | { kind: 'regularisation'; id: string; data: PendingRegularisationRequest }
+  | { kind: 'missed_punch'; id: string; data: PendingMissedPunchRequest };
 
 const PAGE_SIZE = 9;
 
@@ -90,24 +92,16 @@ export default function ApprovalsList({
   requests,
   wfhRequests = [],
   regularisationRequests = [],
+  missedPunchRequests = [],
   isHr,
   canApprove,
   canRemind,
 }: {
   requests: PendingApprovalRequest[];
-  // Feedback items #5/#6 — WFH requests rendered in the same queue,
-  // below leave requests, each with its own small "Work From Home"
-  // sub-heading so the two request types stay visually distinct without
-  // needing a separate tab/page.
   wfhRequests?: PendingWfhRequest[];
-  // Part C, §C.2 — pending, employee-initiated regularisation requests,
-  // same treatment as WFH above. No department field on this type (see
-  // RegularisationApprovalCard's header comment) so the department
-  // filter below only narrows leave/WFH — search still works on it.
   regularisationRequests?: PendingRegularisationRequest[];
+  missedPunchRequests?: PendingMissedPunchRequest[];
   isHr: boolean;
-  // hr_super_admin (HR Admin) is remind-only; manager/lead/hr approve
-  // directly and don't see a remind button — see ApprovalCard.
   canApprove: boolean;
   canRemind: boolean;
 }) {
@@ -117,8 +111,15 @@ export default function ApprovalsList({
   const [page, setPage] = useState(1);
 
   const departments = useMemo(
-    () => Array.from(new Set([...requests.map((r) => r.department), ...wfhRequests.map((r) => r.department)])).sort(),
-    [requests, wfhRequests]
+    () =>
+      Array.from(
+        new Set([
+          ...requests.map((r) => r.department),
+          ...wfhRequests.map((r) => r.department),
+          ...missedPunchRequests.map((r) => r.department),
+        ])
+      ).sort(),
+    [requests, wfhRequests, missedPunchRequests]
   );
 
   const filtered = requests.filter((r) => {
@@ -141,7 +142,15 @@ export default function ApprovalsList({
     return r.employeeName.toLowerCase().includes(q) || r.employeeCode.toLowerCase().includes(q);
   });
 
-  const totalCount = requests.length + wfhRequests.length + regularisationRequests.length;
+  const filteredMissedPunches = missedPunchRequests.filter((r) => {
+    if (department && r.department !== department) return false;
+    if (!search.trim()) return true;
+    const q = search.trim().toLowerCase();
+    return r.employeeName.toLowerCase().includes(q) || r.employeeCode.toLowerCase().includes(q);
+  });
+
+  const totalCount =
+    requests.length + wfhRequests.length + regularisationRequests.length + missedPunchRequests.length;
   const nothingAtAll = totalCount === 0;
 
   const TABS: { key: RequestKind; label: string; count: number }[] = (
@@ -150,19 +159,35 @@ export default function ApprovalsList({
       { key: 'leave', label: 'Leave', count: requests.length },
       { key: 'wfh', label: 'Work From Home', count: wfhRequests.length },
       { key: 'regularisation', label: 'Regularisation', count: regularisationRequests.length },
+      { key: 'missed_punch', label: 'Missed Punch (Info)', count: missedPunchRequests.length },
     ] as { key: RequestKind; label: string; count: number }[]
-  ).filter((t) => t.key === 'all' || t.count > 0 || (t.key === 'leave' && requests.length === 0 && wfhRequests.length === 0 && regularisationRequests.length === 0));
+  ).filter(
+    (t) =>
+      t.key === 'all' ||
+      t.count > 0 ||
+      (t.key === 'leave' &&
+        requests.length === 0 &&
+        wfhRequests.length === 0 &&
+        regularisationRequests.length === 0 &&
+        missedPunchRequests.length === 0)
+  );
 
   const showLeave = kind === 'all' || kind === 'leave';
   const showWfh = kind === 'all' || kind === 'wfh';
   const showReg = kind === 'all' || kind === 'regularisation';
+  const showMissedPunch = kind === 'all' || kind === 'missed_punch';
 
   const visibleLeave = showLeave ? filtered : [];
   const visibleWfh = showWfh ? filteredWfh : [];
   const visibleReg = showReg ? filteredRegularisations : [];
-  const nothingToShow = visibleLeave.length === 0 && visibleWfh.length === 0 && visibleReg.length === 0;
+  const visibleMissedPunch = showMissedPunch ? filteredMissedPunches : [];
+  const nothingToShow =
+    visibleLeave.length === 0 &&
+    visibleWfh.length === 0 &&
+    visibleReg.length === 0 &&
+    visibleMissedPunch.length === 0;
 
-  // Single combined, ordered list (leave, then WFH, then regularisation)
+  // Single combined, ordered list (leave, then WFH, then regularisation, then missed punch)
   // so the grid + pagination below only has to deal with one array,
   // regardless of which tab is active.
   const combined: CombinedItem[] = useMemo(
@@ -170,8 +195,9 @@ export default function ApprovalsList({
       ...visibleLeave.map((data) => ({ kind: 'leave' as const, id: data.id, data })),
       ...visibleWfh.map((data) => ({ kind: 'wfh' as const, id: data.id, data })),
       ...visibleReg.map((data) => ({ kind: 'regularisation' as const, id: data.id, data })),
+      ...visibleMissedPunch.map((data) => ({ kind: 'missed_punch' as const, id: data.id, data })),
     ],
-    [visibleLeave, visibleWfh, visibleReg]
+    [visibleLeave, visibleWfh, visibleReg, visibleMissedPunch]
   );
 
   const totalPages = Math.max(1, Math.ceil(combined.length / PAGE_SIZE));
@@ -273,7 +299,10 @@ export default function ApprovalsList({
               if (item.kind === 'wfh') {
                 return <WfhApprovalCard key={item.id} request={item.data} canApprove={canApprove} />;
               }
-              return <RegularisationApprovalCard key={item.id} request={item.data} canApprove={canApprove} />;
+              if (item.kind === 'regularisation') {
+                return <RegularisationApprovalCard key={item.id} request={item.data} canApprove={canApprove} />;
+              }
+              return <MissedPunchApprovalCard key={item.id} request={item.data} isHr={isHr} />;
             })}
           </div>
 

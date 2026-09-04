@@ -8,7 +8,7 @@ import {
   getMapping, saveMapping, getRecords, saveRecords, addUploadedMonth, getUploadedMonths,
 } from '@/lib/storage';
 import { getThresholds, saveThresholds, DEFAULT_THRESHOLDS } from '@/lib/settings';
-import { getLeaveRecords, lookupLeavesForItems } from '@/lib/leaveTrackerRead';
+import { getAllLeaveRecords, getLeaveRecords, lookupLeavesForItems } from '@/lib/leaveTrackerRead';
 import { getAllKnownDepartments, loadEmployeeDirectory, useEmployeeDirectorySync } from '@/lib/employeeStore';
 import { buildLeaveMap, isAbsent } from '@/lib/useDashboardData';
 import { parseCSVHeaders, parseCSVWithMapping } from '@/lib/parseCSV';
@@ -138,6 +138,8 @@ function ManagerView({
   const [thresholds, setThresholds] = useState<Thresholds>(DEFAULT_THRESHOLDS);
   const [uploadedMonths, setUploadedMonths] = useState<UploadedMonth[]>([]);
 
+  const [leaveRecords, setLeaveRecords] = useState<LeaveRecord[]>([]);
+
   // Filtering states
   const [selectedTeam, setSelectedTeam] = useState<string>('all');
   const [datePreset, setDatePreset] = useState<DatePreset>('all');
@@ -152,6 +154,15 @@ function ManagerView({
     if (!teamMode) return;
     getUploadedMonths().then(setUploadedMonths);
   }, [teamMode]);
+
+  useEffect(() => {
+    if (!records || records.length === 0) return;
+    const monthKeys = Array.from(new Set(records.map((r) => `${r.date.slice(0, 4)}_${r.date.slice(5, 7)}_${r.officeCode}`)));
+    if (monthKeys.length === 0) return;
+    getAllLeaveRecords(monthKeys).then(setLeaveRecords).catch(() => {});
+  }, [records]);
+
+  const leaveMap = useMemo(() => buildLeaveMap(leaveRecords), [leaveRecords]);
 
   const availableTeams = useMemo(() => {
     if (managedDepartments && managedDepartments.length > 0) {
@@ -183,7 +194,7 @@ function ManagerView({
   }, [records, selectedTeam, effectiveDateRange]);
 
   const { kpi, employeeSummaries, dailyTrend, deptAttendance, hoursDistribution } =
-    useDashboardData(filteredRecords, 'ALL', [], [], [], thresholds);
+    useDashboardData(filteredRecords, 'ALL', [], [], [], thresholds, leaveRecords);
 
   const teamDepartments = teamMode
     ? selectedTeam !== 'all'
@@ -346,7 +357,8 @@ function ManagerView({
         graceMinutes={thresholds.graceMinutes}
         shiftStartMinutes={thresholds.shiftStartMinutes}
         shiftEndMinutes={thresholds.shiftEndMinutes}
-            />
+        leaveMap={leaveMap}
+      />
     </DashboardShell>
   );
 }
@@ -425,7 +437,8 @@ function HRDashboard() {
       setHolidays(h);
       let l: LeaveRecord[] = [];
       try {
-        l = await getLeaveRecords(selectedMonthKey);
+        const monthKeysToFetch = months.length > 0 ? months.map((m) => m.key) : [selectedMonthKey];
+        l = await getAllLeaveRecords(monthKeysToFetch);
         if (!cancelled) setLeaveRecords(l);
       } catch (err) {
         if (!cancelled) {
@@ -475,8 +488,31 @@ function HRDashboard() {
   useEffect(() => {
     if (uploadedMonths.length === 0) { setAllUploadedRecords([]); return; }
     let cancelled = false;
-    Promise.all(uploadedMonths.map(m => getRecords(m.key))).then((recs) => {
-      if (!cancelled) setAllUploadedRecords(recs.flat());
+    Promise.all(uploadedMonths.map(m => getRecords(m.key))).then(async (recs) => {
+      if (cancelled) return;
+      const flat = recs.flat();
+      setAllUploadedRecords(flat);
+
+      // Ensure leaves across all uploaded months are also loaded into leaveRecords
+      try {
+        const leaves = await getAllLeaveRecords(uploadedMonths.map(m => m.key));
+        if (!cancelled && leaves.length > 0) {
+          setLeaveRecords((prev) => {
+            const existingKeys = new Set(prev.map(p => `${p.employeeCode}__${p.date}`));
+            const merged = [...prev];
+            for (const item of leaves) {
+              const k = `${item.employeeCode}__${item.date}`;
+              if (!existingKeys.has(k)) {
+                existingKeys.add(k);
+                merged.push(item);
+              }
+            }
+            return merged;
+          });
+        }
+      } catch (err) {
+        console.warn('Failed to load leaves across all uploaded months:', err);
+      }
     });
     return () => { cancelled = true; };
   }, [uploadedMonths]);

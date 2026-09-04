@@ -6,6 +6,7 @@ const ROLES = ['employee', 'lead', 'manager', 'hr', 'hr_super_admin'];
 
 type PersonOption = { id: string; full_name: string; employee_code: string };
 type DepartmentOption = { department: string; managerId: string | null; managerName: string | null };
+type OfficeOption = { code: string; name: string };
 
 // Simplified onboarding flow — see IMPLEMENTATION_NOTES.md and
 // 0017_pending_signups_and_probation.sql. `pendingSignup` is set when
@@ -47,6 +48,7 @@ export default function AddEmployeeForm({
   const [leads, setLeads] = useState<PersonOption[]>([]);
   const [managers, setManagers] = useState<PersonOption[]>([]);
   const [departments, setDepartments] = useState<DepartmentOption[]>([]);
+  const [offices, setOffices] = useState<OfficeOption[]>([]);
 
   useEffect(() => {
     async function loadOptions(role: string, setOptions: (v: PersonOption[]) => void) {
@@ -74,9 +76,31 @@ export default function AddEmployeeForm({
         // Departments list just stays empty.
       }
     }
+    async function loadOffices() {
+      try {
+        const res = await fetch('/api/leave/offices');
+        if (!res.ok) return;
+        const text = await res.text();
+        if (!text) return;
+        const data = JSON.parse(text);
+        const list = Array.isArray(data.offices) ? data.offices : [];
+        if (list.length > 0) {
+          setOffices(list);
+          setForm((f) => (f.office ? f : { ...f, office: list[0].code }));
+        }
+      } catch {
+        const fallback = [
+          { code: 'MUM', name: 'Mumbai' },
+          { code: 'HYD', name: 'Hyderabad' },
+        ];
+        setOffices(fallback);
+        setForm((f) => (f.office ? f : { ...f, office: fallback[0].code }));
+      }
+    }
     loadOptions('lead', setLeads);
     loadOptions('manager', setManagers);
     loadDepartments();
+    loadOffices();
   }, []);
 
   function update(field: string, value: string) {
@@ -243,7 +267,25 @@ export default function AddEmployeeForm({
             as two different departments elsewhere in the app.
           </p>
         </div>
-        <Field label="Office" value={form.office} onChange={(v) => update('office', v)} required />
+        <div>
+          <label className="block text-xs text-[var(--text-muted)] mb-1">Office</label>
+          <select
+            value={form.office}
+            onChange={(e) => update('office', e.target.value)}
+            required
+            className="w-full bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)]"
+          >
+            <option value="" disabled>Select an office…</option>
+            {offices.map((o) => (
+              <option key={o.code} value={o.code}>
+                {o.name} ({o.code})
+              </option>
+            ))}
+          </select>
+          <p className="text-[10px] text-[var(--text-muted)] mt-1">
+            Canonical office code ensuring biometric attendance and leave records match cleanly.
+          </p>
+        </div>
         <Field
           label="Date of Joining"
           value={form.date_of_joining}

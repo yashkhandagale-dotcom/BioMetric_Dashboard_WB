@@ -317,6 +317,13 @@ export async function respondToAttendanceException(
   }
 
   if (input.choice === 'missed_punch') {
+    if (!exception.first_punch && !exception.last_punch) {
+      return {
+        ok: false,
+        error: 'Missed punch is only available when punches were recorded. For full absence, please request regularisation or mark a half day.',
+      };
+    }
+
     const { data: mp, error: mpError } = await service
       .from('missed_punch')
       .upsert(

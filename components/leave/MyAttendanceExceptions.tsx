@@ -43,11 +43,26 @@ const CHOICES: { value: Choice; label: string; icon: typeof Clock }[] = [
 const PAGE_SIZE = 6;
 
 function ResponseForm({ exception, onSubmitted }: { exception: UnmarkedException; onSubmitted: () => void }) {
+  // If there are no punches at all (absent day), "Missed punch" is not an applicable option — only allow Regularisation or Half Day.
+  const hasPunches = Boolean(exception.firstPunch || exception.lastPunch);
+  const availableChoices = useMemo(() => {
+    if (exception.kind === 'absent' || !hasPunches) {
+      return CHOICES.filter((c) => c.value !== 'missed_punch');
+    }
+    return CHOICES;
+  }, [exception.kind, hasPunches]);
+
   const [choice, setChoice] = useState<Choice>('regularise');
   const [note, setNote] = useState('');
   const [leaveTypeCode, setLeaveTypeCode] = useState<'SL' | 'CL' | 'PL'>('SL');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!availableChoices.some((c) => c.value === choice)) {
+      setChoice(availableChoices[0].value);
+    }
+  }, [availableChoices, choice]);
 
   async function handleSubmit() {
     if (!note.trim()) {
@@ -80,8 +95,12 @@ function ResponseForm({ exception, onSubmitted }: { exception: UnmarkedException
 
   return (
     <div className="mt-3 space-y-4 border-t border-[var(--border)] pt-4">
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-        {CHOICES.map((opt) => {
+      <div
+        className={`grid grid-cols-1 ${
+          availableChoices.length === 2 ? 'sm:grid-cols-2' : 'sm:grid-cols-3'
+        } gap-2`}
+      >
+        {availableChoices.map((opt) => {
           const Icon = opt.icon;
           const active = choice === opt.value;
           return (
