@@ -79,11 +79,13 @@ export function normalizeDate(raw: string, dateFormat?: 'DMY' | 'MDY' | 'YMD'): 
     let day: number;
 
     if (dateFormat === 'MDY') {
-      // MM/DD/YYYY
-      month = n1; day = n2;
+      // MM/DD/YYYY — unless n1 > 12, which is impossible for a month
+      if (n1 > 12 && n2 <= 12) { month = n2; day = n1; }
+      else { month = n1; day = n2; }
     } else if (dateFormat === 'DMY') {
-      // DD/MM/YYYY
-      month = n2; day = n1;
+      // DD/MM/YYYY — unless n2 > 12, which is impossible for a month
+      if (n2 > 12 && n1 <= 12) { month = n1; day = n2; }
+      else { month = n2; day = n1; }
     } else {
       // No explicit hint — deduce from values:
       // if n2 > 12 it can only be a day, so n1 is the month (MDY-style)
@@ -181,9 +183,12 @@ export function parseCSVWithMapping(
         const mappedHeaders = new Set(Object.values(mapping));
         const allHeaders = results.meta.fields || [];
 
+        const detectedFmt = detectDateFormatFromRows(rows, mapping.date);
+        const effectiveDateFormat = mapping.dateFormat || detectedFmt || 'DMY';
+
         for (const row of rows) {
           const empCode = String(row[mapping.employeeCode] || '').trim();
-          const date = normalizeDate(String(row[mapping.date] || '').trim(), mapping.dateFormat);
+          const date = normalizeDate(String(row[mapping.date] || '').trim(), effectiveDateFormat);
 
           if (!empCode || !date) continue;
 
@@ -301,13 +306,47 @@ export interface CSVDateRangeAnalysis {
   totalRecords: number;     // total data rows
   uniqueEmployees: number;  // distinct employee codes
   monthsSpanned: { year: string; month: string; label: string }[];
+  detectedDateFormat?: 'DMY' | 'MDY' | 'YMD';
+}
+
+export function detectDateFormatFromRows(
+  rows: Record<string, string>[],
+  dateColumn: string
+): 'DMY' | 'MDY' | 'YMD' | null {
+  let mdyCount = 0;
+  let dmyCount = 0;
+  let ymdCount = 0;
+
+  for (const row of rows) {
+    const raw = String(row[dateColumn] || '').trim();
+    if (!raw) continue;
+
+    if (/^\d{4}[-/]\d{1,2}[-/]\d{1,2}/.test(raw)) {
+      ymdCount++;
+      continue;
+    }
+
+    const m = raw.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})/);
+    if (m) {
+      const n1 = parseInt(m[1], 10);
+      const n2 = parseInt(m[2], 10);
+      if (n2 > 12 && n1 <= 12) mdyCount++;
+      else if (n1 > 12 && n2 <= 12) dmyCount++;
+    }
+  }
+
+  if (mdyCount > 0 && dmyCount === 0) return 'MDY';
+  if (dmyCount > 0 && mdyCount === 0) return 'DMY';
+  if (ymdCount > 0 && mdyCount === 0 && dmyCount === 0) return 'YMD';
+  return null;
 }
 
 export function analyzeCSVDateRange(
   file: File,
   dateColumn: string,
   employeeColumn: string,
-  dateFormat?: 'DMY' | 'MDY' | 'YMD'
+  dateFormat?: 'DMY' | 'MDY' | 'YMD',
+  forceFormat: boolean = false
 ): Promise<CSVDateRangeAnalysis> {
   return new Promise((resolve, reject) => {
     Papa.parse(file, {
@@ -315,6 +354,11 @@ export function analyzeCSVDateRange(
       skipEmptyLines: true,
       complete: (results) => {
         const rows = results.data as Record<string, string>[];
+        const detectedFmt = detectDateFormatFromRows(rows, dateColumn);
+        const effectiveFormat: 'DMY' | 'MDY' | 'YMD' = forceFormat
+          ? (dateFormat || 'DMY')
+          : (detectedFmt || dateFormat || 'DMY');
+
         let minDate = '';
         let maxDate = '';
         let totalRecords = 0;
@@ -326,7 +370,7 @@ export function analyzeCSVDateRange(
           const empCode = String(row[employeeColumn] || '').trim();
           if (!rawDate) continue;
 
-          const date = normalizeDate(rawDate, dateFormat);
+          const date = normalizeDate(rawDate, effectiveFormat);
           if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
 
           totalRecords++;
@@ -359,6 +403,7 @@ export function analyzeCSVDateRange(
           totalRecords,
           uniqueEmployees: empSet.size,
           monthsSpanned,
+          detectedDateFormat: effectiveFormat,
         });
       },
       error: reject,

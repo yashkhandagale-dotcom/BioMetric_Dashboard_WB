@@ -1,7 +1,7 @@
 'use client';
-import { useState } from 'react';
-import { Calendar, Users, FileText, AlertTriangle, CheckCircle2, X, RefreshCw, PlusCircle } from 'lucide-react';
-import { CSVDateRangeAnalysis } from '@/lib/parseCSV';
+import { useState, useEffect, useCallback } from 'react';
+import { Calendar, Users, FileText, AlertTriangle, CheckCircle2, X, RefreshCw, PlusCircle, Loader2 } from 'lucide-react';
+import { CSVDateRangeAnalysis, analyzeCSVDateRange } from '@/lib/parseCSV';
 
 type DateFmt = 'DMY' | 'MDY' | 'YMD';
 
@@ -10,6 +10,12 @@ interface ImportPreviewModalProps {
   officeCode: string;
   existingRange: { minDate: string; maxDate: string } | null;
   defaultDateFormat: DateFmt;
+  // For live re-analysis when user changes date format
+  file?: File;
+  dateColumn?: string;
+  employeeColumn?: string;
+  onAnalysisUpdate?: (analysis: CSVDateRangeAnalysis, fmt: DateFmt) => void;
+  // Actions
   onOverwrite: (fmt: DateFmt) => void;
   onImportNewOnly: (fmt: DateFmt) => void;
   onImportAll: (fmt: DateFmt) => void;
@@ -51,6 +57,10 @@ export default function ImportPreviewModal({
   officeCode,
   existingRange,
   defaultDateFormat,
+  file,
+  dateColumn,
+  employeeColumn,
+  onAnalysisUpdate,
   onOverwrite,
   onImportNewOnly,
   onImportAll,
@@ -58,6 +68,34 @@ export default function ImportPreviewModal({
   isLoading = false,
 }: ImportPreviewModalProps) {
   const [selectedFmt, setSelectedFmt] = useState<DateFmt>(defaultDateFormat);
+  const [reanalyzing, setReanalyzing] = useState(false);
+
+  // Re-analyze CSV when the user changes the date format
+  const reanalyze = useCallback(async (fmt: DateFmt) => {
+    if (!file || !dateColumn || !employeeColumn || !onAnalysisUpdate) return;
+    setReanalyzing(true);
+    try {
+      const newAnalysis = await analyzeCSVDateRange(file, dateColumn, employeeColumn, fmt, true);
+      onAnalysisUpdate(newAnalysis, fmt);
+    } catch (err) {
+      console.warn('[ImportPreviewModal] re-analysis failed:', err);
+    } finally {
+      setReanalyzing(false);
+    }
+  }, [file, dateColumn, employeeColumn, onAnalysisUpdate]);
+
+  // Sync state if defaultDateFormat changes
+  useEffect(() => {
+    setSelectedFmt(defaultDateFormat);
+  }, [defaultDateFormat]);
+
+  // When selectedFmt changes (user clicks a format button), re-analyze
+  useEffect(() => {
+    if (selectedFmt !== defaultDateFormat) {
+      reanalyze(selectedFmt);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedFmt]);
 
   const overlap = existingRange
     ? hasOverlap(analysis.startDate, analysis.endDate, existingRange.minDate, existingRange.maxDate)
@@ -67,7 +105,7 @@ export default function ImportPreviewModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/65 backdrop-blur-sm">
-      <div className="w-full max-w-lg bg-[var(--bg-card)] border border-[var(--border)] rounded-2xl shadow-2xl overflow-hidden">
+      <div className="w-full max-w-lg bg-[var(--bg-card)] border border-[var(--border)] rounded-2xl shadow-2xl overflow-hidden max-h-[90vh] overflow-y-auto">
 
         {/* ── Header ── */}
         <div className="px-6 py-5 border-b border-[var(--border)] bg-[var(--bg-elevated)]/40">
@@ -81,7 +119,7 @@ export default function ImportPreviewModal({
                   Import Attendance Data
                 </h2>
                 <p className="text-[var(--text-muted)] text-xs mt-0.5">
-                  Review what will be imported before confirming
+                  Step 1: Choose your date format. Step 2: Confirm the detected period.
                 </p>
               </div>
             </div>
@@ -95,38 +133,59 @@ export default function ImportPreviewModal({
           </div>
         </div>
 
-        {/* ── Date Format Selector ── */}
+        {/* ── Step 1: Date Format Selector ── */}
         <div className="px-6 pt-4 pb-2">
-          <p className="text-[var(--text-muted)] text-xs font-semibold uppercase tracking-wider mb-2">
-            Date Format in your CSV
-          </p>
+          <div className="flex items-center gap-2 mb-2">
+            <span className="flex items-center justify-center w-5 h-5 rounded-full bg-blue-600 text-white text-[11px] font-bold">1</span>
+            <p className="text-[var(--text-primary)] text-sm font-semibold">
+              What date format does your CSV use?
+            </p>
+          </div>
           <div className="grid grid-cols-3 gap-2">
             {DATE_FORMAT_OPTIONS.map(opt => (
               <button
                 key={opt.value}
                 type="button"
-                disabled={isLoading}
+                disabled={isLoading || reanalyzing}
                 onClick={() => setSelectedFmt(opt.value)}
                 className={`flex flex-col items-start gap-0.5 px-3 py-2.5 rounded-xl border text-left transition-all ${
                   selectedFmt === opt.value
-                    ? 'bg-blue-600/15 border-blue-500/50 text-blue-400'
+                    ? 'bg-blue-600/15 border-blue-500/50 text-blue-400 ring-1 ring-blue-500/30'
                     : 'bg-[var(--bg-elevated)] border-[var(--border)] text-[var(--text-muted)] hover:border-blue-500/30'
                 }`}
               >
-                <span className="font-mono font-semibold text-xs">{opt.label}</span>
+                <div className="flex items-center justify-between w-full">
+                  <span className="font-mono font-semibold text-xs">{opt.label}</span>
+                  {analysis.detectedDateFormat === opt.value && (
+                    <span className="text-[9px] font-bold uppercase tracking-wider text-emerald-400 bg-emerald-500/15 border border-emerald-500/30 px-1 py-0.5 rounded">
+                      Auto
+                    </span>
+                  )}
+                </div>
                 <span className="font-mono text-[10px] opacity-60">{opt.example}</span>
               </button>
             ))}
           </div>
           <p className="text-[var(--text-muted)] text-[11px] mt-2">
-            ⚠ Choose carefully — wrong format shifts every date by months.
-            Selection is saved for this office&apos;s future uploads.
+            ⚠ The preview below updates live when you switch formats. Pick the one that matches your CSV.
           </p>
         </div>
 
-        {/* ── Detected Period Banner ── */}
+        {/* ── Step 2: Detected Period Banner ── */}
         <div className="px-6 pt-3 pb-4">
-          <div className="bg-blue-500/8 border border-blue-500/20 rounded-xl px-4 py-3.5">
+          <div className="flex items-center gap-2 mb-2">
+            <span className="flex items-center justify-center w-5 h-5 rounded-full bg-blue-600 text-white text-[11px] font-bold">2</span>
+            <p className="text-[var(--text-primary)] text-sm font-semibold">
+              Confirm detected period
+            </p>
+            {reanalyzing && (
+              <span className="flex items-center gap-1.5 text-blue-400 text-xs">
+                <Loader2 className="w-3 h-3 animate-spin" /> Re-analyzing…
+              </span>
+            )}
+          </div>
+
+          <div className={`bg-blue-500/8 border border-blue-500/20 rounded-xl px-4 py-3.5 transition-opacity ${reanalyzing ? 'opacity-50' : ''}`}>
             <p className="text-blue-400 text-[11px] font-semibold uppercase tracking-widest mb-1">Detected Period</p>
             <p className="text-[var(--text-primary)] font-bold text-lg leading-tight">
               {fmtDate(analysis.startDate)}&nbsp;&ndash;&nbsp;{fmtDate(analysis.endDate)}
@@ -158,7 +217,6 @@ export default function ImportPreviewModal({
 
             <p className="text-[var(--text-muted)] text-[11px] mt-2.5">
               Office: <span className="text-[var(--text-primary)] font-semibold">{officeCode}</span>
-              &nbsp;&mdash;&nbsp;each month creates a separate entry in the month selector
             </p>
           </div>
 
@@ -201,7 +259,7 @@ export default function ImportPreviewModal({
             <>
               <button
                 onClick={() => onOverwrite(selectedFmt)}
-                disabled={isLoading}
+                disabled={isLoading || reanalyzing}
                 className="w-full flex items-center gap-2.5 px-5 py-3 rounded-xl font-semibold text-sm bg-amber-500 hover:bg-amber-400 text-white transition-colors disabled:opacity-50"
               >
                 <RefreshCw className="w-4 h-4" />
@@ -210,7 +268,7 @@ export default function ImportPreviewModal({
               </button>
               <button
                 onClick={() => onImportNewOnly(selectedFmt)}
-                disabled={isLoading}
+                disabled={isLoading || reanalyzing}
                 className="w-full flex items-center gap-2.5 px-5 py-3 rounded-xl font-semibold text-sm bg-[var(--bg-elevated)] border border-[var(--border)] text-[var(--text-primary)] hover:bg-[var(--bg-elevated)]/70 transition-colors disabled:opacity-50"
               >
                 <PlusCircle className="w-4 h-4 text-emerald-400" />
@@ -221,7 +279,7 @@ export default function ImportPreviewModal({
           ) : (
             <button
               onClick={() => onImportAll(selectedFmt)}
-              disabled={isLoading}
+              disabled={isLoading || reanalyzing}
               className="w-full flex items-center justify-center gap-2.5 px-5 py-3 rounded-xl font-semibold text-sm bg-blue-600 hover:bg-blue-500 text-white transition-colors disabled:opacity-50"
             >
               <CheckCircle2 className="w-4 h-4" />

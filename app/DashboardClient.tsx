@@ -69,7 +69,10 @@ interface ImportPreviewState {
   analysis: CSVDateRangeAnalysis;
   existingRange: { minDate: string; maxDate: string } | null;
   batch: PendingFile[];
-  currentDateFormat: 'DMY' | 'MDY' | 'YMD'; // from stored mapping (may be missing for old mappings)
+  currentDateFormat: 'DMY' | 'MDY' | 'YMD';
+  // Needed so the modal can re-analyze the CSV when the user changes the format
+  dateColumn: string;
+  employeeColumn: string;
 }
 
 function getMonthName(mm: string): string {
@@ -691,22 +694,23 @@ function HRDashboard() {
     const pf = batch[0]; // representative file (all same office)
     const mapping = await getMapping(pf.officeCode);
     if (!mapping) {
-      // Shouldn't happen (mapping was just saved) but fall back gracefully
       if (uploadedMonths.length > 0) setAppState('dashboard');
       await importBatch(batch, 'overwrite');
       return;
     }
     try {
-      const currentDateFormat = mapping.dateFormat ?? 'DMY';
+      const initialDateFormat = mapping.dateFormat;
       const [analysis, existingRange] = await Promise.all([
-        analyzeCSVDateRange(pf.file, mapping.date, mapping.employeeCode, currentDateFormat),
+        analyzeCSVDateRange(pf.file, mapping.date, mapping.employeeCode, initialDateFormat),
         getExistingDateRange(pf.officeCode),
       ]);
-      // Only close the upload/mapping portal when there IS dashboard data behind it.
-      // If this is a first-ever upload (uploadedMonths empty), leaving appState as-is
-      // prevents the page from going blank — the ImportPreviewModal covers everything anyway.
+      const currentDateFormat = analysis.detectedDateFormat || initialDateFormat || 'DMY';
       if (uploadedMonths.length > 0) setAppState('dashboard');
-      setImportPreview({ analysis, existingRange, batch, currentDateFormat });
+      setImportPreview({
+        analysis, existingRange, batch, currentDateFormat,
+        dateColumn: mapping.date,
+        employeeColumn: mapping.employeeCode,
+      });
     } catch (err) {
       console.warn('[analyzeAndPreview] could not analyze CSV dates:', err);
       if (uploadedMonths.length > 0) setAppState('dashboard');
@@ -1542,10 +1546,15 @@ function HRDashboard() {
           officeCode={importPreview.batch[0]?.officeCode ?? ''}
           existingRange={importPreview.existingRange}
           defaultDateFormat={importPreview.currentDateFormat}
+          file={importPreview.batch[0]?.file}
+          dateColumn={importPreview.dateColumn}
+          employeeColumn={importPreview.employeeColumn}
           isLoading={importPreviewLoading}
+          onAnalysisUpdate={(newAnalysis, newFmt) => {
+            setImportPreview(prev => prev ? { ...prev, analysis: newAnalysis, currentDateFormat: newFmt } : prev);
+          }}
           onImportAll={async (fmt) => {
             setImportPreviewLoading(true);
-            // Persist the user's chosen date format back into the mapping
             const pf = importPreview.batch[0];
             if (pf) {
               const m = await getMapping(pf.officeCode);
