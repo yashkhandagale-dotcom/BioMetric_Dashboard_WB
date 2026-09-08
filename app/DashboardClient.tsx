@@ -69,6 +69,7 @@ interface ImportPreviewState {
   analysis: CSVDateRangeAnalysis;
   existingRange: { minDate: string; maxDate: string } | null;
   batch: PendingFile[];
+  currentDateFormat: 'DMY' | 'MDY' | 'YMD'; // from stored mapping (may be missing for old mappings)
 }
 
 function getMonthName(mm: string): string {
@@ -691,23 +692,24 @@ function HRDashboard() {
     const mapping = await getMapping(pf.officeCode);
     if (!mapping) {
       // Shouldn't happen (mapping was just saved) but fall back gracefully
-      setAppState('dashboard');
+      if (uploadedMonths.length > 0) setAppState('dashboard');
       await importBatch(batch, 'overwrite');
       return;
     }
     try {
+      const currentDateFormat = mapping.dateFormat ?? 'DMY';
       const [analysis, existingRange] = await Promise.all([
-        analyzeCSVDateRange(pf.file, mapping.date, mapping.employeeCode, mapping.dateFormat),
+        analyzeCSVDateRange(pf.file, mapping.date, mapping.employeeCode, currentDateFormat),
         getExistingDateRange(pf.officeCode),
       ]);
-      // IMPORTANT: close the upload/mapping portal FIRST so it doesn't sit
-      // behind the ImportPreviewModal and cause a visual conflict / blank screen.
-      setAppState('dashboard');
-      setImportPreview({ analysis, existingRange, batch });
+      // Only close the upload/mapping portal when there IS dashboard data behind it.
+      // If this is a first-ever upload (uploadedMonths empty), leaving appState as-is
+      // prevents the page from going blank — the ImportPreviewModal covers everything anyway.
+      if (uploadedMonths.length > 0) setAppState('dashboard');
+      setImportPreview({ analysis, existingRange, batch, currentDateFormat });
     } catch (err) {
-      // If analysis fails (e.g. date column empty), fall back to direct import
       console.warn('[analyzeAndPreview] could not analyze CSV dates:', err);
-      setAppState('dashboard');
+      if (uploadedMonths.length > 0) setAppState('dashboard');
       await importBatch(batch, 'overwrite');
     }
   }
@@ -1539,17 +1541,34 @@ function HRDashboard() {
           analysis={importPreview.analysis}
           officeCode={importPreview.batch[0]?.officeCode ?? ''}
           existingRange={importPreview.existingRange}
+          defaultDateFormat={importPreview.currentDateFormat}
           isLoading={importPreviewLoading}
-          onImportAll={() => {
+          onImportAll={async (fmt) => {
             setImportPreviewLoading(true);
+            // Persist the user's chosen date format back into the mapping
+            const pf = importPreview.batch[0];
+            if (pf) {
+              const m = await getMapping(pf.officeCode);
+              if (m && fmt !== m.dateFormat) await saveMapping(pf.officeCode, { ...m, dateFormat: fmt });
+            }
             importBatch(importPreview.batch, 'overwrite');
           }}
-          onOverwrite={() => {
+          onOverwrite={async (fmt) => {
             setImportPreviewLoading(true);
+            const pf = importPreview.batch[0];
+            if (pf) {
+              const m = await getMapping(pf.officeCode);
+              if (m && fmt !== m.dateFormat) await saveMapping(pf.officeCode, { ...m, dateFormat: fmt });
+            }
             importBatch(importPreview.batch, 'overwrite', importPreview.existingRange);
           }}
-          onImportNewOnly={() => {
+          onImportNewOnly={async (fmt) => {
             setImportPreviewLoading(true);
+            const pf = importPreview.batch[0];
+            if (pf) {
+              const m = await getMapping(pf.officeCode);
+              if (m && fmt !== m.dateFormat) await saveMapping(pf.officeCode, { ...m, dateFormat: fmt });
+            }
             importBatch(importPreview.batch, 'new_only', importPreview.existingRange);
           }}
           onCancel={() => {

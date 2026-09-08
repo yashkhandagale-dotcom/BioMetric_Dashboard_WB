@@ -1,17 +1,27 @@
 'use client';
+import { useState } from 'react';
 import { Calendar, Users, FileText, AlertTriangle, CheckCircle2, X, RefreshCw, PlusCircle } from 'lucide-react';
 import { CSVDateRangeAnalysis } from '@/lib/parseCSV';
+
+type DateFmt = 'DMY' | 'MDY' | 'YMD';
 
 interface ImportPreviewModalProps {
   analysis: CSVDateRangeAnalysis;
   officeCode: string;
   existingRange: { minDate: string; maxDate: string } | null;
-  onOverwrite: () => void;
-  onImportNewOnly: () => void;
-  onImportAll: () => void;   // used when no overlap — single confirm button
+  defaultDateFormat: DateFmt;
+  onOverwrite: (fmt: DateFmt) => void;
+  onImportNewOnly: (fmt: DateFmt) => void;
+  onImportAll: (fmt: DateFmt) => void;
   onCancel: () => void;
   isLoading?: boolean;
 }
+
+const DATE_FORMAT_OPTIONS: { value: DateFmt; label: string; example: string }[] = [
+  { value: 'DMY', label: 'DD/MM/YYYY', example: '01/07/2026' },
+  { value: 'MDY', label: 'MM/DD/YYYY', example: '07/01/2026' },
+  { value: 'YMD', label: 'YYYY-MM-DD', example: '2026-07-01' },
+];
 
 function fmtDate(iso: string): string {
   if (!iso) return '';
@@ -25,34 +35,30 @@ function daysBetween(a: string, b: string): number {
   return Math.round(ms / 86_400_000) + 1;
 }
 
-function hasOverlap(
-  newStart: string, newEnd: string,
-  exStart: string, exEnd: string
-): boolean {
+function hasOverlap(newStart: string, newEnd: string, exStart: string, exEnd: string): boolean {
   return newStart <= exEnd && newEnd >= exStart;
 }
 
-function newOnlyDates(newStart: string, newEnd: string, exStart: string, exEnd: string): string {
-  // Tell the user what the "new only" range will actually be
-  if (newEnd < exStart) return `${fmtDate(newStart)} – ${fmtDate(newEnd)}`;
-  if (newStart > exEnd) return `${fmtDate(newStart)} – ${fmtDate(newEnd)}`;
-  // Overlap: new dates outside the existing block
+function newOnlyRange(newStart: string, newEnd: string, exStart: string, exEnd: string): string {
   const parts: string[] = [];
   if (newStart < exStart) parts.push(`${fmtDate(newStart)} – ${fmtDate(exStart)}`);
   if (newEnd > exEnd) parts.push(`${fmtDate(exEnd)} – ${fmtDate(newEnd)}`);
-  return parts.length > 0 ? parts.join(' and ') : 'No completely new dates';
+  return parts.length > 0 ? parts.join(' and ') : 'No completely new dates outside existing range';
 }
 
 export default function ImportPreviewModal({
   analysis,
   officeCode,
   existingRange,
+  defaultDateFormat,
   onOverwrite,
   onImportNewOnly,
   onImportAll,
   onCancel,
   isLoading = false,
 }: ImportPreviewModalProps) {
+  const [selectedFmt, setSelectedFmt] = useState<DateFmt>(defaultDateFormat);
+
   const overlap = existingRange
     ? hasOverlap(analysis.startDate, analysis.endDate, existingRange.minDate, existingRange.maxDate)
     : false;
@@ -89,8 +95,37 @@ export default function ImportPreviewModal({
           </div>
         </div>
 
+        {/* ── Date Format Selector ── */}
+        <div className="px-6 pt-4 pb-2">
+          <p className="text-[var(--text-muted)] text-xs font-semibold uppercase tracking-wider mb-2">
+            Date Format in your CSV
+          </p>
+          <div className="grid grid-cols-3 gap-2">
+            {DATE_FORMAT_OPTIONS.map(opt => (
+              <button
+                key={opt.value}
+                type="button"
+                disabled={isLoading}
+                onClick={() => setSelectedFmt(opt.value)}
+                className={`flex flex-col items-start gap-0.5 px-3 py-2.5 rounded-xl border text-left transition-all ${
+                  selectedFmt === opt.value
+                    ? 'bg-blue-600/15 border-blue-500/50 text-blue-400'
+                    : 'bg-[var(--bg-elevated)] border-[var(--border)] text-[var(--text-muted)] hover:border-blue-500/30'
+                }`}
+              >
+                <span className="font-mono font-semibold text-xs">{opt.label}</span>
+                <span className="font-mono text-[10px] opacity-60">{opt.example}</span>
+              </button>
+            ))}
+          </div>
+          <p className="text-[var(--text-muted)] text-[11px] mt-2">
+            ⚠ Choose carefully — wrong format shifts every date by months.
+            Selection is saved for this office&apos;s future uploads.
+          </p>
+        </div>
+
         {/* ── Detected Period Banner ── */}
-        <div className="px-6 pt-5 pb-4">
+        <div className="px-6 pt-3 pb-4">
           <div className="bg-blue-500/8 border border-blue-500/20 rounded-xl px-4 py-3.5">
             <p className="text-blue-400 text-[11px] font-semibold uppercase tracking-widest mb-1">Detected Period</p>
             <p className="text-[var(--text-primary)] font-bold text-lg leading-tight">
@@ -98,20 +133,16 @@ export default function ImportPreviewModal({
             </p>
             <div className="flex items-center gap-4 mt-2.5 flex-wrap">
               <span className="flex items-center gap-1.5 text-[var(--text-muted)] text-xs">
-                <Calendar className="w-3.5 h-3.5" />
-                {totalDays} day{totalDays !== 1 ? 's' : ''}
+                <Calendar className="w-3.5 h-3.5" />{totalDays} day{totalDays !== 1 ? 's' : ''}
               </span>
               <span className="flex items-center gap-1.5 text-[var(--text-muted)] text-xs">
-                <FileText className="w-3.5 h-3.5" />
-                {analysis.totalRecords.toLocaleString()} records
+                <FileText className="w-3.5 h-3.5" />{analysis.totalRecords.toLocaleString()} records
               </span>
               <span className="flex items-center gap-1.5 text-[var(--text-muted)] text-xs">
-                <Users className="w-3.5 h-3.5" />
-                {analysis.uniqueEmployees} employee{analysis.uniqueEmployees !== 1 ? 's' : ''}
+                <Users className="w-3.5 h-3.5" />{analysis.uniqueEmployees} employee{analysis.uniqueEmployees !== 1 ? 's' : ''}
               </span>
             </div>
 
-            {/* Months spanned pills */}
             {analysis.monthsSpanned.length > 0 && (
               <div className="flex flex-wrap gap-1.5 mt-3">
                 {analysis.monthsSpanned.map((m) => (
@@ -127,11 +158,11 @@ export default function ImportPreviewModal({
 
             <p className="text-[var(--text-muted)] text-[11px] mt-2.5">
               Office: <span className="text-[var(--text-primary)] font-semibold">{officeCode}</span>
-              &nbsp;&mdash;&nbsp;each month will create a separate entry in the month selector
+              &nbsp;&mdash;&nbsp;each month creates a separate entry in the month selector
             </p>
           </div>
 
-          {/* ── Overlap Warning ── */}
+          {/* Overlap Warning */}
           {overlap && existingRange && (
             <div className="mt-3 bg-amber-500/8 border border-amber-500/25 rounded-xl px-4 py-3.5">
               <div className="flex items-start gap-2.5">
@@ -139,28 +170,26 @@ export default function ImportPreviewModal({
                 <div className="flex-1 min-w-0">
                   <p className="text-amber-400 font-semibold text-sm">Overlap Detected</p>
                   <p className="text-[var(--text-muted)] text-xs mt-1 leading-relaxed">
-                    You already have data from&nbsp;
+                    Existing data:&nbsp;
                     <span className="text-[var(--text-primary)] font-medium">{fmtDate(existingRange.minDate)}</span>
                     &nbsp;to&nbsp;
                     <span className="text-[var(--text-primary)] font-medium">{fmtDate(existingRange.maxDate)}</span>
-                    &nbsp;for <span className="text-[var(--text-primary)] font-medium">{officeCode}</span>.
-                    Choose how to handle the conflicting period below.
+                    &nbsp;({officeCode})
                   </p>
                   <p className="text-[var(--text-muted)] text-[11px] mt-2">
                     <span className="text-emerald-400 font-medium">New dates only: </span>
-                    {newOnlyDates(analysis.startDate, analysis.endDate, existingRange.minDate, existingRange.maxDate)}
+                    {newOnlyRange(analysis.startDate, analysis.endDate, existingRange.minDate, existingRange.maxDate)}
                   </p>
                 </div>
               </div>
             </div>
           )}
 
-          {/* No overlap — clean import */}
           {!overlap && existingRange && (
             <div className="mt-3 bg-emerald-500/8 border border-emerald-500/20 rounded-xl px-4 py-3 flex items-center gap-2.5">
               <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0" />
               <p className="text-[var(--text-muted)] text-xs">
-                No overlap — this data covers a completely new date range. All records will be added.
+                No overlap — this covers a completely new date range.
               </p>
             </div>
           )}
@@ -170,43 +199,35 @@ export default function ImportPreviewModal({
         <div className="px-6 pb-5 space-y-2">
           {overlap ? (
             <>
-              {/* Overwrite */}
               <button
-                onClick={onOverwrite}
+                onClick={() => onOverwrite(selectedFmt)}
                 disabled={isLoading}
-                className="w-full flex items-center justify-center gap-2.5 px-5 py-3 rounded-xl font-semibold text-sm
-                  bg-amber-500 hover:bg-amber-400 text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-full flex items-center gap-2.5 px-5 py-3 rounded-xl font-semibold text-sm bg-amber-500 hover:bg-amber-400 text-white transition-colors disabled:opacity-50"
               >
                 <RefreshCw className="w-4 h-4" />
                 Overwrite Overlapping Period
                 <span className="ml-auto text-[11px] font-normal opacity-80">Updates existing + adds new</span>
               </button>
-
-              {/* Import new only */}
               <button
-                onClick={onImportNewOnly}
+                onClick={() => onImportNewOnly(selectedFmt)}
                 disabled={isLoading}
-                className="w-full flex items-center justify-center gap-2.5 px-5 py-3 rounded-xl font-semibold text-sm
-                  bg-[var(--bg-elevated)] hover:bg-[var(--bg-elevated)]/70 text-[var(--text-primary)] border border-[var(--border)] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-full flex items-center gap-2.5 px-5 py-3 rounded-xl font-semibold text-sm bg-[var(--bg-elevated)] border border-[var(--border)] text-[var(--text-primary)] hover:bg-[var(--bg-elevated)]/70 transition-colors disabled:opacity-50"
               >
                 <PlusCircle className="w-4 h-4 text-emerald-400" />
-                Keep Existing &mdash; Import New Dates Only
-                <span className="ml-auto text-[11px] font-normal text-[var(--text-muted)] opacity-80">Leaves overlapping dates untouched</span>
+                Keep Existing — Import New Dates Only
+                <span className="ml-auto text-[11px] font-normal text-[var(--text-muted)]">Leaves overlapping dates untouched</span>
               </button>
             </>
           ) : (
-            /* No overlap — single import button */
             <button
-              onClick={onImportAll}
+              onClick={() => onImportAll(selectedFmt)}
               disabled={isLoading}
-              className="w-full flex items-center justify-center gap-2.5 px-5 py-3 rounded-xl font-semibold text-sm
-                bg-blue-600 hover:bg-blue-500 text-white transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full flex items-center justify-center gap-2.5 px-5 py-3 rounded-xl font-semibold text-sm bg-blue-600 hover:bg-blue-500 text-white transition-colors disabled:opacity-50"
             >
               <CheckCircle2 className="w-4 h-4" />
               {isLoading ? 'Importing…' : 'Import Now'}
             </button>
           )}
-
           <button
             onClick={onCancel}
             disabled={isLoading}
