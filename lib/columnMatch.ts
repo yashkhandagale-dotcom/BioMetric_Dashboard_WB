@@ -1,6 +1,10 @@
 import { ColumnMapping } from './types';
 
-export const FIELD_SYNONYMS: Record<keyof ColumnMapping, string[]> = {
+// Only the string-valued column headers — dateFormat is handled separately
+// and should NOT be included in the auto-match synonym table.
+type MappableField = Exclude<keyof ColumnMapping, 'dateFormat'>;
+
+export const FIELD_SYNONYMS: Record<MappableField, string[]> = {
   employeeCode: ['empid', 'employeeid', 'empcode', 'staffid', 'id', 'employeecode'],
   employeeName: ['empname', 'name', 'staffname', 'fullname', 'employeename'],
   date: ['attendancedate', 'punchdate', 'date'],
@@ -46,7 +50,7 @@ export function autoMatchColumns(csvHeaders: string[]): AutoMatchResult {
   const autoMatched = new Set<keyof ColumnMapping>();
   const consumed = new Set<string>();
 
-  for (const field of Object.keys(FIELD_SYNONYMS) as (keyof ColumnMapping)[]) {
+  for (const field of Object.keys(FIELD_SYNONYMS) as MappableField[]) {
     const synonyms = FIELD_SYNONYMS[field];
 
     // 1) exact normalized synonym match
@@ -74,7 +78,7 @@ export function autoMatchColumns(csvHeaders: string[]): AutoMatchResult {
     }
 
     if (found) {
-      mapping[field] = found.raw;
+      (mapping as Record<string, string>)[field] = found.raw;
       autoMatched.add(field);
       consumed.add(found.raw);
     }

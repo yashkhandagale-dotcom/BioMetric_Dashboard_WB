@@ -1,6 +1,6 @@
 'use client';
 import { useState, useMemo } from 'react';
-import { ArrowRight, Save, CheckCircle2 } from 'lucide-react';
+import { ArrowRight, Save, CheckCircle2, Calendar } from 'lucide-react';
 import { ColumnMapping } from '@/lib/types';
 import { REQUIRED_STANDARD_FIELDS, FIELD_LABELS } from '@/lib/validateFile';
 import { autoMatchColumns } from '@/lib/columnMatch';
@@ -12,6 +12,14 @@ interface ColumnMappingScreenProps {
   onSave: (mapping: ColumnMapping) => void;
   onCancel?: () => void;
 }
+
+type DateFormat = 'DMY' | 'MDY' | 'YMD';
+
+const DATE_FORMAT_OPTIONS: { value: DateFormat; label: string; example: string; desc: string }[] = [
+  { value: 'DMY', label: 'DD/MM/YYYY', example: '01/07/2026', desc: 'Day first — Indian biometric default' },
+  { value: 'MDY', label: 'MM/DD/YYYY', example: '07/01/2026', desc: 'Month first — US / some software exports' },
+  { value: 'YMD', label: 'YYYY-MM-DD', example: '2026-07-01', desc: 'ISO standard (auto-detected)' },
+];
 
 export default function ColumnMappingScreen({ officeCode, csvHeaders, initialMapping, onSave, onCancel }: ColumnMappingScreenProps) {
   const auto = useMemo(() => autoMatchColumns(csvHeaders), [csvHeaders]);
@@ -25,6 +33,9 @@ export default function ColumnMappingScreen({ officeCode, csvHeaders, initialMap
   );
   const [touched, setTouched] = useState<Set<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
+  const [dateFormat, setDateFormat] = useState<DateFormat>(
+    (initialMapping?.dateFormat as DateFormat | undefined) ?? 'DMY'
+  );
 
   function handleSave() {
     const missing = REQUIRED_STANDARD_FIELDS.filter(f => !mapping[f]);
@@ -33,7 +44,7 @@ export default function ColumnMappingScreen({ officeCode, csvHeaders, initialMap
       setError(`Please map: ${missing.map(f => FIELD_LABELS[f]).join(', ')}`);
       return;
     }
-    onSave(mapping as ColumnMapping);
+    onSave({ ...(mapping as ColumnMapping), dateFormat });
   }
 
   const extraCols = auto.unmatchedHeaders;
@@ -47,10 +58,47 @@ export default function ColumnMappingScreen({ officeCode, csvHeaders, initialMap
           </div>
           <h2 className="text-2xl font-bold text-[var(--text-primary)] mb-1">Map your columns</h2>
           <p className="text-[var(--text-muted)] text-sm">
-            We've pre-matched what we could recognize — review and adjust, then save. This is a one-time setup per office; re-uploads skip this screen.
+            We&apos;ve pre-matched what we could recognize — review and adjust, then save. This is a one-time setup per office; re-uploads skip this screen.
           </p>
         </div>
 
+        {/* ── Date Format Selector ────────────────────────────────────────── */}
+        <div className="mb-4 bg-[var(--bg-elevated)] rounded-2xl border border-[var(--border)] overflow-hidden">
+          <div className="flex items-center gap-2 px-4 sm:px-6 py-3 border-b border-[var(--border)] bg-[var(--bg-elevated)]/80">
+            <Calendar className="w-3.5 h-3.5 text-blue-400" />
+            <span className="text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide">Date Format in your CSV</span>
+          </div>
+          <div className="px-4 sm:px-6 py-4 space-y-2">
+            <p className="text-[var(--text-muted)] text-xs mb-3">
+              How are dates written in your CSV? This is critical — getting it wrong shifts every attendance record by days or months.
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              {DATE_FORMAT_OPTIONS.map(opt => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => setDateFormat(opt.value)}
+                  className={`flex flex-col items-start gap-1 px-4 py-3 rounded-xl border text-left transition-all ${
+                    dateFormat === opt.value
+                      ? 'bg-blue-600/15 border-blue-500/50 text-blue-400'
+                      : 'bg-[var(--bg-surface)] border-[var(--border)] text-[var(--text-muted)] hover:border-blue-500/30 hover:text-[var(--text-primary)]'
+                  }`}
+                >
+                  <div className="flex items-center gap-2 w-full">
+                    {dateFormat === opt.value && (
+                      <CheckCircle2 className="w-3.5 h-3.5 text-blue-400 flex-shrink-0" />
+                    )}
+                    <span className="font-mono font-semibold text-sm">{opt.label}</span>
+                  </div>
+                  <span className="font-mono text-[11px] opacity-70">{opt.example}</span>
+                  <span className="text-[10px] leading-tight opacity-60">{opt.desc}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* ── Column Mapping Table ─────────────────────────────────────────── */}
         <div className="bg-[var(--bg-elevated)] rounded-2xl border border-[var(--border)] overflow-hidden">
           <div className="grid grid-cols-2 gap-0 text-xs font-medium text-[var(--text-muted)] uppercase tracking-wide px-4 sm:px-6 py-3 border-b border-[var(--border)] bg-[var(--bg-elevated)]/80">
             <span>Standard Field</span>
@@ -122,7 +170,7 @@ export default function ColumnMappingScreen({ officeCode, csvHeaders, initialMap
             className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white px-6 py-3 rounded-xl font-medium transition-colors"
           >
             <Save className="w-4 h-4" />
-            Save & Import
+            Save &amp; Import
             <ArrowRight className="w-4 h-4" />
           </button>
         </div>

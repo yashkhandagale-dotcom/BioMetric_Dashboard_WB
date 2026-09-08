@@ -86,6 +86,12 @@ export interface ColumnMapping {
   earlyBy: string;
   duration: string;
   department: string;
+  // Date format of this office's CSV export — stored so every re-upload
+  // parses dates correctly without asking the user again.
+  // 'DMY' = DD/MM/YYYY (Indian biometric default)
+  // 'MDY' = MM/DD/YYYY (US format / some software exports)
+  // 'YMD' = YYYY-MM-DD (ISO — already handled, kept for explicitness)
+  dateFormat?: 'DMY' | 'MDY' | 'YMD';
 }
 
 export interface DayWiseLateEarly {

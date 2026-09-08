@@ -39,45 +39,67 @@ function countPunches(punchRecords?: string): number {
 // useDashboardData's `r.date < dateFrom` filtering, various `.sort()` calls,
 // and the HTML <input type="date"> values themselves) assumes strict ISO
 // "YYYY-MM-DD" strings, because that's the only format where lexical string
-// order == chronological order. If the raw export uses DD-MM-YYYY (common
-// for Indian biometric machines) this assumption silently breaks: e.g.
-// "31-05-2026" (May 31) string-sorts AFTER "30-06-2026" (June 30), so the
-// picker's max date gets stuck in May and June becomes unselectable.
-// Normalizing once here, at ingestion, fixes every downstream consumer at
-// once instead of patching each sort/comparison site individually.
-export function normalizeDate(raw: string): string {
+// order == chronological order.
+//
+// dateFormat hint (from the user-chosen column mapping):
+//   'DMY' = DD/MM/YYYY  — Indian biometric default
+//   'MDY' = MM/DD/YYYY  — US / some software exports
+//   'YMD' = YYYY-MM-DD  — ISO (already handled in all paths)
+export function normalizeDate(raw: string, dateFormat?: 'DMY' | 'MDY' | 'YMD'): string {
   const s = raw.trim();
   if (!s) return s;
 
-  // Already ISO: YYYY-MM-DD — leave as-is.
+  // Already ISO: YYYY-MM-DD — leave as-is regardless of hint.
   if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
 
-  // ISO with a time component tacked on (e.g. "2026-06-01T00:00:00" or
-  // "2026-06-01 00:00:00") — keep just the date part.
+  // ISO with a time component tacked on (e.g. "2026-06-01T00:00:00").
   let m = s.match(/^(\d{4})-(\d{2})-(\d{2})[T ]/);
   if (m) {
     const [, y, mo, d] = m;
     return `${y}-${mo}-${d}`;
   }
 
-  // DD-MM-YYYY or DD/MM/YYYY, optionally with a trailing time component
-  // (most common biometric export format).
-  m = s.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})(?:[T ].*)?$/);
-  if (m) {
-    const [, d, mo, y] = m;
-    return `${y}-${mo.padStart(2, '0')}-${d.padStart(2, '0')}`;
-  }
-
   // YYYY/MM/DD or YYYY-M-D variants.
-  m = s.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/);
+  m = s.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})(?:[T ].*)?$/);
   if (m) {
     const [, y, mo, d] = m;
     return `${y}-${mo.padStart(2, '0')}-${d.padStart(2, '0')}`;
   }
 
-  // Unrecognized format — don't silently mangle it, but warn loudly so this
-  // shows up in the console instead of causing a mystery date-picker bug.
-  console.warn(`[parseCSV] Unrecognized date format "${raw}" — left as-is; this may break date sorting/filtering.`);
+  // Two-part date: D/M/YYYY or M/D/YYYY — the ambiguous case.
+  // Use the stored dateFormat hint when available; fall back to
+  // positional heuristics (any value > 12 must be the day).
+  m = s.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})(?:[T ].*)?$/);
+  if (m) {
+    const [, p1, p2, y] = m;
+    const n1 = parseInt(p1, 10);
+    const n2 = parseInt(p2, 10);
+
+    let month: number;
+    let day: number;
+
+    if (dateFormat === 'MDY') {
+      // MM/DD/YYYY
+      month = n1; day = n2;
+    } else if (dateFormat === 'DMY') {
+      // DD/MM/YYYY
+      month = n2; day = n1;
+    } else {
+      // No explicit hint — deduce from values:
+      // if n2 > 12 it can only be a day, so n1 is the month (MDY-style)
+      // if n1 > 12 it can only be a day, so n2 is the month (DMY-style)
+      // if both <= 12 we can't tell, default to DMY (most common in India)
+      if (n2 > 12 && n1 <= 12) { month = n1; day = n2; }
+      else { month = n2; day = n1; }
+    }
+
+    if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+      return `${y}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    }
+  }
+
+  // Unrecognized format.
+  console.warn(`[parseCSV] Unrecognized date format "${raw}" — left as-is.`);
   return s;
 }
 
@@ -161,7 +183,7 @@ export function parseCSVWithMapping(
 
         for (const row of rows) {
           const empCode = String(row[mapping.employeeCode] || '').trim();
-          const date = normalizeDate(String(row[mapping.date] || '').trim());
+          const date = normalizeDate(String(row[mapping.date] || '').trim(), mapping.dateFormat);
 
           if (!empCode || !date) continue;
 
@@ -284,7 +306,8 @@ export interface CSVDateRangeAnalysis {
 export function analyzeCSVDateRange(
   file: File,
   dateColumn: string,
-  employeeColumn: string
+  employeeColumn: string,
+  dateFormat?: 'DMY' | 'MDY' | 'YMD'
 ): Promise<CSVDateRangeAnalysis> {
   return new Promise((resolve, reject) => {
     Papa.parse(file, {
@@ -303,7 +326,7 @@ export function analyzeCSVDateRange(
           const empCode = String(row[employeeColumn] || '').trim();
           if (!rawDate) continue;
 
-          const date = normalizeDate(rawDate);
+          const date = normalizeDate(rawDate, dateFormat);
           if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
 
           totalRecords++;

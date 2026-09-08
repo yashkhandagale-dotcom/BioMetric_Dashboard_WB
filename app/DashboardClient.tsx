@@ -691,18 +691,23 @@ function HRDashboard() {
     const mapping = await getMapping(pf.officeCode);
     if (!mapping) {
       // Shouldn't happen (mapping was just saved) but fall back gracefully
+      setAppState('dashboard');
       await importBatch(batch, 'overwrite');
       return;
     }
     try {
       const [analysis, existingRange] = await Promise.all([
-        analyzeCSVDateRange(pf.file, mapping.date, mapping.employeeCode),
+        analyzeCSVDateRange(pf.file, mapping.date, mapping.employeeCode, mapping.dateFormat),
         getExistingDateRange(pf.officeCode),
       ]);
+      // IMPORTANT: close the upload/mapping portal FIRST so it doesn't sit
+      // behind the ImportPreviewModal and cause a visual conflict / blank screen.
+      setAppState('dashboard');
       setImportPreview({ analysis, existingRange, batch });
     } catch (err) {
       // If analysis fails (e.g. date column empty), fall back to direct import
       console.warn('[analyzeAndPreview] could not analyze CSV dates:', err);
+      setAppState('dashboard');
       await importBatch(batch, 'overwrite');
     }
   }
