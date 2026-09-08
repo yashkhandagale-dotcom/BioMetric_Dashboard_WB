@@ -266,21 +266,28 @@ export function computeEmployeeKPIs(
     return true;
   });
 
-  const presentRecords = workRecords.filter((r) => isPresent(r.status) && !r.isShortDay);
-  const absentRecordsAll = workRecords.filter((r) => isAbsent(r.status));
-  const halfDayRecords = workRecords.filter(
-    (r) => r.isShortDay && leaveMap.get(leaveKey(r.employeeCode, r.date))?.leaveType === 'half_day'
-  );
-
+  const presentRecords: AttendanceRecord[] = [];
+  const halfDayRecords: AttendanceRecord[] = [];
   let plannedLeaveCount = 0, unexplainedAbsentCount = 0, casualLeaveCount = 0, sickLeaveCount = 0, lwpCount = 0;
-  for (const r of absentRecordsAll) {
+
+  for (const r of workRecords) {
     const leave = leaveMap.get(leaveKey(r.employeeCode, r.date));
-    if (!leave) { unexplainedAbsentCount++; continue; }
-    if (leave.leaveType === 'planned') plannedLeaveCount++;
-    else if (leave.leaveType === 'casual') casualLeaveCount++;
-    else if (leave.leaveType === 'sick') sickLeaveCount++;
-    else if (leave.leaveType === 'lwp') { lwpCount++; unexplainedAbsentCount++; }
-    else unexplainedAbsentCount++;
+    const isFullDayLeave = leave && leave.leaveType !== 'half_day';
+
+    if (isFullDayLeave) {
+      if (leave.leaveType === 'planned') plannedLeaveCount++;
+      else if (leave.leaveType === 'casual') casualLeaveCount++;
+      else if (leave.leaveType === 'sick') sickLeaveCount++;
+      else if (leave.leaveType === 'lwp') { lwpCount++; unexplainedAbsentCount++; }
+    } else if (r.isShortDay) {
+      if (leave?.leaveType === 'half_day') {
+        halfDayRecords.push(r);
+      }
+    } else if (isPresent(r.status)) {
+      presentRecords.push(r);
+    } else if (isAbsent(r.status)) {
+      unexplainedAbsentCount++;
+    }
   }
   const halfDayCount = halfDayRecords.length;
 
@@ -393,8 +400,20 @@ export function useDashboardData(
 
       scheduledCount++;
 
-      if (r.isShortDay) {
-        const leave = leaveMap.get(leaveKey(r.employeeCode, r.date));
+      const leave = leaveMap.get(leaveKey(r.employeeCode, r.date));
+      const isFullDayLeave = leave && leave.leaveType !== 'half_day';
+
+      if (isFullDayLeave) {
+        if (leave.leaveType === 'planned') {
+          plannedLeaveCount++;
+        } else if (leave.leaveType === 'casual') {
+          casualLeaveCount++;
+        } else if (leave.leaveType === 'sick') {
+          sickLeaveCount++;
+        } else if (leave.leaveType === 'lwp') {
+          lwpCount++;
+        }
+      } else if (r.isShortDay) {
         if (leave?.leaveType === 'half_day') {
           halfDayCount++;
           presentCount += 0.5;
@@ -416,20 +435,7 @@ export function useDashboardData(
         if (getEarlyMinutes(r, grace, shiftEnd) > 0) earlyExitCount++;
         totalLostMins += computeProductivityLostMinutes(r, shiftStart, shiftEnd);
       } else if (isAbsent(r.status)) {
-        const leave = leaveMap.get(leaveKey(r.employeeCode, r.date));
-        if (!leave) {
-          unexplainedAbsentCount++;
-        } else if (leave.leaveType === 'planned') {
-          plannedLeaveCount++;
-        } else if (leave.leaveType === 'casual') {
-          casualLeaveCount++;
-        } else if (leave.leaveType === 'sick') {
-          sickLeaveCount++;
-        } else if (leave.leaveType === 'lwp') {
-          lwpCount++;
-        } else {
-          unexplainedAbsentCount++;
-        }
+        unexplainedAbsentCount++;
       }
     }
 
@@ -508,8 +514,15 @@ export function useDashboardData(
       // keeps showing the holiday row.
       const isNonWorkingDay = isWeeklyOff(r.status) || (isHoliday(r.date, holidays) && !isPresent(r.status));
 
+      const isFullDayLeave = leave && leave.leaveType !== 'half_day';
+
       if (isNonWorkingDay) {
         // not counted as present or absent — skip straight to punch-count check below
+      } else if (isFullDayLeave) {
+        if (leave.leaveType === 'planned') emp.plannedLeaveCount++;
+        else if (leave.leaveType === 'casual') emp.casualLeaveCount++;
+        else if (leave.leaveType === 'sick') emp.sickLeaveCount++;
+        else if (leave.leaveType === 'lwp') { emp.lwpCount++; emp.absentDays++; }
       } else if (r.isShortDay && leave?.leaveType === 'half_day') {
         emp.halfDayCount++;
         emp.presentDays += 0.5;
@@ -524,11 +537,7 @@ export function useDashboardData(
         if (getLateMinutes(r, grace, shiftStart) > 0) emp.lateCount++;
         if (getEarlyMinutes(r, grace, shiftEnd) > 0) emp.earlyExitCount++;
       } else if (isAbsent(r.status)) {
-        if (leave?.leaveType === 'planned') emp.plannedLeaveCount++;
-        else if (leave?.leaveType === 'casual') emp.casualLeaveCount++;
-        else if (leave?.leaveType === 'sick') emp.sickLeaveCount++;
-        else if (leave?.leaveType === 'lwp') { emp.lwpCount++; emp.absentDays++; }
-        else emp.absentDays++;
+        emp.absentDays++;
       }
 
       if ((r.punchCount ?? 1) >= thresholds.frequentPunchCount) {
@@ -537,7 +546,11 @@ export function useDashboardData(
     }
 
     return Array.from(map.values()).map((emp) => {
-      const presentRecs = (emp.records || []).filter(r => isPresent(r.status) && !r.isShortDay);
+      const presentRecs = (emp.records || []).filter((r) => {
+        if (!isPresent(r.status) || r.isShortDay) return false;
+        const l = leaveMap.get(leaveKey(r.employeeCode, r.date));
+        return !(l && l.leaveType !== 'half_day');
+      });
 
       // Bug fix: previously averaged totalMinutes over ALL present days
       // (emp.presentDays), including present-but-no-valid-duration days like
@@ -605,11 +618,15 @@ export function useDashboardData(
       if (isHoliday(r.date, holidays) && !isPresent(r.status)) continue;
       if (!byDate.has(r.date)) byDate.set(r.date, { present: 0, total: 0, absentees: [], late: 0, earlyExit: 0, lostMins: 0, shortDay: 0 });
       const d = byDate.get(r.date)!;
+      const leave = leaveMap.get(leaveKey(r.employeeCode, r.date));
+      const isFullDayLeave = leave && leave.leaveType !== 'half_day';
       // Short-days are excluded from the denominator, same as the department
       // bar chart and department trend comparison chart (§4/§7 — this was
       // previously inconsistent: total was incremented unconditionally here).
       if (!r.isShortDay) d.total++;
-      if (r.isShortDay) {
+      if (isFullDayLeave) {
+        // On approved leave — not present, and not an unexcused absentee
+      } else if (r.isShortDay) {
         d.shortDay++;
       } else if (isPresent(r.status)) {
         d.present++;
@@ -635,7 +652,7 @@ export function useDashboardData(
         hoursLost: lostMins / 60,
         shortDayCount: shortDay,
       }));
-  }, [filtered, holidays, grace, shiftStart, shiftEnd]);
+  }, [filtered, holidays, grace, shiftStart, shiftEnd, leaveMap]);
 
   const deptAttendance: DeptAttendance[] = useMemo(() => {
     const byDept = new Map<string, { present: number; total: number; lostMins: number }>();
@@ -645,8 +662,10 @@ export function useDashboardData(
       if (isHoliday(r.date, holidays) && !isPresent(r.status)) continue;
       if (!byDept.has(r.department)) byDept.set(r.department, { present: 0, total: 0, lostMins: 0 });
       const d = byDept.get(r.department)!;
+      const leave = leaveMap.get(leaveKey(r.employeeCode, r.date));
+      const isFullDayLeave = leave && leave.leaveType !== 'half_day';
       if (!r.isShortDay) d.total++;
-      if (isPresent(r.status) && !r.isShortDay) {
+      if (!isFullDayLeave && isPresent(r.status) && !r.isShortDay) {
         d.present++;
         d.lostMins += computeProductivityLostMinutes(r, shiftStart, shiftEnd);
       }
@@ -663,7 +682,7 @@ export function useDashboardData(
         };
       })
       .sort((a, b) => a.rate - b.rate);
-  }, [filtered, holidays, grace, shiftStart, shiftEnd, thresholds.attendanceRateGreen, thresholds.attendanceRateAmber]);
+  }, [filtered, holidays, grace, shiftStart, shiftEnd, thresholds.attendanceRateGreen, thresholds.attendanceRateAmber, leaveMap]);
 
   const officeAttendance: OfficeAttendance[] = useMemo(() => {
     const source = allOfficeRecords.length > 0 ? allOfficeRecords : records;
@@ -674,8 +693,10 @@ export function useDashboardData(
       if (isHoliday(r.date, holidays) && !isPresent(r.status)) continue;
       if (!byOffice.has(r.officeCode)) byOffice.set(r.officeCode, { present: 0, total: 0 });
       const d = byOffice.get(r.officeCode)!;
+      const leave = leaveMap.get(leaveKey(r.employeeCode, r.date));
+      const isFullDayLeave = leave && leave.leaveType !== 'half_day';
       if (!r.isShortDay) d.total++;
-      if (isPresent(r.status) && !r.isShortDay) d.present++;
+      if (!isFullDayLeave && isPresent(r.status) && !r.isShortDay) d.present++;
     }
     return Array.from(byOffice.entries())
       .map(([office, { present, total }]) => ({
@@ -683,13 +704,15 @@ export function useDashboardData(
         rate: total > 0 ? Math.round((present / total) * 100) : 0,
       }))
       .sort((a, b) => a.office.localeCompare(b.office));
-  }, [allOfficeRecords, records, selectedDepartments, holidays]);
+  }, [allOfficeRecords, records, selectedDepartments, holidays, leaveMap]);
 
   const hoursDistribution: HoursDistribution[] = useMemo(() => {
     const deptMap = new Map<string, { totalMins: number; count: number }>();
 
     for (const r of filtered) {
       if (!isPresent(r.status) || r.isShortDay) continue;
+      const leave = leaveMap.get(leaveKey(r.employeeCode, r.date));
+      if (leave && leave.leaveType !== 'half_day') continue;
       const rawMins = durationToMinutes(r.duration);
       if (rawMins <= 60) continue;
       const effectiveMins = rawMins - 60; // subtract lunch
@@ -704,7 +727,7 @@ export function useDashboardData(
       const avgHours = count > 0 ? totalMins / count / 60 : 0;
       return { bin: dept, count, minHours: avgHours, avgHours, department: dept };
     }).sort((a, b) => (a.avgHours ?? 0) - (b.avgHours ?? 0));
-  }, [filtered]);
+  }, [filtered, leaveMap]);
 
   const departments = useMemo(() => {
     const set = new Set(filtered.map((r) => r.department).filter(Boolean));
@@ -723,8 +746,12 @@ export function useDashboardData(
       if (isWeeklyOff(r.status) || !r.department || r.department === 'Unknown') continue;
       if (!byDept.has(r.department)) byDept.set(r.department, { present: 0, absent: 0, late: 0, early: 0, lostMins: 0, total: 0 });
       const d = byDept.get(r.department)!;
+      const leave = leaveMap.get(leaveKey(r.employeeCode, r.date));
+      const isFullDayLeave = leave && leave.leaveType !== 'half_day';
       d.total++;
-      if (isPresent(r.status) && !r.isShortDay) {
+      if (isFullDayLeave) {
+        // on approved leave
+      } else if (isPresent(r.status) && !r.isShortDay) {
         d.present++;
         if (getLateMinutes(r, grace, shiftStart) > 0) d.late++;
         if (getEarlyMinutes(r, grace, shiftEnd) > 0) d.early++;
@@ -740,7 +767,7 @@ export function useDashboardData(
         hoursLost: lostMins / 60, scheduledCount: total,
       }))
       .sort((a, b) => b.presentCount - a.presentCount);
-  }, [filtered, isSingleDay, grace, shiftStart, shiftEnd]);
+  }, [filtered, isSingleDay, grace, shiftStart, shiftEnd, leaveMap]);
 
   const availableDates = useMemo(() => {
     const base = records.filter((r) => {

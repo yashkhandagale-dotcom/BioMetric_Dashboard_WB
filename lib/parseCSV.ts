@@ -171,10 +171,18 @@ export function parseCSVWithMapping(
 
           const lateByStr = String(row[mapping.lateBy] || '').trim();
           const earlyByStr = String(row[mapping.earlyBy] || '').trim();
-          const durationStr = String(row[mapping.duration] || '0:00').trim();
+          let durationStr = String(row[mapping.duration] || '0:00').trim();
           let statusStr = String(row[mapping.status] || '').trim();
           const inTimeStr = String(row[mapping.inTime] || '').trim();
           const outTimeStr = String(row[mapping.outTime] || '').trim();
+
+          // Auto-calculate duration from In Time and Out Time if Duration is missing, blank, or 0:00
+          if ((!durationStr || durationStr === '0:00' || durationStr === '--') && isPunchTimeValid(inTimeStr) && isPunchTimeValid(outTimeStr)) {
+            const inMins = timeToMinutes(inTimeStr);
+            const outMins = timeToMinutes(outTimeStr);
+            const diff = outMins >= inMins ? outMins - inMins : (outMins + 1440) - inMins; // handles night shifts
+            durationStr = minutesToHHMM(diff);
+          }
 
           // Detect punch records column (common variations)
           const punchRecordsRaw = row['Punch Records'] || row['punch_records'] || row['PunchRecords'] || '';
