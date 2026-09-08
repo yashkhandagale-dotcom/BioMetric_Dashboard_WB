@@ -136,8 +136,14 @@ export default function EmployeeTable({ summaries, onEmployeeClick }: EmployeeTa
                     {emp.officeCode}
                   </span>
                 </td>
-                <td className="px-3.5 py-3 text-emerald-700 dark:text-emerald-300 font-semibold">{emp.presentDays}</td>
-                <td className="px-3.5 py-3 text-red-700 dark:text-red-300 font-semibold">{emp.absentDays}</td>
+                <td className="px-3.5 py-3 text-emerald-700 dark:text-emerald-300 font-semibold">
+                  {emp.presentDays}
+                </td>
+                <td className="px-3.5 py-3 text-red-700 dark:text-red-300 font-semibold">
+                  <span title={`${emp.unmarkedAbsentDays ?? 0} unmarked · ${(emp.plannedLeaveCount ?? 0) + (emp.casualLeaveCount ?? 0) + (emp.sickLeaveCount ?? 0) + (emp.lwpCount ?? 0) + ((emp.halfDayCount ?? 0) * 0.5)} marked`}>
+                    {emp.absentDays}
+                  </span>
+                </td>
                 <td className="px-3.5 py-3 text-amber-800 dark:text-amber-300 font-semibold">{emp.lateCount}</td>
                 <td className="px-3.5 py-3 text-[var(--text-muted)]">{emp.earlyExitCount}</td>
                 <td className="px-3.5 py-3">

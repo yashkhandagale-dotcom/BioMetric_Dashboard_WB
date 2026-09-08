@@ -153,7 +153,7 @@ export interface EmployeeSummary {
   sickLeaveCount: number;
   lwpCount: number;
   halfDayCount: number;
-  
+  unmarkedAbsentDays?: number;
 }
 
 export interface OfficeAttendance {

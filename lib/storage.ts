@@ -145,21 +145,33 @@ function toDbRow(monthKey: string, r: AttendanceRecord) {
 }
 
 function fromDbRow(row: Record<string, unknown>): AttendanceRecord {
+  const status = (row.status as string) ?? '';
+  const punchRecords = (row.punch_records as string) ?? undefined;
+  const punchCount = (row.punch_count as number) ?? undefined;
+
+  // Guard against ghost shift timings on absent / weekly-off rows with zero punch activity
+  const isAbsentNoPunch = (status.toLowerCase().includes('absent') || status.toLowerCase().includes('weeklyoff')) &&
+    (!punchCount || punchCount === 0) &&
+    (!punchRecords || punchRecords.trim() === '');
+  const inTime = isAbsentNoPunch ? '' : ((row.in_time as string) ?? '');
+  const outTime = isAbsentNoPunch ? '' : ((row.out_time as string) ?? '');
+  const duration = isAbsentNoPunch ? '0:00' : ((row.duration as string) ?? '0:00');
+
   return {
     date: normalizeDate((row.date as string) ?? ''),
     employeeCode: row.employee_code as string,
     employeeName: row.employee_name as string,
     department: row.department as string,
-    inTime: (row.in_time as string) ?? '',
-    outTime: (row.out_time as string) ?? '',
-    status: (row.status as string) ?? '',
-    punchRecords: (row.punch_records as string) ?? undefined,
+    inTime,
+    outTime,
+    status,
+    punchRecords,
     lateBy: (row.late_by as string) ?? '0:00',
     earlyBy: (row.early_by as string) ?? '0:00',
     overtime: (row.overtime as string) ?? undefined,
-    duration: (row.duration as string) ?? '0:00',
+    duration,
     officeCode: row.office_code as string,
-    punchCount: (row.punch_count as number) ?? undefined,
+    punchCount,
     isShortDay: (row.is_short_day as boolean) ?? undefined,
     extraFields: (row.extra_fields as Record<string, string>) ?? undefined,
     lateIsEstimated: (row.late_is_estimated as boolean) ?? undefined,

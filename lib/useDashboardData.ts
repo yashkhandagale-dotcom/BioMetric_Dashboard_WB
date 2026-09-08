@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import {
   AttendanceRecord, KPIData, EmployeeSummary, DailyTrend, DeptAttendance,
-  HoursDistribution, Holiday, OfficeAttendance, LeaveRecord, Thresholds, EffectiveStatus, WorkforceEvent
+  HoursDistribution, Holiday, OfficeAttendance, LeaveRecord, LeaveType, Thresholds, EffectiveStatus, WorkforceEvent
 } from './types';
 import { durationToMinutes, minutesToHHMM } from './parseCSV';
 import { isHoliday, getHolidayName } from './holidays';
@@ -13,6 +13,17 @@ export const SHIFT_MINUTES = 8 * 60;             // 480 effective minutes
 export const SHIFT_START_MINUTES = 9 * 60 + 30;  // 570 — 09:30 AM
 export const SHIFT_END_MINUTES = 18 * 60 + 30;   // 1110 — 18:30
 
+export function getEffectiveLeaveType(r: AttendanceRecord, leave?: LeaveRecord): LeaveType | null {
+  if (leave) return leave.leaveType;
+  const s = (r.status || '').toLowerCase();
+  if (s.includes('sick')) return 'sick';
+  if (s.includes('planned')) return 'planned';
+  if (s.includes('casual')) return 'casual';
+  if (s.includes('lwp')) return 'lwp';
+  if (s.includes('half_day') || s.includes('half day')) return 'half_day';
+  return null;
+}
+
 // AFTER
 export function isPresent(status: string): boolean {
   const s = status.toLowerCase();
@@ -23,7 +34,14 @@ export function isPresent(status: string): boolean {
 export function isAbsent(status: string): boolean {
   const s = status.toLowerCase();
   if (isMissedPunchOut(status)) return false;  // no longer counts as absent
-  return s.includes('absent') || s === 'absent (no outpunch)';
+  return (
+    s.includes('absent') ||
+    s === 'absent (no outpunch)' ||
+    s.includes('sick') ||
+    s.includes('planned') ||
+    s.includes('casual') ||
+    s.includes('lwp')
+  );
 }
 
 export function isWeeklyOff(status: string): boolean {
@@ -272,15 +290,16 @@ export function computeEmployeeKPIs(
 
   for (const r of workRecords) {
     const leave = leaveMap.get(leaveKey(r.employeeCode, r.date));
-    const isFullDayLeave = leave && leave.leaveType !== 'half_day';
+    const effectiveLeaveType = getEffectiveLeaveType(r, leave);
+    const isFullDayLeave = effectiveLeaveType && effectiveLeaveType !== 'half_day';
 
     if (isFullDayLeave) {
-      if (leave.leaveType === 'planned') plannedLeaveCount++;
-      else if (leave.leaveType === 'casual') casualLeaveCount++;
-      else if (leave.leaveType === 'sick') sickLeaveCount++;
-      else if (leave.leaveType === 'lwp') { lwpCount++; unexplainedAbsentCount++; }
+      if (effectiveLeaveType === 'planned') plannedLeaveCount++;
+      else if (effectiveLeaveType === 'casual') casualLeaveCount++;
+      else if (effectiveLeaveType === 'sick') sickLeaveCount++;
+      else if (effectiveLeaveType === 'lwp') { lwpCount++; unexplainedAbsentCount++; }
     } else if (r.isShortDay) {
-      if (leave?.leaveType === 'half_day') {
+      if (effectiveLeaveType === 'half_day') {
         halfDayRecords.push(r);
       }
     } else if (isPresent(r.status)) {
@@ -401,20 +420,21 @@ export function useDashboardData(
       scheduledCount++;
 
       const leave = leaveMap.get(leaveKey(r.employeeCode, r.date));
-      const isFullDayLeave = leave && leave.leaveType !== 'half_day';
+      const effectiveLeaveType = getEffectiveLeaveType(r, leave);
+      const isFullDayLeave = effectiveLeaveType && effectiveLeaveType !== 'half_day';
 
       if (isFullDayLeave) {
-        if (leave.leaveType === 'planned') {
+        if (effectiveLeaveType === 'planned') {
           plannedLeaveCount++;
-        } else if (leave.leaveType === 'casual') {
+        } else if (effectiveLeaveType === 'casual') {
           casualLeaveCount++;
-        } else if (leave.leaveType === 'sick') {
+        } else if (effectiveLeaveType === 'sick') {
           sickLeaveCount++;
-        } else if (leave.leaveType === 'lwp') {
+        } else if (effectiveLeaveType === 'lwp') {
           lwpCount++;
         }
       } else if (r.isShortDay) {
-        if (leave?.leaveType === 'half_day') {
+        if (effectiveLeaveType === 'half_day') {
           halfDayCount++;
           presentCount += 0.5;
         } else {
@@ -485,6 +505,7 @@ export function useDashboardData(
           officeCode: r.officeCode,
           presentDays: 0,
           absentDays: 0,
+          unmarkedAbsentDays: 0,
           lateCount: 0,
           earlyExitCount: 0,
           avgHoursWorked: '0:00',
@@ -514,18 +535,21 @@ export function useDashboardData(
       // keeps showing the holiday row.
       const isNonWorkingDay = isWeeklyOff(r.status) || (isHoliday(r.date, holidays) && !isPresent(r.status));
 
-      const isFullDayLeave = leave && leave.leaveType !== 'half_day';
+      const effectiveLeaveType = getEffectiveLeaveType(r, leave);
+      const isFullDayLeave = effectiveLeaveType && effectiveLeaveType !== 'half_day';
 
       if (isNonWorkingDay) {
         // not counted as present or absent — skip straight to punch-count check below
       } else if (isFullDayLeave) {
-        if (leave.leaveType === 'planned') emp.plannedLeaveCount++;
-        else if (leave.leaveType === 'casual') emp.casualLeaveCount++;
-        else if (leave.leaveType === 'sick') emp.sickLeaveCount++;
-        else if (leave.leaveType === 'lwp') { emp.lwpCount++; emp.absentDays++; }
-      } else if (r.isShortDay && leave?.leaveType === 'half_day') {
+        if (effectiveLeaveType === 'planned') emp.plannedLeaveCount++;
+        else if (effectiveLeaveType === 'casual') emp.casualLeaveCount++;
+        else if (effectiveLeaveType === 'sick') emp.sickLeaveCount++;
+        else if (effectiveLeaveType === 'lwp') { emp.lwpCount++; emp.unmarkedAbsentDays = (emp.unmarkedAbsentDays || 0) + 1; }
+        emp.absentDays++; // Employee is on leave for this day
+      } else if (r.isShortDay && effectiveLeaveType === 'half_day') {
         emp.halfDayCount++;
         emp.presentDays += 0.5;
+        emp.absentDays += 0.5; // Half-day on leave
       } else if (r.isShortDay) {
         emp.shortDayCount++;
       } else if (isPresent(r.status)) {
@@ -537,6 +561,7 @@ export function useDashboardData(
         if (getLateMinutes(r, grace, shiftStart) > 0) emp.lateCount++;
         if (getEarlyMinutes(r, grace, shiftEnd) > 0) emp.earlyExitCount++;
       } else if (isAbsent(r.status)) {
+        emp.unmarkedAbsentDays = (emp.unmarkedAbsentDays || 0) + 1;
         emp.absentDays++;
       }
 
@@ -571,8 +596,11 @@ export function useDashboardData(
         ? Math.round(totalEffectiveMinsForAvg / presentRecsWithDuration.length) : 0;
       emp.avgHoursWorked = minutesToHHMM(avgMins);
 
-      const total = emp.presentDays + emp.absentDays;
-      const rate = total > 0 ? (emp.presentDays / total) * 100 : 0;
+      // Attendance rate: approved/explained leaves are excused, matching computeEmployeeKPIs.
+      // Only unexcused (unmarked) absences and LWP reduce the attendance rate.
+      const unexcusedDays = (emp.unmarkedAbsentDays || 0) + (emp.lwpCount || 0);
+      const attendanceDenominator = emp.presentDays + unexcusedDays;
+      const rate = attendanceDenominator > 0 ? (emp.presentDays / attendanceDenominator) * 100 : 0;
       emp.worstStatus = colorStatus(rate, thresholds.attendanceRateGreen, thresholds.attendanceRateAmber);
 
       const lateMinsArr = presentRecs.map(r => getLateMinutes(r, grace, shiftStart)).filter(m => m > 0);

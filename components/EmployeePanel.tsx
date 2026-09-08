@@ -53,8 +53,13 @@ function getStatusBadge(status: string, isShortDay: boolean | undefined, lateMin
     const label = leaveLabelFor(leave.leaveType, leave.halfDayLeaveType);
     return <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${LEAVE_COLORS[leave.leaveType]}`}>{label}</span>;
   }
-  if (isShortDay) return <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-orange-500/20 text-orange-400">Short Day</span>;
   const s = status.toLowerCase();
+  if (s.includes('sick')) return <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${LEAVE_COLORS.sick}`}>Sick Leave</span>;
+  if (s.includes('planned')) return <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${LEAVE_COLORS.planned}`}>Planned Leave</span>;
+  if (s.includes('casual')) return <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${LEAVE_COLORS.casual}`}>Casual Leave</span>;
+  if (s.includes('lwp')) return <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${LEAVE_COLORS.lwp}`}>LWP</span>;
+
+  if (isShortDay) return <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-orange-500/20 text-orange-400">Short Day</span>;
   const isMissedPunchOut = s.includes('missed punch') || s.includes('no outpunch') || s.includes('no punch out');
   if (isMissedPunchOut) {
     return <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-500/20 text-emerald-400 border border-orange-400/50" title="Punched in, no out-punch recorded — counted as present">Present ⚠</span>;
@@ -183,7 +188,7 @@ employee, onClose, readOnly, leaveReadOnly, holidays = [], graceMinutes = DEFAUL
         </div>
 
         <div className="scroll-thin flex-1 overflow-y-auto">
-          {(employee.frequentPunchDays || employee.plannedLeaveCount || employee.casualLeaveCount || employee.sickLeaveCount || employee.lwpCount || employee.halfDayCount) ? (
+          {(employee.frequentPunchDays || employee.plannedLeaveCount || employee.casualLeaveCount || employee.sickLeaveCount || employee.lwpCount || employee.halfDayCount || (employee.unmarkedAbsentDays ?? 0) > 0) ? (
             <div className="px-5 pt-4 pb-2 flex flex-wrap gap-2">
               {!!employee.frequentPunchDays && (
                 <span className="flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-amber-500/15 text-amber-400 border border-amber-500/20">
@@ -192,13 +197,17 @@ employee, onClose, readOnly, leaveReadOnly, holidays = [], graceMinutes = DEFAUL
                 </span>
               )}
               {([
-                ['plannedLeaveCount', 'Planned'], ['casualLeaveCount', 'Casual'], ['sickLeaveCount', 'Sick'],
-                ['lwpCount', 'LWP'], ['halfDayCount', 'Half Day'],
-              ] as const).map(([key, label]) => {
-                const v = employee[key];
-                if (!v) return null;
+                ['plannedLeaveCount', 'Planned', 'bg-[var(--accent)]/15 text-[var(--accent)] border-[var(--accent)]/30'],
+                ['casualLeaveCount', 'Casual', 'bg-cyan-500/15 text-cyan-400 border-cyan-500/30'],
+                ['sickLeaveCount', 'Sick', 'bg-violet-500/15 text-violet-400 border-violet-500/30'],
+                ['lwpCount', 'LWP', 'bg-orange-500/15 text-orange-400 border-orange-500/30'],
+                ['halfDayCount', 'Half Day', 'bg-amber-500/15 text-amber-400 border-amber-500/30'],
+                ['unmarkedAbsentDays', 'Unmarked', 'bg-red-500/15 text-red-400 border-red-500/30'],
+              ] as const).map(([key, label, colorCls]) => {
+                const v = employee[key as keyof typeof employee];
+                if (!v || typeof v !== 'number' || v <= 0) return null;
                 return (
-                  <span key={key} className="flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-blue-500/15 text-blue-400 border border-blue-500/20">
+                  <span key={key} className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium border ${colorCls}`}>
                     <Tag className="w-3 h-3" /> {v} {label}
                   </span>
                 );
@@ -334,15 +343,23 @@ employee, onClose, readOnly, leaveReadOnly, holidays = [], graceMinutes = DEFAUL
                     const actualMins = actualMinutes(dur);
                     const effMins = effectiveMinutes(dur);
 
+                    const statusLower = r.status.toLowerCase();
+                    const isAbsentOrLeaveWithoutPunch = (!!leave || statusLower.includes('absent') || statusLower.includes('weeklyoff')) &&
+                      (!r.punchCount || r.punchCount === 0) &&
+                      (!r.punchRecords || r.punchRecords.trim() === '');
+                    const displayIn = isAbsentOrLeaveWithoutPunch ? '—' : (r.inTime || '—');
+                    const displayOut = isAbsentOrLeaveWithoutPunch ? '—' : (r.outTime || '—');
+                    const displayDur = isAbsentOrLeaveWithoutPunch ? '—' : (dur > 0 ? minutesToHHMM(effectiveMinutes(dur)) : '—');
+
                     return (
                       <tr key={i} className={`border-t border-[var(--border)]/50 hover:bg-[var(--bg-elevated)]/30 ${r.isShortDay ? 'bg-orange-900/10' : ''}`}>
                         <td className="px-3 py-2 text-[var(--text-muted)] font-mono">{r.date.slice(5)}</td>
                         <td className="px-2 py-2">{getStatusBadge(r.status, r.isShortDay, lateMin, earlyMin, leave)}</td>
-                        <td className="px-2 py-2 text-[var(--text-muted)]">{r.inTime || '—'}</td>
-                        <td className={`px-2 py-2 ${missingOut ? 'bg-orange-500/10 border border-orange-500/20 text-orange-400' : 'text-[var(--text-muted)]'}`}>
-                          {missingOut ? <span title="Missing out-punch — duration may be inaccurate">⚠ —</span> : (r.outTime || '—')}
+                        <td className="px-2 py-2 text-[var(--text-muted)]">{displayIn}</td>
+                        <td className={`px-2 py-2 ${missingOut && !isAbsentOrLeaveWithoutPunch ? 'bg-orange-500/10 border border-orange-500/20 text-orange-400' : 'text-[var(--text-muted)]'}`}>
+                          {missingOut && !isAbsentOrLeaveWithoutPunch ? <span title="Missing out-punch — duration may be inaccurate">⚠ —</span> : displayOut}
                         </td>
-                        <td className="px-2 py-2 text-slate-400">{dur > 0 ? minutesToHHMM(effectiveMinutes(dur)) : '—'}</td>
+                        <td className="px-2 py-2 text-slate-400">{displayDur}</td>
                         <td className="px-2 py-2">
                           <div className="flex items-center gap-1 relative">
                             {lateMin > 0 && (

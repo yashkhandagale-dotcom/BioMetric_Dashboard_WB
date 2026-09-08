@@ -102,8 +102,8 @@ export default function KPICards({ kpi, thresholds = DEFAULT_THRESHOLDS, viewMod
     },
     {
       label: 'On Leave',
-      value: `${kpi.absentCount}`,
-      sub: `${kpi.unexplainedAbsentCount} unmarked · ${kpi.plannedLeaveCount + kpi.casualLeaveCount + kpi.sickLeaveCount} marked`,
+      value: `${Math.round((kpi.unexplainedAbsentCount ?? 0) + (kpi.plannedLeaveCount ?? 0) + (kpi.casualLeaveCount ?? 0) + (kpi.sickLeaveCount ?? 0) + (kpi.lwpCount ?? 0) + ((kpi.halfDayCount ?? 0) * 0.5))}`,
+      sub: `${kpi.unexplainedAbsentCount ?? 0} unmarked · ${Math.round((kpi.plannedLeaveCount ?? 0) + (kpi.casualLeaveCount ?? 0) + (kpi.sickLeaveCount ?? 0) + (kpi.lwpCount ?? 0) + ((kpi.halfDayCount ?? 0) * 0.5))} marked`,
       status: getStatus(kpi.absenteeismRate, t.absenteeismRateGreen, t.absenteeismRateAmber, true),
       filter: 'absent',
       info: {

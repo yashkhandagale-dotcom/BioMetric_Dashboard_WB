@@ -1185,8 +1185,9 @@ export function getCellStatus(
   // status badge in EmployeePanel.tsx — a marked leave is the most
   // specific, most authoritative thing known about that day.
   if (leave) return 'on_leave';
-  if (r.isShortDay) return 'shortday';
   const s = r.status.toLowerCase();
+  if (s.includes('sick') || s.includes('planned') || s.includes('casual') || s.includes('lwp')) return 'on_leave';
+  if (r.isShortDay) return 'shortday';
   if (s.includes('weeklyoff')) return 'weeklyoff';
   if (s.includes('absent')) return 'absent';
   if (s.includes('present')) {
