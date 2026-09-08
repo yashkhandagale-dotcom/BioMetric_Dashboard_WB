@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react';
 import { X, Clock, LogOut, LogIn, TrendingUp, Zap, AlertTriangle, Info, Tag, Edit2, Trash2, RotateCcw } from 'lucide-react';
 import { EmployeeSummary, Holiday, LeaveRecord } from '@/lib/types';
-import { getLateMinutes, getEarlyMinutes } from '@/lib/useDashboardData';
+import { getLateMinutes, getEarlyMinutes, isWeeklyOff } from '@/lib/useDashboardData';
 import { DEFAULT_THRESHOLDS } from '@/lib/settings';
 import { durationToMinutes, effectiveMinutes, minutesToHHMM } from '@/lib/parseCSV';
 import { actualMinutes } from '@/lib/hoursCalc';
@@ -49,7 +49,17 @@ function minsToTimeStr(minsFromMidnight: number): string {
 }
 
 function getStatusBadge(status: string, isShortDay: boolean | undefined, lateMin: number, earlyMin: number, leave?: LeaveRecord) {
-  if (leave) {
+  // Bug fix: a multi-day leave request is expanded into a LeaveRecord for
+  // every calendar day it spans, including weekly-offs that happen to fall
+  // inside that span — but the "On Leave" summary count (absentDays /
+  // plannedLeaveCount / etc. in useDashboardData.ts) explicitly excludes
+  // weekly-off days from every leave tally via the same isWeeklyOff()
+  // check. Applying the leave badge here without that same check made this
+  // day-wise list show more "leave" days than the summary card it's meant
+  // to explain, since a weekly-off day inside a leave span rendered as a
+  // marked leave type instead of "Weekly Off". Checking isWeeklyOff first
+  // keeps this list in agreement with the aggregate count.
+  if (leave && !isWeeklyOff(status)) {
     const label = leaveLabelFor(leave.leaveType, leave.halfDayLeaveType);
     return <span className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${LEAVE_COLORS[leave.leaveType]}`}>{label}</span>;
   }

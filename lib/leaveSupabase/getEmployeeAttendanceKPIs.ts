@@ -167,6 +167,45 @@ export async function getEmployeeAttendanceKPIs(
   const predefinedDates = new Set(predefined.map((h) => h.date));
   const holidays: Holiday[] = [...predefined, ...custom.filter((h) => !predefinedDates.has(h.date))];
 
+  // Bug fix: an approved leave_requests row is expanded into leaveMap for
+  // every calendar day it covers regardless of whether attendance_records
+  // has caught up yet (e.g. leave approved for a future/recent date the
+  // biometric CSV for that day hasn't been uploaded for). Previously
+  // `records` only ever contained rows that already existed in
+  // attendance_records, so any leave-covered date with no attendance row
+  // was silently invisible to computeEmployeeKPIs — it never entered
+  // workRecords at all, so it counted toward neither "On Leave" nor
+  // "Unmarked Absent", even though the exact same date is correctly shown
+  // in the employee's Leave History (which reads leave_requests directly,
+  // not attendance_records). That produced the "leave taken but Attendance
+  // Summary doesn't reflect it" mismatch. Fix: synthesize a placeholder
+  // attendance row for any leave-covered working day (not a weekend/
+  // holiday — those are excluded from KPIs entirely either way) that has
+  // no real attendance_records row, so computeEmployeeKPIs sees it and
+  // classifies it via leaveMap exactly like a normal leave day.
+  const existingDates = new Set(records.map((r) => r.date));
+  for (const leaveRec of leaveMap.values()) {
+    const d = leaveRec.date;
+    if (existingDates.has(d)) continue;
+    if (isWeekendLocal(d) || isHolidayLocal(d, holidays)) continue;
+    records.push({
+      date: d,
+      employeeCode: employee.employee_code,
+      employeeName: '',
+      department: '',
+      inTime: '',
+      outTime: '',
+      status: 'On Leave (Pending Attendance Sync)',
+      lateBy: '',
+      earlyBy: '',
+      duration: '0:00',
+      officeCode: employee.office,
+      punchCount: undefined,
+    });
+    existingDates.add(d);
+  }
+  records.sort((a, b) => a.date.localeCompare(b.date));
+
   const t = DEFAULT_THRESHOLDS;
   const comparison = computeEmployeeKPIs(records, leaveMap, holidays, t.graceMinutes, t.shiftStartMinutes, t.shiftEndMinutes);
 
@@ -198,7 +237,7 @@ export async function getEmployeeAttendanceKPIs(
 function emptyKPIs(): EmployeeAttendanceKPIs {
   return {
     attendanceRate: 0, absenteeismRate: 0, avgHoursPerDay: 0, lateArrivalRate: 0, earlyExitRate: 0,
-    productivityLost: 0, presentDays: 0, absentDays: 0, plannedLeaveCount: 0, casualLeaveCount: 0,
+    productivityLost: 0, presentDays: 0, absentDays: 0, approvedLeaveDays: 0, plannedLeaveCount: 0, casualLeaveCount: 0,
     sickLeaveCount: 0, lwpCount: 0, halfDayCount: 0, scheduledDays: 0, presentSampleSize: 0,
     avgActualHoursPerDay: 0, avgEffectiveHoursPerDay: 0,
   };
@@ -225,6 +264,18 @@ function eachDate(start: string, end: string): string[] {
 function isWeeklyOffLocal(status: string): boolean {
   const s = status.toLowerCase();
   return s.includes('weeklyoff') && !s.includes('present');
+}
+
+// Used only to decide whether a *synthesized* (no real attendance row yet)
+// leave day should be added — real attendance rows already carry their own
+// status and go through isWeeklyOff/isHoliday in computeEmployeeKPIs as usual.
+function isWeekendLocal(dateStr: string): boolean {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const day = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+  return day === 0 || day === 6;
+}
+function isHolidayLocal(dateStr: string, holidays: Holiday[]): boolean {
+  return holidays.some((h) => h.date === dateStr);
 }
 function durationMinutesLocal(durationStr: string): number {
   if (!durationStr || durationStr === '0:00' || durationStr === '--') return 0;
