@@ -82,12 +82,12 @@ export default function UploadZone({ onFiles }: UploadZoneProps) {
           <p className="text-[var(--text-muted)] text-sm mb-4">or click to browse — multiple files supported</p>
 
           <div className="inline-flex items-center gap-2 bg-[var(--bg-elevated)]/60 px-4 py-2 rounded-lg text-xs text-[var(--text-muted)]">
-            <span className="font-mono">YYYY_MM_OFFICECODE.csv</span>
+            <span>Any filename accepted</span>
             <span>·</span>
             <span>Max 5 MB each</span>
           </div>
 
-          <p className="text-[var(--text-muted)] text-xs mt-3">Example: 2026_05_MUM.csv</p>
+          <p className="text-[var(--text-muted)] text-xs mt-3">Date range is auto-detected from the CSV — no strict filename required</p>
         </div>
 
         {error && (

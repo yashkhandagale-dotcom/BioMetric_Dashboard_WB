@@ -6,12 +6,13 @@ import { CheckCircle, ShieldX, Calendar, X as XIcon } from 'lucide-react';
 import { AttendanceRecord, ColumnMapping, EmployeeSummary, UploadedMonth, Holiday, Thresholds, LeaveRecord } from '@/lib/types';
 import {
   getMapping, saveMapping, getRecords, saveRecords, addUploadedMonth, getUploadedMonths,
+  getExistingDateRange,
 } from '@/lib/storage';
 import { getThresholds, saveThresholds, DEFAULT_THRESHOLDS } from '@/lib/settings';
 import { getAllLeaveRecords, getLeaveRecords, lookupLeavesForItems } from '@/lib/leaveTrackerRead';
 import { getAllKnownDepartments, loadEmployeeDirectory, useEmployeeDirectorySync } from '@/lib/employeeStore';
 import { buildLeaveMap, isAbsent } from '@/lib/useDashboardData';
-import { parseCSVHeaders, parseCSVWithMapping } from '@/lib/parseCSV';
+import { parseCSVHeaders, parseCSVWithMapping, analyzeCSVDateRange, type CSVDateRangeAnalysis } from '@/lib/parseCSV';
 import { validateFile } from '@/lib/validateFile';
 import { readSharedData } from '@/lib/sharedLink';
 import { useDashboardData } from '@/lib/useDashboardData';
@@ -19,6 +20,8 @@ import { getHolidays } from '@/lib/holidays';
 import UploadZone from '@/components/UploadZone';
 import ColumnMappingScreen from '@/components/ColumnMappingScreen';
 import ConfirmDialog from '@/components/ConfirmDialog';
+import ImportPreviewModal from '@/components/ImportPreviewModal';
+import OfficeCodePrompt from '@/components/OfficeCodePrompt';
 import KPICards from '@/components/KPICards';
 import OnLeaveTodayCard from '@/components/OnLeaveTodayCard';
 
@@ -57,8 +60,16 @@ type AppState = 'loading' | 'upload' | 'mapping' | 'dashboard';
 // isn't logged in and has nowhere else in the app to navigate to).
 type ViewMode = 'loading' | 'hr' | 'manager' | 'team' | 'denied';
 interface Toast { type: 'success' | 'error'; message: string; }
-interface PendingFile { file: File; officeCode: string; month: string; year: string; }
+// month/year are optional — for multi-month or free-named CSVs they are
+// derived later from the actual record dates rather than the filename.
+interface PendingFile { file: File; officeCode: string; month?: string; year?: string; }
 interface MappingQueueItem { officeCode: string; headers: string[]; }
+
+interface ImportPreviewState {
+  analysis: CSVDateRangeAnalysis;
+  existingRange: { minDate: string; maxDate: string } | null;
+  batch: PendingFile[];
+}
 
 function getMonthName(mm: string): string {
   const m = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -378,6 +389,10 @@ function HRDashboard() {
   const [mappingQueue, setMappingQueue] = useState<MappingQueueItem[]>([]);
   const [remapInitial, setRemapInitial] = useState<Partial<ColumnMapping> | undefined>(undefined);
   const [conflictMonths, setConflictMonths] = useState<{ key: string; label: string }[] | null>(null);
+  // Smart import — office code prompt & preview modal
+  const [officeCodeFile, setOfficeCodeFile] = useState<File | null>(null);
+  const [importPreview, setImportPreview] = useState<ImportPreviewState | null>(null);
+  const [importPreviewLoading, setImportPreviewLoading] = useState(false);
 
   const [allRecords, setAllRecords] = useState<AttendanceRecord[]>([]);
   const [uploadedMonths, setUploadedMonths] = useState<UploadedMonth[]>([]);
@@ -580,7 +595,19 @@ function HRDashboard() {
         skipped.push({ name: file.name, reason: result.error || 'Invalid file' });
         continue;
       }
-      valid.push({ file, officeCode: result.officeCode!, month: result.month!, year: result.year! });
+      if (result.needsOfficeCode) {
+        // Only one file at a time can trigger the office code prompt.
+        // Queue up the rest and handle after.
+        setOfficeCodeFile(file);
+        setSkippedFiles(skipped);
+        return;
+      }
+      valid.push({
+        file,
+        officeCode: result.officeCode!,
+        month: result.month,
+        year: result.year,
+      });
     }
     setSkippedFiles(skipped);
 
@@ -591,7 +618,12 @@ function HRDashboard() {
       return;
     }
 
+    await proceedToMapping(valid, skipped);
+  }
+
+  async function proceedToMapping(valid: PendingFile[], skipped: { name: string; reason: string }[] = []) {
     setPendingBatch(valid);
+    setSkippedFiles(skipped);
 
     const queue: MappingQueueItem[] = [];
     const seen = new Set<string>();
@@ -624,7 +656,7 @@ function HRDashboard() {
       setRemapInitial(undefined);
       setAppState('mapping');
     } else {
-      await proceedToConflictCheck(valid);
+      await analyzeAndPreview(valid);
     }
   }
 
@@ -649,79 +681,113 @@ function HRDashboard() {
       return;
     }
 
-    await proceedToConflictCheck(pendingBatch);
+    await analyzeAndPreview(pendingBatch);
   }
 
-  async function proceedToConflictCheck(batch: PendingFile[]) {
-    const months = await getUploadedMonths();
-    const conflicts: { key: string; label: string }[] = [];
-    for (const pf of batch) {
-      const key = `${pf.year}_${pf.month}_${pf.officeCode}`;
-      const existing = months.find(m => m.key === key);
-      if (existing) conflicts.push({ key, label: existing.label });
+  // ── Smart Import: analyze CSV date range and show preview modal ──────────────
+  async function analyzeAndPreview(batch: PendingFile[]) {
+    if (batch.length === 0) return;
+    const pf = batch[0]; // representative file (all same office)
+    const mapping = await getMapping(pf.officeCode);
+    if (!mapping) {
+      // Shouldn't happen (mapping was just saved) but fall back gracefully
+      await importBatch(batch, 'overwrite');
+      return;
     }
-    if (conflicts.length > 0) {
-      setConflictMonths(conflicts);
-    } else {
-      await importBatch(batch);
+    try {
+      const [analysis, existingRange] = await Promise.all([
+        analyzeCSVDateRange(pf.file, mapping.date, mapping.employeeCode),
+        getExistingDateRange(pf.officeCode),
+      ]);
+      setImportPreview({ analysis, existingRange, batch });
+    } catch (err) {
+      // If analysis fails (e.g. date column empty), fall back to direct import
+      console.warn('[analyzeAndPreview] could not analyze CSV dates:', err);
+      await importBatch(batch, 'overwrite');
     }
   }
 
-  async function importBatch(batch: PendingFile[]) {
+  // ── Core batch importer ───────────────────────────────────────────────────
+  // mode: 'overwrite'  → upsert all records (updates existing rows)
+  //       'new_only'   → skip records whose date is already covered by existing data
+  async function importBatch(batch: PendingFile[], mode: 'overwrite' | 'new_only' = 'overwrite', existingRange?: { minDate: string; maxDate: string } | null) {
     setConflictMonths(null);
+    setImportPreview(null);
+    setImportPreviewLoading(false);
     const results: string[] = [];
     let lastMonthKey = '';
+    const MONTH_NAMES = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
     for (const pf of batch) {
       const mapping = await getMapping(pf.officeCode);
       if (!mapping) continue;
-      const { records } = await parseCSVWithMapping(pf.file, mapping, pf.officeCode, thresholds.graceMinutes, thresholds.shortDayMinutes);
+      let { records } = await parseCSVWithMapping(pf.file, mapping, pf.officeCode, thresholds.graceMinutes, thresholds.shortDayMinutes);
       if (records.length === 0) {
         // A non-empty CSV that parsed to zero rows almost always means the
         // saved column mapping no longer matches this file's headers (or
         // every row is missing an employee code / date). Surface this
         // loudly instead of silently reporting "0 new, 0 updated" as if
         // nothing was wrong.
-        results.push(`${pf.officeCode} ${getMonthName(pf.month)} ${pf.year}: 0 rows parsed — check column mapping in Settings, the file's columns may not match what's expected.`);
+        results.push(`${pf.officeCode}: 0 rows parsed — check column mapping in Settings, the file's columns may not match what's expected.`);
         continue;
       }
-      const monthKey = `${pf.year}_${pf.month}_${pf.officeCode}`;
-      const monthLabel = `${pf.officeCode} \u2014 ${getMonthName(pf.month)} ${pf.year}`;
-      // NOTE: uploaded_months row must exist BEFORE attendance_records rows,
-      // since attendance_records.month_key has a foreign key referencing
-      // uploaded_months.key. Creating it first avoids a 409/23503 FK violation.
-      await addUploadedMonth({ key: monthKey, label: monthLabel, officeCode: pf.officeCode, month: pf.month, year: pf.year });
-      const { added, updated, employeesCreated, employeesSyncError } = await saveRecords(monthKey, records);
 
-      // Reconcile newly uploaded biometric attendance against already-approved
-      // leave. This covers the case where leave was approved before the
-      // attendance CSV arrived.
-      try {
-        const dates = records.map(r => r.date).filter(Boolean).sort();
-        if (dates.length > 0) {
-          const reconcileResponse = await fetch('/api/leave/attendance/reconcile', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ startDate: dates[0], endDate: dates[dates.length - 1] }),
-          });
-          if (!reconcileResponse.ok) {
-            const body = await reconcileResponse.json().catch(() => ({}));
-            console.warn('Leave/attendance reconciliation failed:', body.error ?? reconcileResponse.statusText);
-          }
+      // 'new_only': filter out records whose date falls inside the already-stored range
+      if (mode === 'new_only' && existingRange) {
+        records = records.filter(r => r.date < existingRange.minDate || r.date > existingRange.maxDate);
+        if (records.length === 0) {
+          results.push(`${pf.officeCode}: all dates already exist — nothing new to import.`);
+          continue;
         }
-      } catch (error) {
-        console.warn('Leave/attendance reconciliation request failed:', error);
       }
 
-      lastMonthKey = monthKey;
-      let summary = `${pf.officeCode} ${getMonthName(pf.month)} ${pf.year} (${added} new, ${updated} updated)`;
-      if (employeesCreated > 0) {
-        summary += ` — ${employeesCreated} new employee${employeesCreated === 1 ? '' : 's'} onboarded to Leave Tracker`;
+      // ── Group records by YYYY_MM so each month gets its own uploaded_months entry ──
+      // For old-style filenames (month/year from filename) we still respect those;
+      // for free-named CSVs we derive YYYY and MM from each record's actual date.
+      const monthGroups = new Map<string, { records: typeof records; year: string; month: string }>();
+      for (const r of records) {
+        const [y, mm] = r.date.split('-');
+        const key = `${y}_${mm}_${pf.officeCode}`;
+        if (!monthGroups.has(key)) monthGroups.set(key, { records: [], year: y, month: mm });
+        monthGroups.get(key)!.records.push(r);
       }
-      if (employeesSyncError) {
-        summary += ` — WARNING: employee sync to Leave Tracker failed (${employeesSyncError})`;
+
+      for (const [monthKey, { records: monthRecords, year, month }] of monthGroups) {
+        const monthLabel = `${pf.officeCode} \u2014 ${MONTH_NAMES[parseInt(month, 10)]} ${year}`;
+        // NOTE: uploaded_months row must exist BEFORE attendance_records rows,
+        // since attendance_records.month_key has a foreign key referencing
+        // uploaded_months.key. Creating it first avoids a 409/23503 FK violation.
+        await addUploadedMonth({ key: monthKey, label: monthLabel, officeCode: pf.officeCode, month, year });
+        const { added, updated, employeesCreated, employeesSyncError } = await saveRecords(monthKey, monthRecords);
+
+        // Reconcile newly uploaded biometric attendance against already-approved leave.
+        try {
+          const dates = monthRecords.map(r => r.date).filter(Boolean).sort();
+          if (dates.length > 0) {
+            const reconcileResponse = await fetch('/api/leave/attendance/reconcile', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ startDate: dates[0], endDate: dates[dates.length - 1] }),
+            });
+            if (!reconcileResponse.ok) {
+              const body = await reconcileResponse.json().catch(() => ({}));
+              console.warn('Leave/attendance reconciliation failed:', body.error ?? reconcileResponse.statusText);
+            }
+          }
+        } catch (error) {
+          console.warn('Leave/attendance reconciliation request failed:', error);
+        }
+
+        lastMonthKey = monthKey;
+        let summary = `${pf.officeCode} ${MONTH_NAMES[parseInt(month, 10)]} ${year} (${added} new, ${updated} updated)`;
+        if (employeesCreated > 0) {
+          summary += ` \u2014 ${employeesCreated} new employee${employeesCreated === 1 ? '' : 's'} onboarded`;
+        }
+        if (employeesSyncError) {
+          summary += ` \u2014 WARNING: employee sync failed (${employeesSyncError})`;
+        }
+        results.push(summary);
       }
-      results.push(summary);
     }
 
     const months = await getUploadedMonths();
@@ -734,12 +800,7 @@ function HRDashboard() {
     setSelectedOffice('ALL');
     setSelectedDepts([]);
     setTableFilter('all');
-    // Bug fix: previously dateFrom/dateTo were left as-is after a re-upload
-    // or overwrite, so a date range picked before the upload (e.g. a single
-    // day, or a range confined to the old data) stayed stuck in the picker
-    // and silently constrained the min/max of the date inputs — making it
-    // look like new dates couldn't be selected even though fresh months had
-    // just been imported. Reset the range here, same as handleMonthChange.
+    // Reset date range so newly imported dates become selectable immediately.
     setDateFrom(null);
     setDateTo(null);
     setDeptDrillSync(null);
@@ -1435,6 +1496,7 @@ function HRDashboard() {
         />
       )}
 
+      {/* Legacy conflict dialog — kept for any code paths that still set conflictMonths */}
       {conflictMonths && (
         <ConfirmDialog
           title={conflictMonths.length === 1 ? 'Data already exists' : `${conflictMonths.length} months already exist`}
@@ -1445,8 +1507,52 @@ function HRDashboard() {
           }
           items={conflictMonths.length > 1 ? conflictMonths.map(c => c.label) : undefined}
           confirmLabel={conflictMonths.length > 1 ? 'Overwrite All' : 'Overwrite'}
-          onConfirm={() => importBatch(pendingBatch)}
+          onConfirm={() => importBatch(pendingBatch, 'overwrite')}
           onCancel={() => { setConflictMonths(null); setPendingBatch([]); setSkippedFiles([]); setAppState(uploadedMonths.length > 0 ? 'dashboard' : 'upload'); }}
+        />
+      )}
+
+      {/* Office code prompt — shown when the uploaded filename has no embedded code */}
+      {officeCodeFile && (
+        <OfficeCodePrompt
+          fileName={officeCodeFile.name}
+          onConfirm={(code) => {
+            const file = officeCodeFile;
+            setOfficeCodeFile(null);
+            proceedToMapping([{ file, officeCode: code }]);
+          }}
+          onCancel={() => {
+            setOfficeCodeFile(null);
+            setAppState(uploadedMonths.length > 0 ? 'dashboard' : 'upload');
+          }}
+        />
+      )}
+
+      {/* Smart Import Preview Modal */}
+      {importPreview && (
+        <ImportPreviewModal
+          analysis={importPreview.analysis}
+          officeCode={importPreview.batch[0]?.officeCode ?? ''}
+          existingRange={importPreview.existingRange}
+          isLoading={importPreviewLoading}
+          onImportAll={() => {
+            setImportPreviewLoading(true);
+            importBatch(importPreview.batch, 'overwrite');
+          }}
+          onOverwrite={() => {
+            setImportPreviewLoading(true);
+            importBatch(importPreview.batch, 'overwrite', importPreview.existingRange);
+          }}
+          onImportNewOnly={() => {
+            setImportPreviewLoading(true);
+            importBatch(importPreview.batch, 'new_only', importPreview.existingRange);
+          }}
+          onCancel={() => {
+            setImportPreview(null);
+            setImportPreviewLoading(false);
+            setPendingBatch([]);
+            setAppState(uploadedMonths.length > 0 ? 'dashboard' : 'upload');
+          }}
         />
       )}
     </DashboardShell>

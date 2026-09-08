@@ -424,3 +424,57 @@ export async function importAllData(backup: BackupFile): Promise<{ imported: num
 
   return { imported };
 }
+
+// ── Existing date-range query (for Import Preview overlap detection) ───────────
+// Returns the earliest and latest `date` values already stored in
+// attendance_records for a given office code, or null if nothing is stored yet.
+// Used by the ImportPreviewModal to warn the user before overwriting.
+export async function getExistingDateRange(
+  officeCode: string
+): Promise<{ minDate: string; maxDate: string } | null> {
+  const supabase = createClient();
+  // Supabase/PostgREST can compute min/max server-side via .select('date.min(),date.max()')
+  // but the JS client returns them as strings; fall back to a simple bounded select
+  // and derive min/max client-side — still fast because we only fetch 2 columns.
+  const { data, error } = await supabase
+    .from('attendance_records')
+    .select('date')
+    .eq('office_code', officeCode)
+    .order('date', { ascending: true })
+    .limit(1);
+  if (error || !data || data.length === 0) return null;
+  const minDate = data[0].date as string;
+
+  const { data: data2, error: error2 } = await supabase
+    .from('attendance_records')
+    .select('date')
+    .eq('office_code', officeCode)
+    .order('date', { ascending: false })
+    .limit(1);
+  if (error2 || !data2 || data2.length === 0) return null;
+  const maxDate = data2[0].date as string;
+
+  return { minDate, maxDate };
+}
+
+// ── Delete records within a date range for an office ─────────────────────────
+// Used by "Import New Only" path to ensure we never implicitly overwrite dates
+// that the user chose to keep. (The upsert still only touches rows that are in
+// the CSV, but this helper is available for any future hard-delete use-case.)
+export async function deleteRecordsByDateRange(
+  officeCode: string,
+  startDate: string,
+  endDate: string
+): Promise<void> {
+  const supabase = createClient();
+  const { error } = await supabase
+    .from('attendance_records')
+    .delete()
+    .eq('office_code', officeCode)
+    .gte('date', startDate)
+    .lte('date', endDate);
+  if (error) throw error;
+  // Invalidate all cached month keys for this office so the next getRecords()
+  // call picks up the deletions rather than serving the now-stale cached rows.
+  invalidateMonthRecordsCache();
+}

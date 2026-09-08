@@ -266,3 +266,79 @@ export function effectiveMinutes(durationMinutes: number): number {
   const lunch = durationMinutes > 60 ? 60 : 0;
   return durationMinutes - lunch;
 }
+
+// ── CSV Date-Range Analyzer ───────────────────────────────────────────────────
+// Reads ONLY the date column (fast, single-pass) to determine the actual
+// coverage period of a CSV file without fully parsing every field. This is
+// called before any DB write so the ImportPreviewModal can show the user
+// exactly what they are about to import.
+
+export interface CSVDateRangeAnalysis {
+  startDate: string;        // YYYY-MM-DD — earliest record date
+  endDate: string;          // YYYY-MM-DD — latest record date
+  totalRecords: number;     // total data rows
+  uniqueEmployees: number;  // distinct employee codes
+  monthsSpanned: { year: string; month: string; label: string }[];
+}
+
+export function analyzeCSVDateRange(
+  file: File,
+  dateColumn: string,
+  employeeColumn: string
+): Promise<CSVDateRangeAnalysis> {
+  return new Promise((resolve, reject) => {
+    Papa.parse(file, {
+      header: true,
+      skipEmptyLines: true,
+      complete: (results) => {
+        const rows = results.data as Record<string, string>[];
+        let minDate = '';
+        let maxDate = '';
+        let totalRecords = 0;
+        const empSet = new Set<string>();
+        const monthSet = new Set<string>();
+
+        for (const row of rows) {
+          const rawDate = String(row[dateColumn] || '').trim();
+          const empCode = String(row[employeeColumn] || '').trim();
+          if (!rawDate) continue;
+
+          const date = normalizeDate(rawDate);
+          if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) continue;
+
+          totalRecords++;
+          if (empCode) empSet.add(empCode);
+
+          if (!minDate || date < minDate) minDate = date;
+          if (!maxDate || date > maxDate) maxDate = date;
+
+          // Track YYYY-MM
+          const ym = date.substring(0, 7);
+          monthSet.add(ym);
+        }
+
+        if (!minDate || !maxDate) {
+          reject(new Error('Could not detect any valid dates in the CSV. Please check the date column mapping.'));
+          return;
+        }
+
+        const MONTH_NAMES = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+        const monthsSpanned = Array.from(monthSet)
+          .sort()
+          .map((ym) => {
+            const [year, month] = ym.split('-');
+            return { year, month, label: `${MONTH_NAMES[parseInt(month, 10)]} ${year}` };
+          });
+
+        resolve({
+          startDate: minDate,
+          endDate: maxDate,
+          totalRecords,
+          uniqueEmployees: empSet.size,
+          monthsSpanned,
+        });
+      },
+      error: reject,
+    });
+  });
+}
