@@ -257,6 +257,7 @@ export interface ComparisonKPIs {
   productivityLost: number;
   presentDays: number;
   absentDays: number;
+  approvedLeaveDays: number;
   plannedLeaveCount: number;
   casualLeaveCount: number;
   sickLeaveCount: number;
@@ -298,10 +299,10 @@ export function computeEmployeeKPIs(
       else if (effectiveLeaveType === 'casual') casualLeaveCount++;
       else if (effectiveLeaveType === 'sick') sickLeaveCount++;
       else if (effectiveLeaveType === 'lwp') { lwpCount++; unexplainedAbsentCount++; }
+    } else if (effectiveLeaveType === 'half_day') {
+      halfDayRecords.push(r);
     } else if (r.isShortDay) {
-      if (effectiveLeaveType === 'half_day') {
-        halfDayRecords.push(r);
-      }
+      // short day without leave
     } else if (isPresent(r.status)) {
       presentRecords.push(r);
     } else if (isAbsent(r.status)) {
@@ -314,13 +315,13 @@ export function computeEmployeeKPIs(
   const absentDays = unexplainedAbsentCount;
   const presentDays = presentRecords.length + halfDayCount * 0.5;
 
-  const explainedLeave = plannedLeaveCount + casualLeaveCount + sickLeaveCount;
+  const explainedLeave = plannedLeaveCount + casualLeaveCount + sickLeaveCount + (halfDayCount * 0.5);
   const denom = scheduledDays - explainedLeave;
   const attendanceRate = denom > 0 ? (presentDays / denom) * 100 : 0;
   const absenteeismRate = scheduledDays > 0 ? (absentDays / scheduledDays) * 100 : 0;
 
   // Effective hours: duration - 60min lunch (shared with Charts.tsx / exportData.ts — lib/hoursCalc.ts)
-  const presentWithDuration = presentRecords.filter((r) => effectiveMinutes(durationToMinutes(r.duration)) !== null);
+  const presentWithDuration = [...presentRecords, ...halfDayRecords].filter((r) => effectiveMinutes(durationToMinutes(r.duration)) !== null);
   const totalEffectiveMins = presentWithDuration.reduce(
     (sum, r) => sum + (effectiveMinutes(durationToMinutes(r.duration)) ?? 0), 0
   );
@@ -346,9 +347,9 @@ export function computeEmployeeKPIs(
 
   return {
     attendanceRate, absenteeismRate, avgHoursPerDay, lateArrivalRate, earlyExitRate,
-    productivityLost, presentDays, absentDays, plannedLeaveCount, casualLeaveCount,
-    sickLeaveCount, lwpCount, halfDayCount, scheduledDays,
-    presentSampleSize: presentRecords.length,
+    productivityLost, presentDays, absentDays, approvedLeaveDays: explainedLeave,
+    plannedLeaveCount, casualLeaveCount, sickLeaveCount, lwpCount, halfDayCount, scheduledDays,
+    presentSampleSize: presentRecords.length + halfDayRecords.length,
     avgInTime, avgOutTime, inTimeDeviation, outTimeDeviation,
   };
 }
@@ -433,13 +434,11 @@ export function useDashboardData(
         } else if (effectiveLeaveType === 'lwp') {
           lwpCount++;
         }
+      } else if (effectiveLeaveType === 'half_day') {
+        halfDayCount++;
+        presentCount += 0.5;
       } else if (r.isShortDay) {
-        if (effectiveLeaveType === 'half_day') {
-          halfDayCount++;
-          presentCount += 0.5;
-        } else {
-          shortDayCount++;
-        }
+        shortDayCount++;
       } else if (isPresent(r.status)) {
         presentCount++;
         presentRecordsCount++;
@@ -546,7 +545,7 @@ export function useDashboardData(
         else if (effectiveLeaveType === 'sick') emp.sickLeaveCount++;
         else if (effectiveLeaveType === 'lwp') { emp.lwpCount++; emp.unmarkedAbsentDays = (emp.unmarkedAbsentDays || 0) + 1; }
         emp.absentDays++; // Employee is on leave for this day
-      } else if (r.isShortDay && effectiveLeaveType === 'half_day') {
+      } else if (effectiveLeaveType === 'half_day') {
         emp.halfDayCount++;
         emp.presentDays += 0.5;
         emp.absentDays += 0.5; // Half-day on leave

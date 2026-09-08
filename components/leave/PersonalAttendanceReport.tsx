@@ -92,8 +92,8 @@ export default function PersonalAttendanceReport() {
 
       {loading ? (
         <div className="space-y-3">
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
-            {Array.from({ length: 6 }).map((_, i) => (
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+            {Array.from({ length: 8 }).map((_, i) => (
               <div key={i} className="h-16 rounded-xl bg-[var(--bg-elevated)]/60 animate-pulse" />
             ))}
           </div>
@@ -105,10 +105,10 @@ export default function PersonalAttendanceReport() {
         </div>
       ) : !kpis || recordCount === 0 ? (
         <div className="space-y-3">
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
-            {['Attendance Rate', 'Present Days', 'Absent Days', 'Late Count', 'Early Exit Count', 'Productivity Lost'].map((label) => (
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+            {['Attendance Rate', 'Present Days', 'On Leave', 'Unmarked Absent', 'Late Arrivals', 'Early Exits', 'Productivity Lost', 'Scheduled Days'].map((label) => (
               <div key={label} className="bg-[var(--bg-surface)]/60 border border-[var(--border-subtle)] rounded-xl p-3">
-                <p className="text-[var(--text-muted)] text-[11px] font-medium">{label}</p>
+                <p className="text-[var(--text-muted)] text-[10px] font-bold uppercase tracking-wider">{label}</p>
                 <p className="text-lg font-bold text-[var(--text-muted)]/50 mt-1">—</p>
               </div>
             ))}
@@ -116,7 +116,7 @@ export default function PersonalAttendanceReport() {
           <div className="grid grid-cols-2 gap-2.5">
             {['Actual Hours / Day', 'Effective Hours / Day'].map((label) => (
               <div key={label} className="bg-[var(--bg-surface)]/60 border border-[var(--border-subtle)] rounded-xl p-3">
-                <p className="text-[var(--text-muted)] text-[11px] font-medium">{label}</p>
+                <p className="text-[var(--text-muted)] text-[10px] font-bold uppercase tracking-wider">{label}</p>
                 <p className="text-lg font-bold text-[var(--text-muted)]/50 mt-1">—</p>
               </div>
             ))}
@@ -127,48 +127,76 @@ export default function PersonalAttendanceReport() {
         </div>
       ) : (
         <div className="space-y-3">
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
             {[
               {
                 label: 'Attendance Rate',
                 value: `${kpis.attendanceRate.toFixed(1)}%`,
+                sub: (kpis.approvedLeaveDays ?? 0) > 0 ? 'Approved leaves excused' : 'Full attendance',
                 color: 'text-emerald-600 dark:text-emerald-300',
                 bg: 'bg-emerald-500/10 border-emerald-500/20',
               },
               {
                 label: 'Present Days',
                 value: kpis.presentDays.toFixed(1),
+                sub: `${kpis.presentSampleSize} day${kpis.presentSampleSize === 1 ? '' : 's'} worked`,
                 color: 'text-emerald-600 dark:text-emerald-300',
                 bg: 'bg-emerald-500/10 border-emerald-500/20',
               },
               {
-                label: 'Absent Days',
-                value: kpis.absentDays,
-                color: 'text-rose-600 dark:text-rose-300',
-                bg: 'bg-rose-500/10 border-rose-500/20',
+                label: 'On Leave',
+                value: (kpis.approvedLeaveDays ?? ((kpis.plannedLeaveCount || 0) + (kpis.casualLeaveCount || 0) + (kpis.sickLeaveCount || 0) + ((kpis.halfDayCount || 0) * 0.5))).toFixed(1),
+                sub: [
+                  kpis.sickLeaveCount ? `${kpis.sickLeaveCount} Sick` : null,
+                  kpis.casualLeaveCount ? `${kpis.casualLeaveCount} Casual` : null,
+                  kpis.plannedLeaveCount ? `${kpis.plannedLeaveCount} Planned` : null,
+                  kpis.halfDayCount ? `${(kpis.halfDayCount * 0.5).toFixed(1)} Half Day` : null,
+                ].filter(Boolean).join(' · ') || 'Approved leaves',
+                color: 'text-blue-600 dark:text-blue-300',
+                bg: 'bg-blue-500/10 border-blue-500/20',
               },
               {
-                label: 'Late Arrival Count',
+                label: 'Unmarked Absent',
+                value: kpis.absentDays,
+                sub: kpis.absentDays > 0 ? 'Unapproved absences' : 'None',
+                color: kpis.absentDays > 0 ? 'text-rose-600 dark:text-rose-300' : 'text-[var(--text-muted)]',
+                bg: kpis.absentDays > 0 ? 'bg-rose-500/10 border-rose-500/20' : 'bg-[var(--bg-surface)]/60 border-[var(--border-subtle)]',
+              },
+              {
+                label: 'Late Arrivals',
                 value: kpis.lateArrivalRate > 0 ? Math.round((kpis.lateArrivalRate / 100) * kpis.presentSampleSize) : 0,
+                sub: kpis.lateArrivalRate > 0 ? `${kpis.lateArrivalRate.toFixed(0)}% of present` : 'None',
                 color: 'text-amber-600 dark:text-amber-300',
                 bg: 'bg-amber-500/10 border-amber-500/20',
               },
               {
-                label: 'Early Exit Count',
+                label: 'Early Exits',
                 value: kpis.earlyExitRate > 0 ? Math.round((kpis.earlyExitRate / 100) * kpis.presentSampleSize) : 0,
+                sub: kpis.earlyExitRate > 0 ? `${kpis.earlyExitRate.toFixed(0)}% of present` : 'None',
                 color: 'text-amber-600 dark:text-amber-300',
                 bg: 'bg-amber-500/10 border-amber-500/20',
               },
               {
                 label: 'Productivity Lost',
                 value: `${kpis.productivityLost.toFixed(1)}%`,
+                sub: 'Shift shortfall',
                 color: 'text-orange-600 dark:text-orange-300',
                 bg: 'bg-orange-500/10 border-orange-500/20',
               },
-            ].map(({ label, value, color, bg }) => (
-              <div key={label} className={`rounded-xl p-3 border ${bg}`}>
-                <p className="text-[var(--text-muted)] text-[10px] font-bold uppercase tracking-wider">{label}</p>
-                <p className={`text-xl font-extrabold tabular-nums mt-1 ${color}`}>{value}</p>
+              {
+                label: 'Scheduled Days',
+                value: kpis.scheduledDays,
+                sub: 'Working days in month',
+                color: 'text-[var(--text-primary)]',
+                bg: 'bg-[var(--bg-surface)]/80 border-[var(--border-subtle)]',
+              },
+            ].map(({ label, value, sub, color, bg }) => (
+              <div key={label} className={`rounded-xl p-3 border ${bg} flex flex-col justify-between`}>
+                <div>
+                  <p className="text-[var(--text-muted)] text-[10px] font-bold uppercase tracking-wider">{label}</p>
+                  <p className={`text-xl font-extrabold tabular-nums mt-1 ${color}`}>{value}</p>
+                </div>
+                {sub && <p className="text-[10px] text-[var(--text-muted)] truncate mt-1">{sub}</p>}
               </div>
             ))}
           </div>
