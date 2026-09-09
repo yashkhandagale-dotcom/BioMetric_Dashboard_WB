@@ -5,6 +5,7 @@ import EmployeeGrid from '@/components/leave/EmployeeGrid';
 import type { EmployeeWithBalances } from '@/components/leave/EmployeeCard';
 import PolicyInfoButton from '@/components/leave/PolicyInfoButton';
 import BulkEventsButton from '@/components/leave/BulkEventsButton';
+import BulkMarkAttendanceButton from '@/components/leave/BulkMarkAttendanceButton';
 import LeavePageHeader from '@/components/leave/LeavePageHeader';
 // AddEmployeeButton is deliberately not imported/rendered here anymore
 // — HR asked to hide it now that the "Acknowledge & Set Up" flow
@@ -123,6 +124,7 @@ export default async function LeaveAdminHome() {
         description={`Signed in as ${user?.email}`}
         actions={
           <>
+            <BulkMarkAttendanceButton />
             <BulkEventsButton />
             <PolicyInfoButton />
           </>

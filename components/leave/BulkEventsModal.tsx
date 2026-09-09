@@ -17,7 +17,7 @@ const SUGGESTED_EVENT_TYPES = [
   { code: 'office_shutdown', label: 'Office Shutdown' },
 ];
 
-type Target = 'employees' | 'office';
+type Target = 'employees' | 'office' | 'department';
 
 export default function BulkEventsModal({ onClose }: { onClose: () => void }) {
   const [employees, setEmployees] = useState<EmployeeOption[]>([]);
@@ -26,6 +26,7 @@ export default function BulkEventsModal({ onClose }: { onClose: () => void }) {
   const [target, setTarget] = useState<Target>('office');
   const [selectedEmployeeIds, setSelectedEmployeeIds] = useState<Set<string>>(new Set());
   const [office, setOffice] = useState('');
+  const [department, setDepartment] = useState('');
   const [eventType, setEventType] = useState('Work From Home');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
@@ -56,6 +57,23 @@ export default function BulkEventsModal({ onClose }: { onClose: () => void }) {
   }, []);
 
   const offices = useMemo(() => Array.from(new Set(employees.map((e) => e.office))).sort(), [employees]);
+  const departments = useMemo(
+    () => Array.from(new Set(employees.map((e) => e.department).filter(Boolean))).sort(),
+    [employees]
+  );
+
+  useEffect(() => {
+    if (departments.length > 0 && !department) {
+      setDepartment(departments[0]);
+    }
+  }, [departments, department]);
+
+  useEffect(() => {
+    if (target === 'department' && department) {
+      const deptEmployees = employees.filter((e) => e.department === department);
+      setSelectedEmployeeIds(new Set(deptEmployees.map((e) => e.id)));
+    }
+  }, [target, department, employees]);
 
   function toggleEmployee(id: string) {
     setSelectedEmployeeIds((prev) => {
@@ -83,7 +101,7 @@ export default function BulkEventsModal({ onClose }: { onClose: () => void }) {
       setError('Pick an office.');
       return;
     }
-    if (target === 'employees' && selectedEmployeeIds.size === 0) {
+    if ((target === 'employees' || target === 'department') && selectedEmployeeIds.size === 0) {
       setError('Select at least one employee.');
       return;
     }
@@ -208,12 +226,16 @@ export default function BulkEventsModal({ onClose }: { onClose: () => void }) {
                 Entire office
               </label>
               <label className="flex items-center gap-2 text-sm text-[var(--text-muted)]">
+                <input type="radio" checked={target === 'department'} onChange={() => setTarget('department')} />
+                Department
+              </label>
+              <label className="flex items-center gap-2 text-sm text-[var(--text-muted)]">
                 <input type="radio" checked={target === 'employees'} onChange={() => setTarget('employees')} />
                 Specific employees
               </label>
             </div>
 
-            {target === 'office' ? (
+            {target === 'office' && (
               <select
                 value={office}
                 onChange={(e) => setOffice(e.target.value)}
@@ -224,10 +246,43 @@ export default function BulkEventsModal({ onClose }: { onClose: () => void }) {
                   <option key={o} value={o}>{o}</option>
                 ))}
               </select>
-            ) : (
+            )}
+
+            {target === 'department' && (
+              <div className="space-y-3">
+                <select
+                  value={department}
+                  onChange={(e) => setDepartment(e.target.value)}
+                  className="w-full bg-[var(--bg-elevated)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)]"
+                >
+                  <option value="">Select a department…</option>
+                  {departments.map((d) => (
+                    <option key={d} value={d}>
+                      {d} ({employees.filter((e) => e.department === d).length} employees)
+                    </option>
+                  ))}
+                </select>
+
+                <div className="scroll-thin max-h-40 overflow-y-auto border border-[var(--border)] rounded-lg divide-y divide-[var(--border)]">
+                  {employees
+                    .filter((e) => e.department === department)
+                    .map((e) => (
+                      <label key={e.id} className="flex items-center gap-2 px-3 py-2 text-sm text-[var(--text-muted)] hover:bg-[var(--bg-elevated)]/60 cursor-pointer">
+                        <input type="checkbox" checked={selectedEmployeeIds.has(e.id)} onChange={() => toggleEmployee(e.id)} />
+                        {e.full_name} <span className="text-[var(--text-muted)] text-xs">({e.employee_code} · {e.office})</span>
+                      </label>
+                    ))}
+                  {employees.filter((e) => e.department === department).length === 0 && (
+                    <p className="px-3 py-2 text-[var(--text-muted)] text-xs">No employees in this department.</p>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {target === 'employees' && (
               <div className="scroll-thin max-h-40 overflow-y-auto border border-[var(--border)] rounded-lg divide-y divide-[var(--border)]">
                 {employees.map((e) => (
-                  <label key={e.id} className="flex items-center gap-2 px-3 py-2 text-sm text-[var(--text-muted)] hover:bg-[var(--bg-elevated)]/60">
+                  <label key={e.id} className="flex items-center gap-2 px-3 py-2 text-sm text-[var(--text-muted)] hover:bg-[var(--bg-elevated)]/60 cursor-pointer">
                     <input type="checkbox" checked={selectedEmployeeIds.has(e.id)} onChange={() => toggleEmployee(e.id)} />
                     {e.full_name} <span className="text-[var(--text-muted)] text-xs">({e.employee_code} · {e.department})</span>
                   </label>
