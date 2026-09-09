@@ -11,6 +11,7 @@ import CalendarDayDrawer from '@/components/leave/CalendarDayDrawer';
 import { exportRowsAsCSV } from '@/lib/exportData';
 import AttendanceTableSkeleton from '@/components/leave/AttendanceTableSkeleton';
 import LeavePageHeader from '@/components/leave/LeavePageHeader';
+import BulkMarkAttendanceButton from '@/components/leave/BulkMarkAttendanceButton';
 import type { AbsenteeCandidate, HalfDayCandidate } from '@/lib/attendanceExceptions';
 import { currentMonthKey, mergeCalendarDay, monthBounds } from '@/lib/leaveCalendar';
 import type { CalendarDayEntry } from '@/lib/leaveCalendar';
@@ -346,19 +347,17 @@ export default function LeaveTrackerPage() {
         title="Leave Tracker"
         actions={
           canRecordLeave ? (
-            <div className="text-right">
-              <button
-                type="button"
-                onClick={() => setRecordLeaveOpen(true)}
-                className="bg-[var(--accent)] hover:bg-[var(--accent)]/90 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
-              >
-                + Record Leave
-              </button>
-              {!(view === 'table' && tab === 'history') && (
-                <p className="text-[11px] text-[var(--text-muted)] mt-1 max-w-[220px]">
-                  For any employee. To act on a row already listed below, use that row&apos;s own action instead.
-                </p>
-              )}
+            <div className="flex items-center gap-2">
+              <BulkMarkAttendanceButton />
+              <div className="text-right">
+                <button
+                  type="button"
+                  onClick={() => setRecordLeaveOpen(true)}
+                  className="bg-[var(--accent)] hover:bg-[var(--accent)]/90 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+                >
+                  + Record Leave
+                </button>
+              </div>
             </div>
           ) : undefined
         }
