@@ -154,6 +154,11 @@ export interface EmployeeSummary {
   lwpCount: number;
   halfDayCount: number;
   unmarkedAbsentDays?: number;
+  // Total non-weekend/non-holiday days this employee was scheduled for —
+  // presentDays + absentDays (which already includes all leave types) +
+  // shortDayCount. Used as the Attendance Rate denominator; approved leave
+  // is NOT excluded from it (leave still counts against attendance rate).
+  scheduledDays: number;
 }
 
 export interface OfficeAttendance {

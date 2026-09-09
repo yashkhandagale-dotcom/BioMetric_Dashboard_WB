@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createLeaveServiceClient } from '@/lib/leaveSupabase/server';
 import { getCurrentEmployee } from '@/lib/leaveSupabase/getCurrentEmployee';
 import { getPredefinedHolidays } from '@/lib/predefinedHolidays';
+import { isPunchTimeValid } from '@/lib/parseCSV';
 
 const MONTH_NAMES = ['', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const UPSERT_BATCH_SIZE = 500;
@@ -191,10 +192,24 @@ export async function POST(req: NextRequest) {
       // 5d. Skip existing real biometric punch
       const existing = existingAttendanceMap.get(`${emp.employee_code}__${date}`);
       if (existing && !overwrite_existing_punch) {
-        const hasRealPunch =
-          (existing.punch_count && existing.punch_count > 0) ||
-          (existing.punch_records && existing.punch_records.trim().length > 0) ||
-          (existing.in_time && existing.in_time !== '--' && existing.in_time.trim().length > 0);
+        // Bug fix: this used to also treat `punch_count > 0` and any
+        // non-empty `punch_records` as proof of a "real" punch — but a
+        // genuinely absent day can still have punch_count/punch_records
+        // set to junk/placeholder values by the CSV importer (e.g.
+        // punch_count: 1 with in_time/out_time both null) while carrying
+        // zero actual evidence anyone was there. That falsely "protected"
+        // stale Absent rows from ever being overwritten by this bulk
+        // action, silently no-op'ing the mark-present request for exactly
+        // the days someone most wanted corrected, while still reporting
+        // them as "skipped: existing_punch" with no indication anything
+        // was wrong. The only trustworthy signal that real attendance
+        // exists is a genuinely parseable in/out punch time — the same
+        // isPunchTimeValid() check lib/attendanceExceptions.ts already
+        // uses for this identical class of "punch_count lies" bug (see
+        // its own comment on the isAbsent() branch), so this can never
+        // disagree with what the Absentees/Half-Day tabs already believe
+        // about the same row.
+        const hasRealPunch = isPunchTimeValid(existing.in_time ?? '') || isPunchTimeValid(existing.out_time ?? '');
 
         if (hasRealPunch) {
           skippedExistingPunch++;

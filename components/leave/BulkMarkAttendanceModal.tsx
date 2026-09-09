@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { CheckSquare, Square, Users, Building2, Briefcase, Calendar, Clock, AlertCircle, CheckCircle2, X } from 'lucide-react';
+import { CheckSquare, Square, Users, Building2, Briefcase, Calendar, Clock, AlertCircle, CheckCircle2, X, RefreshCcw } from 'lucide-react';
 import { DATE_INPUT_MIN, DATE_INPUT_MAX, sanitizeDateString } from '@/lib/dateFormat';
 
 type EmployeeOption = {
@@ -48,6 +48,12 @@ export default function BulkMarkAttendanceModal({ onClose }: { onClose: () => vo
   const [status, setStatus] = useState<'Present' | 'Absent'>('Present');
   const [dayType, setDayType] = useState<'full' | 'half'>('full');
   const [halfSession, setHalfSession] = useState<'first_half' | 'second_half'>('first_half');
+  // Off by default so a routine bulk-mark never clobbers real biometric
+  // data — HR has to consciously opt in when they specifically want to
+  // replace whatever's already there (e.g. correcting bad/stale rows,
+  // like an old "Absent" row with a phantom punch_count that would
+  // otherwise silently block this action from ever fixing it).
+  const [overwriteExisting, setOverwriteExisting] = useState(false);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -183,6 +189,7 @@ export default function BulkMarkAttendanceModal({ onClose }: { onClose: () => vo
           status,
           day_type: status === 'Present' ? dayType : undefined,
           half_day_session: status === 'Present' && dayType === 'half' ? halfSession : undefined,
+          overwrite_existing_punch: overwriteExisting,
         }),
       });
 
@@ -268,6 +275,11 @@ export default function BulkMarkAttendanceModal({ onClose }: { onClose: () => vo
                   <div className="text-emerald-200/70">Existing Punches</div>
                 </div>
               </div>
+            )}
+            {!overwriteExisting && result.skipped.existing_punch > 0 && (
+              <p className="text-emerald-200/70 pt-1">
+                {result.skipped.existing_punch} date(s) already had an attendance row and were left untouched. If any of those look wrong (e.g. a stale "Absent" row), re-run with "Overwrite existing records" checked below.
+              </p>
             )}
           </div>
         )}
@@ -592,6 +604,31 @@ export default function BulkMarkAttendanceModal({ onClose }: { onClose: () => vo
                 )}
               </div>
             )}
+
+            {/* Overwrite existing records */}
+            <label
+              className={`flex items-start gap-3 p-3 rounded-xl border cursor-pointer transition-all ${
+                overwriteExisting
+                  ? 'border-amber-500 bg-amber-500/10'
+                  : 'border-[var(--border)] bg-[var(--bg-elevated)] hover:bg-[var(--bg-elevated)]/80'
+              }`}
+            >
+              <input
+                type="checkbox"
+                checked={overwriteExisting}
+                onChange={(e) => setOverwriteExisting(e.target.checked)}
+                className="mt-0.5 text-amber-500 focus:ring-amber-500"
+              />
+              <div className="flex items-start gap-2">
+                <RefreshCcw className="w-3.5 h-3.5 text-amber-500 shrink-0 mt-0.5" />
+                <div>
+                  <div className="text-xs font-semibold text-[var(--text-primary)]">Overwrite existing records</div>
+                  <div className="text-[11px] text-[var(--text-muted)]">
+                    By default, a date that already has an attendance row (biometric or otherwise) is left alone. Check this to replace it — use this when correcting bad or stale data, not for routine marking.
+                  </div>
+                </div>
+              </div>
+            </label>
           </div>
 
           {/* Action buttons */}

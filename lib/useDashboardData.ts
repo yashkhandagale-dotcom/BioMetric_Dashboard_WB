@@ -316,8 +316,11 @@ export function computeEmployeeKPIs(
   const presentDays = presentRecords.length + halfDayCount * 0.5;
 
   const explainedLeave = plannedLeaveCount + casualLeaveCount + sickLeaveCount + (halfDayCount * 0.5);
-  const denom = scheduledDays - explainedLeave;
-  const attendanceRate = denom > 0 ? (presentDays / denom) * 100 : 0;
+  // Attendance rate: full scheduledDays as denominator — approved leave is
+  // NOT excluded, so it counts against attendance rate (matches the
+  // dashboard-wide employeeSummaries calc above). explainedLeave is still
+  // returned separately as approvedLeaveDays for the "On Leave" card.
+  const attendanceRate = scheduledDays > 0 ? (presentDays / scheduledDays) * 100 : 0;
   const absenteeismRate = scheduledDays > 0 ? (absentDays / scheduledDays) * 100 : 0;
 
   // Effective hours: duration - 60min lunch (shared with Charts.tsx / exportData.ts — lib/hoursCalc.ts)
@@ -514,6 +517,7 @@ export function useDashboardData(
           frequentPunchDays: 0,
           records: [],
           plannedLeaveCount: 0, casualLeaveCount: 0, sickLeaveCount: 0, lwpCount: 0, halfDayCount: 0,
+          scheduledDays: 0,
         });
       }
 
@@ -539,29 +543,32 @@ export function useDashboardData(
 
       if (isNonWorkingDay) {
         // not counted as present or absent — skip straight to punch-count check below
-      } else if (isFullDayLeave) {
-        if (effectiveLeaveType === 'planned') emp.plannedLeaveCount++;
-        else if (effectiveLeaveType === 'casual') emp.casualLeaveCount++;
-        else if (effectiveLeaveType === 'sick') emp.sickLeaveCount++;
-        else if (effectiveLeaveType === 'lwp') { emp.lwpCount++; emp.unmarkedAbsentDays = (emp.unmarkedAbsentDays || 0) + 1; }
-        emp.absentDays++; // Employee is on leave for this day
-      } else if (effectiveLeaveType === 'half_day') {
-        emp.halfDayCount++;
-        emp.presentDays += 0.5;
-        emp.absentDays += 0.5; // Half-day on leave
-      } else if (r.isShortDay) {
-        emp.shortDayCount++;
-      } else if (isPresent(r.status)) {
-        emp.presentDays++;
-        if (isMissedPunchOut(r.status)) emp.missedPunchOutCount = (emp.missedPunchOutCount ?? 0) + 1;
-        const mins = durationToMinutes(r.duration);
-        // store effective minutes (subtract lunch) — shared with Charts.tsx / exportData.ts (lib/hoursCalc.ts)
-        emp.totalMinutes += effectiveMinutes(mins) ?? 0;
-        if (getLateMinutes(r, grace, shiftStart) > 0) emp.lateCount++;
-        if (getEarlyMinutes(r, grace, shiftEnd) > 0) emp.earlyExitCount++;
-      } else if (isAbsent(r.status)) {
-        emp.unmarkedAbsentDays = (emp.unmarkedAbsentDays || 0) + 1;
-        emp.absentDays++;
+      } else {
+        emp.scheduledDays++;
+        if (isFullDayLeave) {
+          if (effectiveLeaveType === 'planned') emp.plannedLeaveCount++;
+          else if (effectiveLeaveType === 'casual') emp.casualLeaveCount++;
+          else if (effectiveLeaveType === 'sick') emp.sickLeaveCount++;
+          else if (effectiveLeaveType === 'lwp') { emp.lwpCount++; emp.unmarkedAbsentDays = (emp.unmarkedAbsentDays || 0) + 1; }
+          emp.absentDays++; // Employee is on leave for this day
+        } else if (effectiveLeaveType === 'half_day') {
+          emp.halfDayCount++;
+          emp.presentDays += 0.5;
+          emp.absentDays += 0.5; // Half-day on leave
+        } else if (r.isShortDay) {
+          emp.shortDayCount++;
+        } else if (isPresent(r.status)) {
+          emp.presentDays++;
+          if (isMissedPunchOut(r.status)) emp.missedPunchOutCount = (emp.missedPunchOutCount ?? 0) + 1;
+          const mins = durationToMinutes(r.duration);
+          // store effective minutes (subtract lunch) — shared with Charts.tsx / exportData.ts (lib/hoursCalc.ts)
+          emp.totalMinutes += effectiveMinutes(mins) ?? 0;
+          if (getLateMinutes(r, grace, shiftStart) > 0) emp.lateCount++;
+          if (getEarlyMinutes(r, grace, shiftEnd) > 0) emp.earlyExitCount++;
+        } else if (isAbsent(r.status)) {
+          emp.unmarkedAbsentDays = (emp.unmarkedAbsentDays || 0) + 1;
+          emp.absentDays++;
+        }
       }
 
       if ((r.punchCount ?? 1) >= thresholds.frequentPunchCount) {
@@ -595,11 +602,11 @@ export function useDashboardData(
         ? Math.round(totalEffectiveMinsForAvg / presentRecsWithDuration.length) : 0;
       emp.avgHoursWorked = minutesToHHMM(avgMins);
 
-      // Attendance rate: approved/explained leaves are excused, matching computeEmployeeKPIs.
-      // Only unexcused (unmarked) absences and LWP reduce the attendance rate.
-      const unexcusedDays = (emp.unmarkedAbsentDays || 0) + (emp.lwpCount || 0);
-      const attendanceDenominator = emp.presentDays + unexcusedDays;
-      const rate = attendanceDenominator > 0 ? (emp.presentDays / attendanceDenominator) * 100 : 0;
+      // Attendance rate: full scheduled days as the denominator — approved
+      // leave is NOT excluded (leave counts against attendance rate, per
+      // updated requirement). Only isNonWorkingDay (weekly-off/holiday) is
+      // excluded, which is already reflected in emp.scheduledDays.
+      const rate = emp.scheduledDays > 0 ? (emp.presentDays / emp.scheduledDays) * 100 : 0;
       emp.worstStatus = colorStatus(rate, thresholds.attendanceRateGreen, thresholds.attendanceRateAmber);
 
       const lateMinsArr = presentRecs.map(r => getLateMinutes(r, grace, shiftStart)).filter(m => m > 0);
