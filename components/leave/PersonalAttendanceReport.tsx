@@ -132,7 +132,7 @@ export default function PersonalAttendanceReport() {
               {
                 label: 'Attendance Rate',
                 value: `${kpis.attendanceRate.toFixed(1)}%`,
-                sub: (kpis.approvedLeaveDays ?? 0) > 0 ? 'Approved leaves excused' : 'Full attendance',
+                sub: kpis.scheduledDays > 0 ? `of ${kpis.scheduledDays} scheduled days` : 'No scheduled days',
                 color: 'text-emerald-600 dark:text-emerald-300',
                 bg: 'bg-emerald-500/10 border-emerald-500/20',
               },
