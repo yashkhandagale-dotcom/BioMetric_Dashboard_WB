@@ -22,7 +22,7 @@ coverage/
 .env.development.local
 .env.test.local
 .env.production.local
-.env.*
+.env.* 
 !.env.example
 
 # logs
@@ -43,6 +43,3 @@ Thumbs.db
 
 # certificates
 *.pem
-
-# scratch / temp scripts
-scratch/
