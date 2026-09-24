@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { getFYStartYear } from './fyHelpers';
+import { getLwpDaysForEmployee } from './lwpDayCount';
 
 // F&F (Full & Final) Calculator — pure calc functions, no route logic
 // here. Same reasoning as leavePolicy.ts's header comment: the only
@@ -47,19 +48,64 @@ function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
+/**
+ * Calculates the distinct gross-days window and LWP deduction window for F&F:
+ * - gross_days: (1st of calendar month containing lwd) -> lwd, inclusive
+ * - lwp_window_start: 25th of month before lwd's month
+ * - lwp_window_end: min(24th of lwd's month, lwd)
+ *
+ * Splitting gross-days start and LWP window boundaries into separate variables
+ * eliminates the shared-variable coupling bug where cycleStart previously forced
+ * gross-days onto the partial 25-24 cycle.
+ */
+export function getFnFWindows(lwd: string): {
+  monthStart: string;
+  grossDays: number;
+  lwpWindowStart: string;
+  lwpWindowEnd: string;
+} {
+  const lwdDate = new Date(`${lwd}T00:00:00Z`);
+  const year = lwdDate.getUTCFullYear();
+  const month = lwdDate.getUTCMonth(); // 0-indexed
+
+  // 1st of the calendar month containing last_working_day
+  const monthStartDate = new Date(Date.UTC(year, month, 1));
+  const monthStart = toISODate(monthStartDate);
+  const grossDays = Math.round((lwdDate.getTime() - monthStartDate.getTime()) / 86400000) + 1;
+
+  // LWP window: 25th of the month before lwd's month -> min(24th of lwd's month, lwd)
+  const lwpStartDate = new Date(Date.UTC(year, month - 1, 25));
+  const lwpWindowStart = toISODate(lwpStartDate);
+
+  const cutoff24Date = new Date(Date.UTC(year, month, 24));
+  const cutoff24 = toISODate(cutoff24Date);
+  const lwpWindowEnd = lwd < cutoff24 ? lwd : cutoff24;
+
+  return {
+    monthStart,
+    grossDays,
+    lwpWindowStart,
+    lwpWindowEnd,
+  };
+}
+
 export interface PayableDaysResult {
-  cycleStart: string;
+  monthStart: string;
+  cycleStart: string; // kept as backwards-compatible alias for monthStart
+  lwpWindowStart: string;
+  lwpWindowEnd: string;
   grossDays: number;
   lwpDays: number;
   payableDays: number;
 }
 
 export function computePayableDays(lwd: string, lwpDaysInWindow: number): PayableDaysResult {
-  const cycleStart = cycleStartFor(lwd);
-  const end = new Date(`${lwd}T00:00:00Z`);
-  const grossDays = Math.round((end.getTime() - cycleStart.getTime()) / 86400000) + 1;
+  const { monthStart, grossDays, lwpWindowStart, lwpWindowEnd } = getFnFWindows(lwd);
   return {
-    cycleStart: toISODate(cycleStart),
+    monthStart,
+    cycleStart: monthStart, // preserved as alias for UI / audit backward compatibility
+    lwpWindowStart,
+    lwpWindowEnd,
     grossDays,
     lwpDays: lwpDaysInWindow,
     payableDays: Math.max(grossDays - lwpDaysInWindow, 0),
@@ -137,23 +183,17 @@ export async function calculateFnF(
 
   const leaves = computePayableLeaves(monthsServed, totalAnnualQuota, leaveUsedThisFY);
 
-  // LWP days already recorded inside the final (partial) salary cycle —
-  // net these off the gross cycle length. Auto-LWP conversions write
-  // leave_type_id = LWP's id and status = 'approved' (see
-  // applyLeavePolicyAndMutateBalance.ts lines ~200/552/624), so a plain
-  // leave_types.code = 'LWP' + status = 'approved' filter catches both
-  // manually-requested LWP and policy-engine auto-conversions.
-  const cycleStartISO = toISODate(cycleStartFor(lastWorkingDay));
-  const { data: lwpRows, error: lwpErr } = await supabase
-    .from('leave_requests')
-    .select('total_days, start_date, end_date, leave_types!inner ( code )')
-    .eq('employee_id', employeeId)
-    .eq('leave_types.code', 'LWP')
-    .eq('status', 'approved')
-    .lte('start_date', lastWorkingDay)
-    .gte('end_date', cycleStartISO);
-  if (lwpErr) return { result: null, error: lwpErr.message };
-  const lwpDaysInWindow = (lwpRows ?? []).reduce((sum, r) => sum + Number(r.total_days), 0);
+  // Gross days: 1st of the calendar month containing last_working_day -> last_working_day.
+  // LWP lookup window: 25th of the month before last_working_day's month -> min(24th of last_working_day's month, last_working_day).
+  // Uses getLwpDaysForEmployee so approved and auto_lwp records are counted consistently.
+  const { lwpWindowStart, lwpWindowEnd } = getFnFWindows(lastWorkingDay);
+  const { count: lwpDaysInWindow, error: lwpErr } = await getLwpDaysForEmployee(
+    supabase,
+    employeeId,
+    lwpWindowStart,
+    lwpWindowEnd
+  );
+  if (lwpErr) return { result: null, error: lwpErr };
 
   const days = computePayableDays(lastWorkingDay, lwpDaysInWindow);
 

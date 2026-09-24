@@ -38,7 +38,12 @@ export async function updateSession(request: NextRequest) {
 
   const {
     data: { user },
+    error,
   } = await supabase.auth.getUser();
+
+  if (error && (error.code === 'refresh_token_not_found' || error.message?.includes('Refresh Token Not Found'))) {
+    response.cookies.delete('sb-auth');
+  }
 
   return { response, user, supabase };
 }

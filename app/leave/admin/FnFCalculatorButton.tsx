@@ -12,7 +12,15 @@ type FnFResult = {
   employeeId: string;
   lastWorkingDay: string;
   fyStartYear: number;
-  days: { cycleStart: string; grossDays: number; lwpDays: number; payableDays: number };
+  days: {
+    cycleStart: string;
+    monthStart?: string;
+    lwpWindowStart?: string;
+    lwpWindowEnd?: string;
+    grossDays: number;
+    lwpDays: number;
+    payableDays: number;
+  };
   leaves: {
     monthsServed: number;
     monthlyRate: number;
@@ -93,9 +101,13 @@ export default function FnFCalculatorButton({
 
   function copySummary() {
     if (!result) return;
+    const grossStart = result.days.monthStart ?? result.days.cycleStart;
+    const lwpWindowText = result.days.lwpWindowStart
+      ? ` (LWP window: ${result.days.lwpWindowStart} to ${result.days.lwpWindowEnd})`
+      : '';
     const text = `F&F Calculation — ${employeeName}
 Last Working Day: ${result.lastWorkingDay}
-Payable Days: ${result.days.payableDays}  (cycle ${result.days.cycleStart} to ${result.lastWorkingDay}: ${result.days.grossDays} gross - ${result.days.lwpDays} LWP)
+Payable Days: ${result.days.payableDays}  (period ${grossStart} to ${result.lastWorkingDay}: ${result.days.grossDays} gross - ${result.days.lwpDays} LWP${lwpWindowText})
 Payable Leaves: ${result.leaves.payableLeaves}  (${result.leaves.monthsServed} month(s) served x ${result.leaves.monthlyRate.toFixed(2)}/mo = ${result.leaves.entitlement} entitled - ${result.leaves.leaveUsedThisFY} used)`;
     navigator.clipboard.writeText(text);
     setCopied(true);
@@ -184,11 +196,19 @@ Payable Leaves: ${result.leaves.payableLeaves}  (${result.leaves.monthsServed} m
 
               <div className="text-[11px] text-[var(--text-muted)] space-y-1.5 bg-[var(--bg-surface)] rounded-xl px-3.5 py-3 border border-[var(--border-subtle)]">
                 <div className="flex justify-between gap-2">
-                  <span>Cycle</span>
+                  <span>Gross period</span>
                   <span className="text-[var(--text-primary)] font-medium">
-                    {result.days.cycleStart} → {result.lastWorkingDay}
+                    {result.days.monthStart ?? result.days.cycleStart} → {result.lastWorkingDay}
                   </span>
                 </div>
+                {result.days.lwpWindowStart && (
+                  <div className="flex justify-between gap-2">
+                    <span>LWP window</span>
+                    <span className="text-[var(--text-primary)] font-medium">
+                      {result.days.lwpWindowStart} → {result.days.lwpWindowEnd}
+                    </span>
+                  </div>
+                )}
                 <div className="flex justify-between gap-2">
                   <span>Gross days − LWP</span>
                   <span className="text-[var(--text-primary)] font-medium">

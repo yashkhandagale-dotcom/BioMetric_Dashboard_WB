@@ -22,16 +22,10 @@
 import './globals.css';
 import LeaveThemeInit from '@/components/leave/LeaveThemeInit';
 import ThemeProvider from '@/components/ThemeProvider';
-import Script from 'next/script';
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
-  const _themeInitScript = `(function(){try{var t=localStorage.getItem('theme');if(!t)return;document.documentElement.classList.toggle('dark',t==='dark');document.documentElement.style.colorScheme = t==='dark'? 'dark':'light';}catch(e){}})();`;
-
   return (
     <html lang="en" suppressHydrationWarning>
-      <head>
-        <Script id="theme-init" strategy="beforeInteractive" dangerouslySetInnerHTML={{ __html: _themeInitScript }} />
-      </head>
       <body className="bg-[var(--bg-surface)] min-h-screen">
         <ThemeProvider>
           <LeaveThemeInit />

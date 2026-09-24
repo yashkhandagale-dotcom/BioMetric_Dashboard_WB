@@ -366,3 +366,22 @@ export function exportRowsAsCSV(rows: Record<string, string | number | boolean>[
   a.click();
   URL.revokeObjectURL(url);
 }
+
+/**
+ * Generic Excel (.xlsx) export reusing XLSX.utils.json_to_sheet, autoColWidths,
+ * and HEADER_STYLE consistent with dashboard exports.
+ */
+export function exportRowsAsExcel(
+  rows: Record<string, any>[],
+  filename: string,
+  sheetName: string = 'Payable Days'
+): void {
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.json_to_sheet(rows);
+  applyHeaderStyle(ws);
+  if (rows.length > 0) {
+    autoColWidths(ws, Object.keys(rows[0]));
+  }
+  XLSX.utils.book_append_sheet(wb, ws, sheetName);
+  XLSX.writeFile(wb, filename.endsWith('.xlsx') ? filename : `${filename}.xlsx`);
+}

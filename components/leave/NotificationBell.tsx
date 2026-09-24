@@ -80,10 +80,15 @@ export default function NotificationBell({ collapsed }: { collapsed: boolean }) 
 
   const wrapperRef = useRef<HTMLDivElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
+  const isFetchingRef = useRef(false);
 
   useEffect(() => setMounted(true), []);
 
   const load = useCallback(async () => {
+    // Skip if a fetch is already in-flight — prevents concurrent requests
+    // from piling up when the interval fires before the previous one resolves.
+    if (isFetchingRef.current) return;
+    isFetchingRef.current = true;
     setLoading(true);
     try {
       const res = await fetch('/api/leave/notifications');
@@ -92,6 +97,7 @@ export default function NotificationBell({ collapsed }: { collapsed: boolean }) 
       setItems(body.notifications ?? []);
       setUnreadCount(body.unreadCount ?? 0);
     } finally {
+      isFetchingRef.current = false;
       setLoading(false);
     }
   }, []);

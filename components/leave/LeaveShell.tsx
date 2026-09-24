@@ -22,6 +22,7 @@ import {
   CalendarPlus,
   Home,
   CalendarClock,
+  FileSpreadsheet,
 } from 'lucide-react';
 import LeaveThemeSync from './LeaveThemeSync';
 import NotificationBell from './NotificationBell';
@@ -79,6 +80,7 @@ function navGroups(role: LeaveRole, pendingApprovalsCount: number): NavGroup[] {
       items: [
         { href: '/leave/admin', label: 'Leave Balances', icon: LayoutGrid, exact: true },
         { href: '/leave/admin/history', label: 'Leave Tracker', icon: CalendarDays },
+        { href: '/leave/admin/reports/payable-days', label: 'Payable Days', icon: FileSpreadsheet },
         { href: '/leave/approvals', label: 'Approvals', icon: ClipboardCheck, badge: pendingApprovalsCount },
         { href: '/leave/admin/analytics', label: 'Analytics', icon: BarChart3 },
         { href: '/leave/admin/violations', label: 'Violations', icon: ShieldAlert },

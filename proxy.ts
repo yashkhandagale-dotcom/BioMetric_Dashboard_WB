@@ -32,7 +32,7 @@ import { updateSession } from '@/lib/supabase/middleware';
 //     must never be gated here: doing so previously bounced a logged-out
 //     visitor to '/login' instead of letting them reach the Leave
 //     Tracker's own login, making it unreachable.
-export async function middleware(req: NextRequest) {
+export async function proxy(req: NextRequest) {
   const pathname = req.nextUrl.pathname;
   const isLeaveRoute = pathname.startsWith('/leave') || pathname.startsWith('/api/leave');
 

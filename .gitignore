@@ -43,3 +43,6 @@ Thumbs.db
 
 # certificates
 *.pem
+
+# scratch / temp scripts
+scratch/
