@@ -1,129 +1,30 @@
 'use client';
 
-import React, { Fragment, useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   ChevronLeft,
   ChevronRight,
   Inbox,
-  Layers,
   Search,
   Calendar,
   Clock,
-  AlertCircle,
-  RotateCcw,
   CheckCircle2,
   CalendarRange,
 } from 'lucide-react';
 import ConfirmDialog from '../ConfirmDialog';
-import InfoTooltip from '../InfoTooltip';
 import type { ApplyLeaveInitialValues } from './ApplyLeaveForm';
-import { formatOrdinalDate, formatOrdinalDateRange } from '@/lib/dateFormat';
+import { formatOrdinalDateRange } from '@/lib/dateFormat';
 import { consolidateLeaveRows } from '@/lib/workingDaysCalculator';
+import {
+  LeaveHistoryRow,
+  formatMonthHeader,
+} from './history/leaveHistoryTypes';
+import LeaveCorrectionModal from './history/LeaveCorrectionModal';
+import LeaveHistoryRowItem from './history/LeaveHistoryRowItem';
 
-export type LeaveHistoryRow = {
-  id: string;
-  employeeId: string;
-  employeeName: string;
-  employeeCode: string;
-  department: string;
-  office: string;
-  leaveTypeCode: string;
-  leaveTypeLabel: string;
-  startDate: string;
-  endDate: string;
-  isHalfDay: boolean;
-  halfDaySession: string | null;
-  totalDays: number;
-  status: string;
-  isLwpOverride: boolean;
-  appliedOn: string;
-  recordedBy: string;
-  correctedByName?: string | null;
-  correctionReason?: string | null;
-  consolidatedIds?: string[];
-  isConsolidated?: boolean;
-  constituentCount?: number;
-};
-
-function todayYMD() {
-  return new Date().toISOString().slice(0, 10);
-}
-
-function initials(name: string) {
-  return name
-    .split(' ')
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase())
-    .join('');
-}
-
-const STATUS_STYLE: Record<string, string> = {
-  pending: 'bg-amber-500/15 text-amber-800 dark:text-amber-300 border border-amber-500/25',
-  approved: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/25',
-  auto_lwp: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/25',
-  rejected: 'bg-red-500/15 text-red-700 dark:text-red-300 border border-red-500/25',
-  cancelled: 'bg-[var(--bg-surface)] text-[var(--text-muted)] border border-[var(--border)]',
-};
-
-function statusLabel(status: string): string {
-  if (status === 'auto_lwp') return 'Approved (LWP)';
-  return status.charAt(0).toUpperCase() + status.slice(1);
-}
-
-function leaveTypeBadge(code: string, label: string) {
-  const c = code.toUpperCase();
-  let style = 'bg-sky-500/15 text-sky-700 dark:text-sky-300 border-sky-500/25';
-  if (c === 'SL') style = 'bg-rose-500/15 text-rose-700 dark:text-rose-300 border-rose-500/25';
-  else if (c === 'CL') style = 'bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/25';
-  else if (c === 'PL') style = 'bg-blue-500/15 text-blue-700 dark:text-blue-300 border-blue-500/25';
-  else if (c === 'LWP') style = 'bg-purple-500/15 text-purple-700 dark:text-purple-300 border-purple-500/25';
-
-  return (
-    <span className={`inline-flex items-center gap-1.5 text-xs font-semibold rounded-lg px-2.5 py-1 border shadow-2xs ${style}`}>
-      <span className="font-mono text-[10px] font-bold opacity-85">{code}</span>
-      <span className="text-[var(--text-muted)]">·</span>
-      <span className="truncate max-w-[120px]">{label}</span>
-    </span>
-  );
-}
-
-function formatMonthHeader(monthKey: string) {
-  const [year, month] = monthKey.split('-');
-  const date = new Date(Number(year), Number(month) - 1, 1);
-  return date.toLocaleString('default', { month: 'long', year: 'numeric' });
-}
-
-function Modal({
-  onClose,
-  title,
-  description,
-  children,
-  footer,
-}: {
-  onClose: () => void;
-  title: string;
-  description?: string;
-  children: React.ReactNode;
-  footer: React.ReactNode;
-}) {
-  return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={onClose}>
-      <div
-        className="bg-[var(--bg-surface)] border border-[var(--border)] rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="px-5 py-4 border-b border-[var(--border)]">
-          <h3 className="text-[var(--text-primary)] font-semibold text-sm">{title}</h3>
-          {description && <p className="text-[var(--text-muted)] text-xs mt-1 leading-relaxed">{description}</p>}
-        </div>
-        <div className="px-5 py-4">{children}</div>
-        <div className="px-5 py-4 flex justify-end gap-2 border-t border-[var(--border)]">{footer}</div>
-      </div>
-    </div>
-  );
-}
+// Re-export type for existing consumers
+export type { LeaveHistoryRow };
 
 export default function LeaveHistoryTable({
   rows,
@@ -142,16 +43,7 @@ export default function LeaveHistoryTable({
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [rowError, setRowError] = useState<{ id: string; message: string } | null>(null);
-
-  // Correction & Adjustment state
   const [correctingRow, setCorrectingRow] = useState<LeaveHistoryRow | null>(null);
-  const [correctMode, setCorrectMode] = useState<'adjust' | 'reverse'>('adjust');
-  const [adjustedDays, setAdjustedDays] = useState<number>(0);
-  const [adjustedStartDate, setAdjustedStartDate] = useState<string>('');
-  const [adjustedEndDate, setAdjustedEndDate] = useState<string>('');
-  const [firstDayHalfDay, setFirstDayHalfDay] = useState<boolean>(false);
-  const [halfDaySession, setHalfDaySession] = useState<'AM' | 'PM'>('AM');
-  const [correctionReason, setCorrectionReason] = useState('');
 
   const [searchQuery, setSearchQuery] = useState('');
   const [groupByMonth, setGroupByMonth] = useState(false);
@@ -161,8 +53,6 @@ export default function LeaveHistoryTable({
   const displayRows = useMemo(() => consolidateLeaveRows(rows), [rows]);
 
   // Check if every row in the dataset belongs to the same employee.
-  // In single-employee views (e.g. /leave/me or single-person filter),
-  // hiding the employee column prevents 100% redundant repetition.
   const isSingleEmployee = useMemo(() => {
     if (displayRows.length === 0) return true;
     const firstId = displayRows[0].employeeId;
@@ -241,82 +131,6 @@ export default function LeaveHistoryTable({
     } finally {
       setBusyId(null);
       setConfirmingId(null);
-    }
-  }
-
-  function openCorrectModal(row: LeaveHistoryRow) {
-    setCorrectingRow(row);
-    setCorrectMode('adjust');
-    setAdjustedDays(row.totalDays);
-    setAdjustedStartDate(row.startDate);
-    setAdjustedEndDate(row.endDate);
-    setFirstDayHalfDay(row.isHalfDay);
-    setHalfDaySession((row.halfDaySession as 'AM' | 'PM') || 'AM');
-    setCorrectionReason('');
-    setRowError(null);
-  }
-
-  function applyFirstDayHalfDayShortcut() {
-    if (!correctingRow) return;
-    const newDays = Math.max(0.5, Number((correctingRow.totalDays - 0.5).toFixed(1)));
-    setAdjustedDays(newDays);
-    setFirstDayHalfDay(true);
-    if (!correctionReason.trim()) {
-      setCorrectionReason('First day was a half day, employee attended in the afternoon.');
-    }
-  }
-
-  function applyLastDayHalfDayShortcut() {
-    if (!correctingRow) return;
-    const newDays = Math.max(0.5, Number((correctingRow.totalDays - 0.5).toFixed(1)));
-    setAdjustedDays(newDays);
-    if (!correctionReason.trim()) {
-      setCorrectionReason('Last day was a half day, employee left early.');
-    }
-  }
-
-  async function handleConfirmCorrect() {
-    if (!correctingRow) return;
-    if (!correctionReason.trim()) {
-      setRowError({ id: correctingRow.id, message: 'A reason is required to submit a correction.' });
-      return;
-    }
-    if (correctMode === 'adjust' && (adjustedDays <= 0 || (adjustedDays * 2) % 1 !== 0)) {
-      setRowError({
-        id: correctingRow.id,
-        message: 'Total days must be in increments of 0.5 (e.g. 0.5, 1.0, 3.5).',
-      });
-      return;
-    }
-
-    setBusyId(correctingRow.id);
-    setRowError(null);
-    try {
-      const res = await fetch(`/api/leave/requests/${correctingRow.id}/correct`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: correctMode,
-          reason: correctionReason.trim(),
-          newTotalDays: correctMode === 'adjust' ? adjustedDays : 0,
-          newStartDate: adjustedStartDate,
-          newEndDate: adjustedEndDate,
-          firstDayHalfDay,
-          firstDaySession: halfDaySession,
-        }),
-      });
-      const text = await res.text();
-      const body = text ? JSON.parse(text) : {};
-      if (!res.ok) {
-        setRowError({ id: correctingRow.id, message: body.error || 'Could not correct this request.' });
-        return;
-      }
-      setCorrectingRow(null);
-      refresh();
-    } catch {
-      setRowError({ id: correctingRow.id, message: 'Could not reach the server — check your connection and retry.' });
-    } finally {
-      setBusyId(null);
     }
   }
 
@@ -477,11 +291,41 @@ export default function LeaveHistoryTable({
                         </tr>
 
                         {/* Rows within Month */}
-                        {g.rows.map((r) => renderRow(r))}
+                        {g.rows.map((r) => (
+                          <LeaveHistoryRowItem
+                            key={r.id}
+                            row={r}
+                            isSingleEmployee={isSingleEmployee}
+                            hasActionsColumn={hasActionsColumn}
+                            showActions={showActions}
+                            allowHrCancel={allowHrCancel}
+                            hrCorrection={hrCorrection}
+                            busyId={busyId}
+                            rowError={rowError}
+                            onCancel={setConfirmingId}
+                            onReapply={handleReapply}
+                            onCorrect={setCorrectingRow}
+                          />
+                        ))}
                       </React.Fragment>
                     ))
                   ) : (
-                    pagedRows.map((r) => renderRow(r))
+                    pagedRows.map((r) => (
+                      <LeaveHistoryRowItem
+                        key={r.id}
+                        row={r}
+                        isSingleEmployee={isSingleEmployee}
+                        hasActionsColumn={hasActionsColumn}
+                        showActions={showActions}
+                        allowHrCancel={allowHrCancel}
+                        hrCorrection={hrCorrection}
+                        busyId={busyId}
+                        rowError={rowError}
+                        onCancel={setConfirmingId}
+                        onReapply={handleReapply}
+                        onCorrect={setCorrectingRow}
+                      />
+                    ))
                   )}
                 </tbody>
               </table>
@@ -559,407 +403,15 @@ export default function LeaveHistoryTable({
 
       {/* HR "Correct / Reverse" Modal */}
       {correctingRow && (
-        <Modal
-          onClose={() => {
+        <LeaveCorrectionModal
+          correctingRow={correctingRow}
+          onClose={() => setCorrectingRow(null)}
+          onSuccess={() => {
             setCorrectingRow(null);
-            setCorrectionReason('');
+            refresh();
           }}
-          title="Correct or Reverse Leave Record"
-          description={`Adjust leave days or reverse record for ${correctingRow.employeeName} (${correctingRow.employeeCode}).`}
-          footer={
-            <>
-              <button
-                type="button"
-                onClick={() => {
-                  setCorrectingRow(null);
-                  setCorrectionReason('');
-                }}
-                className="px-4 py-2 rounded-xl text-xs font-semibold text-[var(--text-muted)] bg-[var(--bg-elevated)] hover:bg-[var(--bg-elevated)]/80 transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleConfirmCorrect}
-                disabled={busyId === correctingRow.id || !correctionReason.trim()}
-                className={`px-4 py-2 rounded-xl text-xs font-bold text-white transition-colors shadow-2xs ${
-                  correctMode === 'reverse'
-                    ? 'bg-red-600 hover:bg-red-500 disabled:opacity-50'
-                    : 'bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50'
-                }`}
-              >
-                {busyId === correctingRow.id
-                  ? 'Saving…'
-                  : correctMode === 'reverse'
-                  ? 'Confirm Full Reversal'
-                  : 'Save Correction'}
-              </button>
-            </>
-          }
-        >
-          <div className="space-y-4">
-            {/* Record Overview */}
-            <div className="bg-[var(--bg-elevated)]/60 border border-[var(--border)] rounded-xl p-3 text-xs space-y-1">
-              <div className="flex items-center justify-between">
-                <span className="font-bold text-[var(--text-primary)]">{correctingRow.employeeName}</span>
-                <span className="font-semibold text-[var(--accent)]">{correctingRow.leaveTypeLabel}</span>
-              </div>
-              <p className="text-[var(--text-muted)]">
-                Current:{' '}
-                <span className="font-semibold text-[var(--text-primary)]">
-                  {formatOrdinalDateRange(
-                    correctingRow.startDate,
-                    correctingRow.endDate,
-                    correctingRow.isHalfDay,
-                    correctingRow.totalDays
-                  )}
-                </span>{' '}
-                · <span className="font-bold">{correctingRow.totalDays.toFixed(1)} days</span>
-              </p>
-            </div>
-
-            {/* Mode Switcher */}
-            <div className="grid grid-cols-2 gap-1 bg-[var(--bg-elevated)] p-1 rounded-xl border border-[var(--border)]">
-              <button
-                type="button"
-                onClick={() => setCorrectMode('adjust')}
-                className={`py-1.5 text-xs font-bold rounded-lg transition-colors ${
-                  correctMode === 'adjust'
-                    ? 'bg-[var(--bg-surface)] text-[var(--text-primary)] shadow-2xs'
-                    : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'
-                }`}
-              >
-                ✏️ Adjust Leave Days
-              </button>
-              <button
-                type="button"
-                onClick={() => setCorrectMode('reverse')}
-                className={`py-1.5 text-xs font-bold rounded-lg transition-colors ${
-                  correctMode === 'reverse'
-                    ? 'bg-red-500/15 text-red-700 dark:text-red-300 border border-red-500/25 shadow-2xs'
-                    : 'text-[var(--text-muted)] hover:text-red-600'
-                }`}
-              >
-                🔄 Full Reverse (0 days)
-              </button>
-            </div>
-
-            {correctMode === 'adjust' ? (
-              <div className="space-y-3.5">
-                {/* Quick Shortcuts */}
-                {correctingRow.totalDays > 0.5 && (
-                  <div className="space-y-1.5">
-                    <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
-                      Quick Half-Day Adjustments
-                    </label>
-                    <div className="flex gap-2 flex-wrap">
-                      <button
-                        type="button"
-                        onClick={applyFirstDayHalfDayShortcut}
-                        className="inline-flex items-center gap-1 text-xs font-medium rounded-lg px-2.5 py-1 bg-sky-500/10 hover:bg-sky-500/20 text-sky-700 dark:text-sky-300 border border-sky-500/20 transition-colors"
-                      >
-                        ⚡ First day is half-day (-0.5 day)
-                      </button>
-                      <button
-                        type="button"
-                        onClick={applyLastDayHalfDayShortcut}
-                        className="inline-flex items-center gap-1 text-xs font-medium rounded-lg px-2.5 py-1 bg-sky-500/10 hover:bg-sky-500/20 text-sky-700 dark:text-sky-300 border border-sky-500/20 transition-colors"
-                      >
-                        ⚡ Last day is half-day (-0.5 day)
-                      </button>
-                    </div>
-                  </div>
-                )}
-
-                {/* Adjusted Days Field */}
-                <div>
-                  <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">
-                    Adjusted Total Working Days
-                  </label>
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setAdjustedDays((d) => Math.max(0.5, Number((d - 0.5).toFixed(1))))}
-                      className="h-8 w-8 flex items-center justify-center rounded-lg border border-[var(--border)] text-sm font-bold text-[var(--text-primary)] hover:bg-[var(--bg-elevated)]"
-                    >
-                      −
-                    </button>
-                    <input
-                      type="number"
-                      step="0.5"
-                      min="0.5"
-                      value={adjustedDays}
-                      onChange={(e) => setAdjustedDays(Number(e.target.value))}
-                      className="w-24 text-center font-bold text-sm bg-[var(--bg-surface)] border border-[var(--border)] rounded-xl py-1.5 text-[var(--text-primary)] outline-none focus:ring-2 focus:ring-[var(--accent)]/30 focus:border-[var(--accent)]"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setAdjustedDays((d) => Number((d + 0.5).toFixed(1)))}
-                      className="h-8 w-8 flex items-center justify-center rounded-lg border border-[var(--border)] text-sm font-bold text-[var(--text-primary)] hover:bg-[var(--bg-elevated)]"
-                    >
-                      +
-                    </button>
-                    <span className="text-xs text-[var(--text-muted)] font-medium">days</span>
-                  </div>
-                </div>
-
-                {/* Live Balance Impact Preview */}
-                {(() => {
-                  const delta = Number((correctingRow.totalDays - adjustedDays).toFixed(1));
-                  if (delta > 0) {
-                    return (
-                      <div className="flex items-start gap-2 p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-700 dark:text-emerald-300 text-xs">
-                        <CheckCircle2 className="h-4 w-4 shrink-0 mt-0.5" />
-                        <div>
-                          <p className="font-semibold">Balance Refund: +{delta} day(s)</p>
-                          <p className="text-[11px] opacity-85 mt-0.5">
-                            {delta} day(s) will be credited back to {correctingRow.employeeName}&apos;s{' '}
-                            {correctingRow.leaveTypeCode} balance.
-                          </p>
-                        </div>
-                      </div>
-                    );
-                  }
-                  if (delta < 0) {
-                    return (
-                      <div className="flex items-start gap-2 p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-700 dark:text-amber-300 text-xs">
-                        <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
-                        <div>
-                          <p className="font-semibold">Additional Deduction: {Math.abs(delta)} day(s)</p>
-                          <p className="text-[11px] opacity-85 mt-0.5">
-                            {Math.abs(delta)} extra day(s) will be debited from {correctingRow.employeeName}&apos;s
-                            balance.
-                          </p>
-                        </div>
-                      </div>
-                    );
-                  }
-                  return (
-                    <p className="text-[11px] text-[var(--text-muted)] italic">
-                      No change in total days ({adjustedDays} days).
-                    </p>
-                  );
-                })()}
-
-                {/* Session selection if single half-day */}
-                {adjustedDays === 0.5 && (
-                  <div>
-                    <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">
-                      Half-Day Session
-                    </label>
-                    <div className="flex gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setHalfDaySession('AM')}
-                        className={`flex-1 py-1.5 text-xs font-semibold rounded-lg border transition-colors ${
-                          halfDaySession === 'AM'
-                            ? 'bg-[var(--accent)] text-white border-[var(--accent)]'
-                            : 'border-[var(--border)] text-[var(--text-muted)]'
-                        }`}
-                      >
-                        First Half (AM)
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setHalfDaySession('PM')}
-                        className={`flex-1 py-1.5 text-xs font-semibold rounded-lg border transition-colors ${
-                          halfDaySession === 'PM'
-                            ? 'bg-[var(--accent)] text-white border-[var(--accent)]'
-                            : 'border-[var(--border)] text-[var(--text-muted)]'
-                        }`}
-                      >
-                        Second Half (PM)
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/20 text-red-700 dark:text-red-300 text-xs space-y-1">
-                <p className="font-bold">Full Reversal Warning</p>
-                <p className="text-[11px] leading-relaxed">
-                  This will cancel the entire leave request and credit {correctingRow.totalDays.toFixed(1)} day(s)
-                  back to {correctingRow.employeeName}&apos;s balance.
-                </p>
-              </div>
-            )}
-
-            {/* Mandatory Reason Field */}
-            <div>
-              <label className="block text-xs font-medium text-[var(--text-muted)] mb-1">
-                Reason for correction <span className="text-red-500">*</span>
-              </label>
-              <textarea
-                value={correctionReason}
-                onChange={(e) => setCorrectionReason(e.target.value)}
-                rows={2}
-                placeholder={
-                  correctMode === 'adjust'
-                    ? "e.g. 'First day was a half day, employee attended in the afternoon.'"
-                    : "e.g. 'Employee actually attended that day — marked in error.'"
-                }
-                className="w-full bg-[var(--bg-surface)] border border-[var(--border)] rounded-xl px-3 py-2 text-xs text-[var(--text-primary)] placeholder:text-[var(--text-muted)] outline-none focus:ring-2 focus:ring-[var(--accent)]/30 focus:border-[var(--accent)]"
-              />
-            </div>
-
-            {rowError?.id === correctingRow.id && (
-              <p className="text-red-500 text-xs font-medium">{rowError.message}</p>
-            )}
-          </div>
-        </Modal>
+        />
       )}
     </div>
   );
-
-  function renderRow(r: LeaveHistoryRow) {
-    const alreadyStarted = r.status !== 'pending' && r.startDate <= todayYMD();
-    const showCancel =
-      (showActions || allowHrCancel) &&
-      (r.status === 'pending' || r.status === 'approved' || r.status === 'auto_lwp');
-    const showReapply = showActions && r.status === 'rejected';
-    const showCorrect = hrCorrection && (r.status === 'approved' || r.status === 'auto_lwp');
-
-    return (
-      <tr
-        key={r.id}
-        className="hover:bg-[var(--bg-surface)]/60 transition-colors group"
-      >
-        {/* Date Range & Duration */}
-        <td className="py-3 px-4 align-top">
-          <div className="space-y-1">
-            <p className="font-semibold text-[var(--text-primary)] text-xs">
-              {formatOrdinalDateRange(r.startDate, r.endDate, r.isHalfDay, r.totalDays)}
-            </p>
-            <div className="flex items-center gap-1.5 flex-wrap">
-              <span className="font-bold text-[var(--accent)] text-xs tabular-nums">
-                {r.totalDays.toFixed(1)} {r.totalDays === 1 ? 'day' : 'days'}
-              </span>
-              {r.isConsolidated && (
-                <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-emerald-700 dark:text-emerald-400 bg-emerald-500/15 border border-emerald-500/20 rounded-md px-1.5 py-0.2">
-                  <Layers size={10} /> Continuous ({r.constituentCount ?? 2} spans)
-                </span>
-              )}
-            </div>
-          </div>
-        </td>
-
-        {/* Employee Column (Only rendered when there are multiple employees) */}
-        {!isSingleEmployee && (
-          <td className="py-3 px-4 align-top">
-            <div className="flex items-center gap-2.5">
-              <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-[var(--accent)]/15 text-[var(--accent)] text-[10px] font-bold">
-                {initials(r.employeeName)}
-              </div>
-              <div className="min-w-0">
-                <p className="font-semibold text-[var(--text-primary)] text-xs truncate max-w-[150px]">
-                  {r.employeeName}
-                </p>
-                <p className="text-[10px] text-[var(--text-muted)] truncate mt-0.5">
-                  {r.employeeCode} · <span className="font-medium text-[var(--text-primary)]">{r.department}</span>
-                </p>
-              </div>
-            </div>
-          </td>
-        )}
-
-        {/* Leave Type */}
-        <td className="py-3 px-4 align-top">
-          {leaveTypeBadge(r.leaveTypeCode, r.leaveTypeLabel)}
-        </td>
-
-        {/* Details & Attributes */}
-        <td className="py-3 px-4 align-top">
-          <div className="space-y-1">
-            <div className="flex items-center gap-1 flex-wrap">
-              {r.isHalfDay && (
-                <span className="inline-flex items-center text-[10px] font-semibold text-amber-700 dark:text-amber-300 bg-amber-500/15 border border-amber-500/25 rounded px-1.5 py-0.5">
-                  Half Day ({r.halfDaySession ?? 'Session'})
-                </span>
-              )}
-
-              {r.isLwpOverride && (
-                <span className="inline-flex items-center text-[10px] font-semibold text-purple-700 dark:text-purple-300 bg-purple-500/15 border border-purple-500/25 rounded px-1.5 py-0.5">
-                  LWP Override
-                </span>
-              )}
-
-              {!r.isHalfDay && !r.isLwpOverride && (
-                <span className="text-[11px] text-[var(--text-muted)]">Standard full day</span>
-              )}
-            </div>
-
-            <p className="text-[10px] text-[var(--text-muted)]">
-              Applied {formatOrdinalDate(r.appliedOn)} · {r.recordedBy}
-            </p>
-          </div>
-        </td>
-
-        {/* Status */}
-        <td className="py-3 px-4 align-top">
-          <div className="flex items-center gap-1.5">
-            <span
-              className={`text-[11px] font-bold rounded-full px-2.5 py-0.5 whitespace-nowrap ${
-                STATUS_STYLE[r.status] ?? 'bg-[var(--text-muted)]/15 text-[var(--text-muted)]'
-              }`}
-            >
-              {r.status === 'cancelled' && r.correctedByName ? 'Reversed by HR' : statusLabel(r.status)}
-            </span>
-
-            {r.status === 'cancelled' && r.correctedByName && (
-              <InfoTooltip
-                title="Reversed by HR"
-                description={`${r.correctedByName} reversed this record.${
-                  r.correctionReason ? ` Reason: ${r.correctionReason}` : ''
-                }`}
-              />
-            )}
-          </div>
-        </td>
-
-        {/* Actions */}
-        {hasActionsColumn && (
-          <td className="py-3 px-4 align-top text-right">
-            <div className="flex items-center justify-end gap-1.5 flex-wrap">
-              {showCancel && (
-                <button
-                  type="button"
-                  disabled={busyId === r.id || alreadyStarted}
-                  title={alreadyStarted ? 'This leave has already started — it can no longer be cancelled.' : undefined}
-                  onClick={() => setConfirmingId(r.id)}
-                  className="px-2.5 py-1 rounded-lg text-xs font-semibold text-red-600 dark:text-red-400 bg-red-500/10 hover:bg-red-500/20 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                >
-                  {r.status === 'pending' ? 'Withdraw' : 'Cancel'}
-                </button>
-              )}
-
-              {showReapply && (
-                <button
-                  type="button"
-                  onClick={() => handleReapply(r)}
-                  className="px-2.5 py-1 rounded-lg text-xs font-semibold text-[var(--accent)] bg-[var(--accent)]/10 hover:bg-[var(--accent)]/20 transition-colors"
-                >
-                  Reapply
-                </button>
-              )}
-
-              {showCorrect && (
-                <button
-                  type="button"
-                  disabled={busyId === r.id}
-                  onClick={() => openCorrectModal(r)}
-                  className="px-2.5 py-1 rounded-lg text-xs font-semibold text-amber-600 dark:text-amber-400 bg-amber-500/10 hover:bg-amber-500/20 disabled:opacity-40 transition-colors"
-                >
-                  Correct / Reverse
-                </button>
-              )}
-            </div>
-
-            {rowError?.id === r.id && (
-              <p className="text-red-500 text-[10px] mt-1 text-right font-medium">{rowError.message}</p>
-            )}
-          </td>
-        )}
-      </tr>
-    );
-  }
 }
