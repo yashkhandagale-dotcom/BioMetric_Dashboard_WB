@@ -104,8 +104,23 @@ export default function NotificationBell({ collapsed }: { collapsed: boolean }) 
 
   useEffect(() => {
     load();
-    const id = setInterval(load, 45000);
-    return () => clearInterval(id);
+    const id = setInterval(() => {
+      // Skip the tick if the tab is not visible — avoids wasted network
+      // round-trips while the user is on another browser tab.
+      if (document.visibilityState === 'visible') load();
+    }, 45000);
+
+    // When the user switches back to this tab, re-fetch immediately so they
+    // see fresh notifications without waiting up to 45 s.
+    function onVisible() {
+      if (document.visibilityState === 'visible') load();
+    }
+    document.addEventListener('visibilitychange', onVisible);
+
+    return () => {
+      clearInterval(id);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
   }, [load]);
 
   useEffect(() => {
