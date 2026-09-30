@@ -1,5 +1,7 @@
 'use client';
 
+import React from 'react';
+
 import { useEffect, useState } from 'react';
 import {
   BarChart,
@@ -397,7 +399,7 @@ export default function BridgeSection({ filters }: { filters: AnalyticsFilterSta
                   const ratioText = `${emp.attachedRatioVsBaseline}x`;
 
                   return (
-                    <tbody key={emp.employeeId} className="group">
+                    <React.Fragment key={emp.employeeId}>
                       <tr
                         onClick={() => setExpandedEmpId(isExpanded ? null : emp.employeeId)}
                         className={`cursor-pointer hover:bg-[var(--bg-elevated)]/60 transition-colors ${
@@ -503,7 +505,7 @@ export default function BridgeSection({ filters }: { filters: AnalyticsFilterSta
                           </td>
                         </tr>
                       )}
-                    </tbody>
+                    </React.Fragment>
                   );
                 })
               )}
