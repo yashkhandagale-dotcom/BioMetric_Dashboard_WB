@@ -153,7 +153,7 @@ export default function PayableDaysReportPage() {
     }
   }
 
-  function handleExportExcel() {
+  async function handleExportExcel() {
     if (!reportData || filteredEmployees.length === 0) return;
     const exportRows = filteredEmployees.map((emp) => ({
       'Employee Code': emp.employeeCode,
@@ -167,7 +167,7 @@ export default function PayableDaysReportPage() {
       'Notes': emp.notes || '',
     }));
     const filename = `Payable_Days_${reportData.year}_${String(reportData.month).padStart(2, '0')}_${reportData.monthLabel.replace(/\s+/g, '_')}.xlsx`;
-    exportRowsAsExcel(exportRows, filename, `Payable Days ${reportData.monthLabel}`);
+    await exportRowsAsExcel(exportRows, filename, `Payable Days ${reportData.monthLabel}`);
   }
 
   function handleExportCSV() {

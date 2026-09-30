@@ -2,6 +2,7 @@
 import { useState, useEffect, useCallback, useMemo, Suspense } from 'react';
 import { createPortal } from 'react-dom';
 import { useRouter, useSearchParams } from 'next/navigation';
+import dynamic from 'next/dynamic';
 import { CheckCircle, ShieldX, Calendar, X as XIcon } from 'lucide-react';
 import { AttendanceRecord, ColumnMapping, EmployeeSummary, UploadedMonth, Holiday, Thresholds, LeaveRecord } from '@/lib/types';
 import {
@@ -24,23 +25,32 @@ import ImportPreviewModal from '@/components/ImportPreviewModal';
 import OfficeCodePrompt from '@/components/OfficeCodePrompt';
 import KPICards from '@/components/KPICards';
 import OnLeaveTodayCard from '@/components/OnLeaveTodayCard';
-
 import EmployeeTable from '@/components/EmployeeTable';
-import {
-  DailyTrendChart, DeptAttendanceChart, HoursDistributionChart,
-  DeptProductivityChart, ComparisonTrendChart,
-  DayDeptAttendanceChart, DayDeptLateChart, DayDeptProductivityChart,
-  OfficeAttendanceChart, AttendanceHeatmap
-} from '@/components/Charts';
-import ExportPanel from '@/components/ExportPanel';
-import EmployeePanel from '@/components/EmployeePanel';
-import EmployeeComparisonPanel from '@/components/EmployeeComparisonPanel';
-import TeamComparisonPanel from '@/components/TeamComparisonPanel';
-import HolidayModal from '@/components/HolidayModal';
 import InsightsStrip from '@/components/InsightsStrip';
-import SettingsPanel from '@/components/SettingsPanel';
 import DashboardShell, { type DashboardSectionId } from '@/components/dashboard/DashboardShell';
 import DashboardSkeleton from '@/components/dashboard/DashboardSkeleton';
+
+// ── Lazily-loaded heavy components (Phase 4 perf) ──────────────────────────
+// None of these are needed for the initial paint; deferring them shrinks the
+// JS shipped on first load and eliminates parsing/eval work during tab switches.
+const ExportPanel = dynamic(() => import('@/components/ExportPanel'), { ssr: false });
+const EmployeePanel = dynamic(() => import('@/components/EmployeePanel'), { ssr: false });
+const EmployeeComparisonPanel = dynamic(() => import('@/components/EmployeeComparisonPanel'), { ssr: false });
+const TeamComparisonPanel = dynamic(() => import('@/components/TeamComparisonPanel'), { ssr: false });
+const SettingsPanel = dynamic(() => import('@/components/SettingsPanel'), { ssr: false });
+const HolidayModal = dynamic(() => import('@/components/HolidayModal'), { ssr: false });
+
+// Chart components — recharts is ~120 kB gz; lazy-load the whole bundle
+const DailyTrendChart = dynamic(() => import('@/components/Charts').then(m => ({ default: m.DailyTrendChart })), { ssr: false });
+const DeptAttendanceChart = dynamic(() => import('@/components/Charts').then(m => ({ default: m.DeptAttendanceChart })), { ssr: false });
+const HoursDistributionChart = dynamic(() => import('@/components/Charts').then(m => ({ default: m.HoursDistributionChart })), { ssr: false });
+const DeptProductivityChart = dynamic(() => import('@/components/Charts').then(m => ({ default: m.DeptProductivityChart })), { ssr: false });
+const ComparisonTrendChart = dynamic(() => import('@/components/Charts').then(m => ({ default: m.ComparisonTrendChart })), { ssr: false });
+const DayDeptAttendanceChart = dynamic(() => import('@/components/Charts').then(m => ({ default: m.DayDeptAttendanceChart })), { ssr: false });
+const DayDeptLateChart = dynamic(() => import('@/components/Charts').then(m => ({ default: m.DayDeptLateChart })), { ssr: false });
+const DayDeptProductivityChart = dynamic(() => import('@/components/Charts').then(m => ({ default: m.DayDeptProductivityChart })), { ssr: false });
+const OfficeAttendanceChart = dynamic(() => import('@/components/Charts').then(m => ({ default: m.OfficeAttendanceChart })), { ssr: false });
+const AttendanceHeatmap = dynamic(() => import('@/components/Charts').then(m => ({ default: m.AttendanceHeatmap })), { ssr: false });
 
 // 'loading' is the initial render only — it exists so a login/refresh
 // never flashes the upload screen while we're still checking whether

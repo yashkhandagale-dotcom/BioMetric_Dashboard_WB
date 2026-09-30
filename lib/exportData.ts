@@ -1,4 +1,3 @@
-import * as XLSX from 'xlsx';
 import Papa from 'papaparse';
 import { AttendanceRecord, EmployeeSummary, LeaveRecord, LeaveType, Thresholds } from './types';
 import { durationToMinutes, minutesToHHMM } from './parseCSV';
@@ -49,15 +48,7 @@ const HEADER_STYLE = {
   alignment: { horizontal: 'center' as const },
 };
 
-function applyHeaderStyle(ws: XLSX.WorkSheet) {
-  const range = XLSX.utils.decode_range(ws['!ref'] || 'A1');
-  for (let C = range.s.c; C <= range.e.c; C++) {
-    const addr = XLSX.utils.encode_cell({ r: 0, c: C });
-    if (ws[addr]) ws[addr].s = HEADER_STYLE;
-  }
-}
-
-function autoColWidths(ws: XLSX.WorkSheet, keys: string[]) {
+function autoColWidths(ws: any, keys: string[]) {
   ws['!cols'] = keys.map(k => ({ wch: Math.max(k.length + 2, 14) }));
 }
 
@@ -72,13 +63,21 @@ function colorStatus(rate: number): string {
   return 'Red';
 }
 
-export function exportExcel(
+export async function exportExcel(
   records: AttendanceRecord[],
   summaries: EmployeeSummary[],
   label: string,
   leaveRecords: LeaveRecord[] = [],
   thresholds: Thresholds = DEFAULT_THRESHOLDS
-): void {
+): Promise<void> {
+  const XLSX = await import('xlsx');
+  const applyHeaderStyle = (ws: any) => {
+    const range = XLSX.utils.decode_range(ws['!ref'] || 'A1');
+    for (let C = range.s.c; C <= range.e.c; C++) {
+      const addr = XLSX.utils.encode_cell({ r: 0, c: C });
+      if (ws[addr]) ws[addr].s = HEADER_STYLE;
+    }
+  };
   const leaveLookup = buildLeaveLookup(leaveRecords);
   const wb = XLSX.utils.book_new();
   const workRecords = records.filter(r => !isWeeklyOff(r.status));
@@ -371,14 +370,22 @@ export function exportRowsAsCSV(rows: Record<string, string | number | boolean>[
  * Generic Excel (.xlsx) export reusing XLSX.utils.json_to_sheet, autoColWidths,
  * and HEADER_STYLE consistent with dashboard exports.
  */
-export function exportRowsAsExcel(
+export async function exportRowsAsExcel(
   rows: Record<string, any>[],
   filename: string,
   sheetName: string = 'Payable Days'
-): void {
+): Promise<void> {
+  const XLSX = await import('xlsx');
+  const applyHdrStyle = (ws: any) => {
+    const range = XLSX.utils.decode_range(ws['!ref'] || 'A1');
+    for (let C = range.s.c; C <= range.e.c; C++) {
+      const addr = XLSX.utils.encode_cell({ r: 0, c: C });
+      if (ws[addr]) ws[addr].s = HEADER_STYLE;
+    }
+  };
   const wb = XLSX.utils.book_new();
   const ws = XLSX.utils.json_to_sheet(rows);
-  applyHeaderStyle(ws);
+  applyHdrStyle(ws);
   if (rows.length > 0) {
     autoColWidths(ws, Object.keys(rows[0]));
   }
