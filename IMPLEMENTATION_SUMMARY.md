@@ -8,9 +8,9 @@ Your BioMetric Dashboard now has a complete **New Joiner Management System** wit
 
 ### ✅ Admin Panel (NewJoinersPanel)
 - **Pending Signups Queue**: Shows all pending new joiners
-- **Two Actions Per Joiner**:
+- **Two Actions Per    **:
   - 🟢 **Acknowledge** - Opens form to create employee record
-  - 🔴 **Reject** - Opens modal to reject with optional reason
+   - 🔴 **Reject** - Opens modal to reject with optional reason
 
 ### 📝 Rejection Modal
 - Text area for rejection reason (max 500 chars)

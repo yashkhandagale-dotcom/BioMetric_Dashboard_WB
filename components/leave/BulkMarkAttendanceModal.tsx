@@ -12,6 +12,7 @@ type EmployeeOption = {
   office: string;
 };
 
+
 type Target = 'office' | 'department' | 'employees';
 
 interface SkippedStats {
