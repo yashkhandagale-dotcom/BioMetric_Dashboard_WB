@@ -1,5 +1,7 @@
 'use client';
 
+import React from 'react';
+
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import {
@@ -206,7 +208,7 @@ export default function AttentionSection({ filters }: { filters: AnalyticsFilter
                   const isExpanded = expandedEmpId === emp.employeeId;
 
                   return (
-                    <tbody key={emp.employeeId} className="group">
+                    <React.Fragment key={emp.employeeId}>
                       <tr
                         onClick={() => setExpandedEmpId(isExpanded ? null : emp.employeeId)}
                         className={`cursor-pointer hover:bg-[var(--bg-elevated)]/60 transition-colors ${
@@ -322,7 +324,7 @@ export default function AttentionSection({ filters }: { filters: AnalyticsFilter
                           </td>
                         </tr>
                       )}
-                    </tbody>
+                    </React.Fragment>
                   );
                 })
               )}
