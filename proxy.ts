@@ -85,21 +85,28 @@ export async function proxy(req: NextRequest) {
     return NextResponse.redirect(loginUrl);
   }
 
-  // Role check — the piece PROGRESS.md point 5 explicitly left as "not
-  // implemented now, a real access-control decision, not something to
-  // guess at." Decision: plain `employee` role never sees the Dashboard,
+  // Role check — plain `employee` role never sees the Dashboard,
   // full stop — sent to their own leave page instead. Every other role
   // (hr / hr_super_admin / manager / lead) is let through; app/page.tsx
   // decides what they actually get to see (full HR view vs. read-only
   // team-scoped view).
-  const { data: employee } = await supabase
-    .from('employees')
-    .select('role')
-    .eq('auth_user_id', user.id)
-    .maybeSingle();
+  //
+  // PERF: Skip the employees table query when not needed:
+  // - /api/* routes do not need this page redirect (and must not return HTML redirects)
+  // - RSC prefetch requests do not need to execute the query ahead of time
+  // Only the root dashboard page ('/') navigation needs this check.
+  const isPrefetch = req.headers.get('next-router-prefetch') === '1' || req.headers.get('purpose') === 'prefetch';
 
-  if (employee?.role === 'employee') {
-    return NextResponse.redirect(new URL('/leave/me', req.url));
+  if (pathname === '/' && !isPrefetch) {
+    const { data: employee } = await supabase
+      .from('employees')
+      .select('role')
+      .eq('auth_user_id', user.id)
+      .maybeSingle();
+
+    if (employee?.role === 'employee') {
+      return NextResponse.redirect(new URL('/leave/me', req.url));
+    }
   }
 
   return response;

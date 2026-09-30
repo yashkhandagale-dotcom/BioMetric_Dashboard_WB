@@ -23,18 +23,17 @@ export default async function PendingSignupPage() {
   }
 
   const supabase = await createLeaveClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { data: claimsData } = await supabase.auth.getClaims();
+  const userId = claimsData?.claims?.sub;
 
-  if (!user) {
+  if (!userId) {
     redirect('/login');
   }
 
   const { data: pending } = await supabase
     .from('pending_employee_signups')
     .select('full_name, email, avatar_url, status, rejection_reason')
-    .eq('auth_user_id', user.id)
+    .eq('auth_user_id', userId)
     .maybeSingle();
 
   if (!pending) {

@@ -51,7 +51,10 @@ export interface RequireLeaveAccessOptions {
 export async function requireLeaveAccess(
   options: RequireLeaveAccessOptions = {}
 ): Promise<LeaveAccessResult> {
-  const employee = await getCurrentEmployee();
+  const [employee, supabase] = await Promise.all([
+    getCurrentEmployee(),
+    createLeaveClient(),
+  ]);
 
   if (!employee) {
     // Simplified onboarding: a Google sign-in with no employees row yet
@@ -84,7 +87,6 @@ export async function requireLeaveAccess(
 
   // Pending-approvals badge shown on the shell's "Approvals" tab — computed
   // once here so it's available to every /leave/** subtree's LeaveShell.
-  const supabase = await createLeaveClient();
   const pendingApprovalsCount = await getPendingApprovalsCount(supabase, employee);
 
   return { employee, pendingApprovalsCount };

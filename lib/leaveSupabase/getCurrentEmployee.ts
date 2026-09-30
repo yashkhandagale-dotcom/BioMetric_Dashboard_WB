@@ -60,18 +60,17 @@ export interface CurrentEmployee {
 // or password-change flow is always picked up fresh on the next request.
 export const getCurrentEmployee = cache(async function getCurrentEmployee(): Promise<CurrentEmployee | null> {
   const supabase = await createLeaveClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { data: claimsData } = await supabase.auth.getClaims();
+  const userId = claimsData?.claims?.sub;
 
-  if (!user) return null;
+  if (!userId) return null;
 
   const { data: employee, error } = await supabase
     .from('employees')
     .select(
       'id, full_name, employee_code, email, role, department, office, reporting_lead_id, reporting_manager_id, must_change_password, profile_confirmed_at, avatar_url, auth_provider'
     )
-    .eq('auth_user_id', user.id)
+    .eq('auth_user_id', userId)
     .maybeSingle();
 
   if (error || !employee) return null;
@@ -122,15 +121,14 @@ export function homeRouteForRole(role: EmployeeRole): string {
 // createLeaveClient()'s underlying client within the same request.
 export const getPendingSignupRedirect = cache(async function getPendingSignupRedirect(): Promise<string | null> {
   const supabase = await createLeaveClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return null;
+  const { data: claimsData } = await supabase.auth.getClaims();
+  const userId = claimsData?.claims?.sub;
+  if (!userId) return null;
 
   const { data } = await supabase
     .from('pending_employee_signups')
     .select('id')
-    .eq('auth_user_id', user.id)
+    .eq('auth_user_id', userId)
     .maybeSingle();
 
   return data ? '/leave/pending' : null;

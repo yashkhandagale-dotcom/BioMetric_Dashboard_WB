@@ -1,4 +1,5 @@
 import { createLeaveClient } from '@/lib/leaveSupabase/server';
+import { getCurrentEmployee } from '@/lib/leaveSupabase/getCurrentEmployee';
 import { getFYStartYear, formatFYLabel } from '@/lib/leaveSupabase/fyHelpers';
 import { getEmployeeBalancesByFY } from '@/lib/leaveSupabase/getEmployeeBalances';
 import EmployeeGrid from '@/components/leave/EmployeeGrid';
@@ -37,10 +38,10 @@ import NewJoinersPanel from '@/components/leave/NewJoinersPanel';
 //   - "Seed Balances" is no longer triggered from the UI at all — leave
 //     balance seeding now runs as a DB script directly, not a page action.
 export default async function LeaveAdminHome() {
-  const supabase = await createLeaveClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const [employee, supabase] = await Promise.all([
+    getCurrentEmployee(),
+    createLeaveClient(),
+  ]);
 
   const fyStartYear = getFYStartYear();
 
@@ -121,7 +122,7 @@ export default async function LeaveAdminHome() {
           Policy Info), so they don't get lost in a nav rail. */}
       <LeavePageHeader
         title={`Leave Balances — ${formatFYLabel(fyStartYear)}`}
-        description={`Signed in as ${user?.email}`}
+        description={employee?.email ? `Signed in as ${employee.email}` : undefined}
         actions={
           <>
             <BulkMarkAttendanceButton />
