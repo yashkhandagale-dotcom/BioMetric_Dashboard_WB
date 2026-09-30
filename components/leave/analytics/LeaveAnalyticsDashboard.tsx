@@ -42,6 +42,21 @@ const BridgeSection = dynamic(() => import('./BridgeSection'), {
   ),
 });
 
+// Dynamic import for Frequency & Bradford section
+const FrequencySection = dynamic(() => import('./FrequencySection'), {
+  ssr: false,
+  loading: () => (
+    <div className="space-y-6 animate-pulse">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        {[1, 2, 3].map((i) => (
+          <div key={i} className="h-24 rounded-2xl bg-[var(--bg-elevated)] border border-[var(--border)]" />
+        ))}
+      </div>
+      <div className="h-80 rounded-2xl bg-[var(--bg-elevated)] border border-[var(--border)]" />
+    </div>
+  ),
+});
+
 export default function LeaveAnalyticsDashboard({ initialFyStartYear }: { initialFyStartYear: number }) {
   const [filters, setFilters] = useState<AnalyticsFilterState>({
     fyStartYear: initialFyStartYear,
@@ -66,7 +81,12 @@ export default function LeaveAnalyticsDashboard({ initialFyStartYear }: { initia
         <BridgeSection filters={filters} />
       </section>
 
-      {/* Sections 3-6 will be hooked in upcoming phases */}
+      {/* ── Section 3: Frequent Leave & Bradford Factor ─────────────────── */}
+      <section aria-labelledby="section-frequency" className="border-t border-[var(--border)] pt-8">
+        <FrequencySection filters={filters} />
+      </section>
+
+      {/* Sections 4-5 will be hooked in Phase 5 */}
     </div>
   );
 }
