@@ -1,5 +1,5 @@
 'use client';
-import { useState, useMemo } from 'react';
+import { useState, useMemo, memo } from 'react';
 import { ChevronUp, ChevronDown, ChevronsUpDown, Search, Zap, AlertTriangle, X, Users } from 'lucide-react';
 import { EmployeeSummary } from '@/lib/types';
 import { useDebounce } from '@/lib/useDebounce';
@@ -20,7 +20,7 @@ const STATUS_BADGE: Record<string, string> = {
 };
 const STATUS_LABEL: Record<string, string> = { green: 'Good', amber: 'At Risk', red: 'Poor' };
 
-export default function EmployeeTable({ summaries, onEmployeeClick }: EmployeeTableProps) {
+function EmployeeTable({ summaries, onEmployeeClick }: EmployeeTableProps) {
   const [search, setSearch] = useState('');
   const debouncedSearch = useDebounce(search, 200);
   const [sortKey, setSortKey] = useState<SortKey>('employeeName');
@@ -222,3 +222,5 @@ export default function EmployeeTable({ summaries, onEmployeeClick }: EmployeeTa
     </div>
   );
 }
+
+export default memo(EmployeeTable);

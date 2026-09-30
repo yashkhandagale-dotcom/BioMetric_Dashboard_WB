@@ -261,6 +261,9 @@ function invalidateMonthRecordsCache(monthKey?: string) {
   else monthRecordsCache.clear();
 }
 
+const ATTENDANCE_RECORD_SELECT_COLUMNS =
+  'date, employee_code, employee_name, department, in_time, out_time, status, punch_records, late_by, early_by, overtime, duration, office_code, punch_count, is_short_day, extra_fields, late_is_estimated, early_is_estimated';
+
 export async function getRecords(monthKey: string): Promise<AttendanceRecord[]> {
   let data = monthRecordsCache.get(monthKey);
   if (!data) {
@@ -268,7 +271,7 @@ export async function getRecords(monthKey: string): Promise<AttendanceRecord[]> 
     data = await selectAllRows<Record<string, unknown>>((from, to) =>
       supabase
         .from('attendance_records')
-        .select('*')
+        .select(ATTENDANCE_RECORD_SELECT_COLUMNS)
         .eq('month_key', monthKey)
         .range(from, to)
     );
@@ -283,7 +286,21 @@ export async function getRecords(monthKey: string): Promise<AttendanceRecord[]> 
 export async function getAllRecords(): Promise<AttendanceRecord[]> {
   const supabase = createClient();
   const data = await selectAllRows<Record<string, unknown>>((from, to) =>
-    supabase.from('attendance_records').select('*').range(from, to)
+    supabase.from('attendance_records').select(ATTENDANCE_RECORD_SELECT_COLUMNS).range(from, to)
+  );
+  return applyEmployeeDirectory(data.map(fromDbRow));
+}
+
+// Scoped team records fetched directly at the DB level via employee_code IN (...)
+export async function getTeamRecords(employeeCodes: string[]): Promise<AttendanceRecord[]> {
+  if (!employeeCodes || employeeCodes.length === 0) return [];
+  const supabase = createClient();
+  const data = await selectAllRows<Record<string, unknown>>((from, to) =>
+    supabase
+      .from('attendance_records')
+      .select(ATTENDANCE_RECORD_SELECT_COLUMNS)
+      .in('employee_code', employeeCodes)
+      .range(from, to)
   );
   return applyEmployeeDirectory(data.map(fromDbRow));
 }

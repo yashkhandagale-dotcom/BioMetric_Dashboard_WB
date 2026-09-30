@@ -6,7 +6,7 @@ import { CheckCircle, ShieldX, Calendar, X as XIcon } from 'lucide-react';
 import { AttendanceRecord, ColumnMapping, EmployeeSummary, UploadedMonth, Holiday, Thresholds, LeaveRecord } from '@/lib/types';
 import {
   getMapping, saveMapping, getRecords, saveRecords, addUploadedMonth, getUploadedMonths,
-  getExistingDateRange,
+  getExistingDateRange, getTeamRecords,
 } from '@/lib/storage';
 import { getThresholds, saveThresholds, DEFAULT_THRESHOLDS } from '@/lib/settings';
 import { getAllLeaveRecords, getLeaveRecords, lookupLeavesForItems } from '@/lib/leaveTrackerRead';
@@ -501,40 +501,52 @@ function HRDashboard() {
     return () => { cancelled = true; };
   }, [selectedMonthKey]);
 
-  // All records across every uploaded month — re-fetched whenever the set of
-  // uploaded months changes. This is ALWAYS the source of truth; the month
-  // dropdown only controls which holidays/leaves/office context to load.
+  // All records across every uploaded month — loaded on demand (when custom
+  // date filter is active) or deferred in the background after the selected
+  // month's records are loaded and rendered.
+  const needsAllMonths = Boolean(dateFrom || dateTo);
+
   useEffect(() => {
     if (uploadedMonths.length === 0) { setAllUploadedRecords([]); return; }
-    let cancelled = false;
-    Promise.all(uploadedMonths.map(m => getRecords(m.key))).then(async (recs) => {
-      if (cancelled) return;
-      const flat = recs.flat();
-      setAllUploadedRecords(flat);
+    // Only load all uploaded months on demand (custom date filter),
+    // or defer to background after the selected month's records are loaded.
+    if (!needsAllMonths && allRecords.length === 0) return;
 
-      // Ensure leaves across all uploaded months are also loaded into leaveRecords
-      try {
-        const leaves = await getAllLeaveRecords(uploadedMonths.map(m => m.key));
-        if (!cancelled && leaves.length > 0) {
-          setLeaveRecords((prev) => {
-            const existingKeys = new Set(prev.map(p => `${p.employeeCode}__${p.date}`));
-            const merged = [...prev];
-            for (const item of leaves) {
-              const k = `${item.employeeCode}__${item.date}`;
-              if (!existingKeys.has(k)) {
-                existingKeys.add(k);
-                merged.push(item);
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      Promise.all(uploadedMonths.map(m => getRecords(m.key))).then(async (recs) => {
+        if (cancelled) return;
+        const flat = recs.flat();
+        setAllUploadedRecords(flat);
+
+        // Ensure leaves across all uploaded months are also loaded into leaveRecords
+        try {
+          const leaves = await getAllLeaveRecords(uploadedMonths.map(m => m.key));
+          if (!cancelled && leaves.length > 0) {
+            setLeaveRecords((prev) => {
+              const existingKeys = new Set(prev.map(p => `${p.employeeCode}__${p.date}`));
+              const merged = [...prev];
+              for (const item of leaves) {
+                const k = `${item.employeeCode}__${item.date}`;
+                if (!existingKeys.has(k)) {
+                  existingKeys.add(k);
+                  merged.push(item);
+                }
               }
-            }
-            return merged;
-          });
+              return merged;
+            });
+          }
+        } catch (err) {
+          console.warn('Failed to load leaves across all uploaded months:', err);
         }
-      } catch (err) {
-        console.warn('Failed to load leaves across all uploaded months:', err);
-      }
-    });
-    return () => { cancelled = true; };
-  }, [uploadedMonths]);
+      });
+    }, needsAllMonths ? 0 : 2500);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [uploadedMonths, needsAllMonths, allRecords.length > 0]);
 
   useEffect(() => {
     function handler(e: Event) {
@@ -896,9 +908,9 @@ function HRDashboard() {
   // (allUploadedRecords is populated by the useEffect above, keyed off uploadedMonths.)
 
   // Effective record pool for the dashboard:
-  // - If user has set a date range → use all records across all months (cross-month support)
-  // - If no date range → use only the selected month's records (default per-month view)
-  const recordPool = (dateFrom || dateTo) ? allUploadedRecords : allRecords;
+  // - If user has set a date range and all months are loaded → use all records across all months
+  // - Otherwise → use selected month's records (fast startup default per-month view)
+  const recordPool = (dateFrom || dateTo) && allUploadedRecords.length > 0 ? allUploadedRecords : allRecords;
 
   const { kpi, employeeSummaries, dailyTrend, deptAttendance, hoursDistribution, officeAttendance, departments, offices, filteredRecords, availableDates, viewMode, dayDeptSnapshots } =
     useDashboardData(recordPool, selectedOffice, selectedDepts, [], holidays, thresholds, leaveRecords, allOfficeRecords, dateFrom, dateTo);
@@ -1483,7 +1495,7 @@ function HRDashboard() {
         shiftEndMinutes={thresholds.shiftEndMinutes}
         monthKey={selectedMonthKey}
         leaveMap={leaveMap}
-        allDepartments={getAllKnownDepartments(allUploadedRecords)}
+        allDepartments={getAllKnownDepartments(allUploadedRecords.length > 0 ? allUploadedRecords : allRecords)}
         onDepartmentChange={refreshDepartmentOverrides}
         onToast={showToast}
       />
@@ -1626,11 +1638,15 @@ export default function DashboardClient({
     }
 
     if (role === 'manager' || role === 'lead') {
-      const codes = new Set(teamCodes ?? []);
+      const codes = teamCodes ?? [];
       (async () => {
-        const months = await getUploadedMonths();
-        const all = (await Promise.all(months.map((m) => getRecords(m.key)))).flat();
-        setManagerRecords(codes.size > 0 ? all.filter((r) => codes.has(r.employeeCode)) : []);
+        if (codes.length === 0) {
+          setManagerRecords([]);
+        } else {
+          // PERF: Filter by team codes directly at the database level
+          const recs = await getTeamRecords(codes);
+          setManagerRecords(recs);
+        }
         setViewMode('team');
       })();
       return;

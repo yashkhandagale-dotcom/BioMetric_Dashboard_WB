@@ -1,5 +1,5 @@
 'use client';
-import { useMemo } from 'react';
+import { useMemo, memo } from 'react';
 import { EmployeeSummary, DailyTrend, DeptAttendance, AttendanceRecord } from '@/lib/types';
 
 interface InsightsStripProps {
@@ -16,7 +16,7 @@ interface Insight {
   type: 'warn' | 'info' | 'danger';
 }
 
-export default function InsightsStrip({ summaries, dailyTrend, deptAttendance, records, selectedDepts }: InsightsStripProps) {
+function InsightsStrip({ summaries, dailyTrend, deptAttendance, records, selectedDepts }: InsightsStripProps) {
   const insights: Insight[] = useMemo(() => {
     const result: Insight[] = [];
 
@@ -105,3 +105,5 @@ export default function InsightsStrip({ summaries, dailyTrend, deptAttendance, r
     </div>
   );
 }
+
+export default memo(InsightsStrip);
