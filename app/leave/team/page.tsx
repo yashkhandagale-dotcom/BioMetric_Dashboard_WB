@@ -78,7 +78,14 @@ export default async function LeaveTeamHome() {
 
   const teamIds = (reports ?? []).map((r) => r.id);
 
-  const [{ rows: balances }, historyResult] = await Promise.all([
+  // PERF: Execute all independent team data queries concurrently in a single Promise.all
+  const [
+    { rows: balances },
+    historyResult,
+    { rows: onLeaveToday },
+    { rows: regularisations },
+    pendingApprovalsResult,
+  ] = await Promise.all([
     getEmployeeBalancesByFY(supabase),
     teamIds.length > 0
       ? selectAllRows<HistoryRow>((from, to) =>
@@ -98,12 +105,6 @@ export default async function LeaveTeamHome() {
             .returns<HistoryRow[]>()
         )
       : Promise.resolve({ data: [] as HistoryRow[], error: null }),
-  ]);
-
-  const teamBalances = balances.filter((b) => teamIds.includes(b.employeeId));
-
-  // Fetch onLeaveToday, regularisations, and pendingApprovalsCount
-  const [{ rows: onLeaveToday }, { rows: regularisations }, pendingApprovalsResult] = await Promise.all([
     teamIds.length > 0 ? getEmployeesOnLeaveToday(supabase, undefined, teamIds) : Promise.resolve({ rows: [], error: null }),
     teamIds.length > 0 ? listRegularisationsForEmployees(supabase, teamIds) : Promise.resolve({ rows: [], error: null }),
     teamIds.length > 0
@@ -111,6 +112,7 @@ export default async function LeaveTeamHome() {
       : Promise.resolve({ count: 0, error: null }),
   ]);
 
+  const teamBalances = balances.filter((b) => teamIds.includes(b.employeeId));
   const pendingApprovalsCount = pendingApprovalsResult.count ?? 0;
 
   const history: LeaveHistoryRow[] = (historyResult.data ?? [])

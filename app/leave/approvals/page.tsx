@@ -31,6 +31,29 @@ type PendingRow = {
   leave_types: { code: string; display_name: string } | null;
 };
 
+type PendingWfhRow = {
+  id: string;
+  start_date: string;
+  end_date: string;
+  is_half_day: boolean;
+  half_day_session: string | null;
+  reason: string;
+  applied_on: string;
+  employees: { full_name: string; employee_code: string; department: string; reporting_lead_id: string | null } | null;
+};
+
+type RawMissedPunchRow = {
+  id: string;
+  employee_id: string;
+  exception_date: string;
+  exception_type: string;
+  first_punch: string | null;
+  last_punch: string | null;
+  employee_note: string | null;
+  updated_at: string;
+  employees: { full_name: string; employee_code: string; department: string; reporting_lead_id: string | null } | null;
+};
+
 // B1 — real approval queue: one card per pending request from the
 // logged-in manager's DIRECT reports only (reporting_manager_id, no
 // recursive walk — same `.eq('employees.reporting_manager_id', ...)`
@@ -69,11 +92,22 @@ export default async function LeaveApprovalsHome() {
   // not reporting_manager_id), computed before building the query since
   // Supabase's query builder can't express "IN this dynamically-sized set
   // of ids" as a single filter chained after an inner join the same way
-  // reporting_lead_id's direct column match can.
+  // Manager's queue is scoped by department (department_managers — see
+  // getManagedEmployeeIds's own comment for why that's the correct field,
+  // not reporting_manager_id).
   let managedIds: string[] = [];
+  let regularisationEmployeeIds: string[] = [];
+
   if (isManager) {
     const { employeeIds } = await getManagedEmployeeIds(supabase, employee.id);
     managedIds = employeeIds;
+    regularisationEmployeeIds = employeeIds;
+  } else if (isHr) {
+    const { data: allEmployees } = await queryClient.from('employees').select('id');
+    regularisationEmployeeIds = (allEmployees ?? []).map((e) => e.id);
+  } else if (isLead) {
+    const { data: reports } = await supabase.from('employees').select('id').eq('reporting_lead_id', employee.id);
+    regularisationEmployeeIds = (reports ?? []).map((r) => r.id);
   }
 
   let query = queryClient
@@ -89,48 +123,6 @@ export default async function LeaveApprovalsHome() {
     .eq('status', 'pending')
     .order('start_date', { ascending: true });
 
-  // HR sees every pending request org-wide (their own approve/reject
-  // authorization already allows this); a lead only sees their own direct
-  // reports (reporting_lead_id, unchanged); a manager sees every pending
-  // request from an employee/lead in a department they manage
-  // (department_managers, via managedIds above) — single-login pivot:
-  // lead is now a mini-manager with its own scoped queue, not just a
-  // read-only role.
-  if (isLead) {
-    query = query.eq('employees.reporting_lead_id', employee.id);
-  } else if (isManager) {
-    query = managedIds.length > 0 ? query.in('employee_id', managedIds) : query.eq('employee_id', '00000000-0000-0000-0000-000000000000');
-  }
-
-  const { data: pending, error } = await query.returns<PendingRow[]>();
-
-  const rows = (pending ?? []).filter((r) => r.employees && r.leave_types);
-
-  // Feedback items #5/#6 — WFH requests join the same approvals queue,
-  // scoped with the exact same rules as leave above (department_managers
-  // for a manager, reporting_lead_id for a lead, org-wide for HR) since
-  // approval routing for WFH reuses the identical
-  // getEffectiveApproverId mechanism at write time — a Delivery-
-  // department employee's WFH already lands with the Delivery manager
-  // this way, no separate role needed.
-  type PendingWfhRow = {
-    id: string;
-    start_date: string;
-    end_date: string;
-    is_half_day: boolean;
-    half_day_session: string | null;
-    reason: string;
-    applied_on: string;
-    employees: { full_name: string; employee_code: string; department: string; reporting_lead_id: string | null } | null;
-  };
-
-  // NOTE: explicit FK name required here (mirrors leave_requests above) —
-  // wfh_requests apparently has more than one FK pointing at employees
-  // (e.g. employee_id and an approver/reviewer column), so a bare
-  // `employees!inner` embed is ambiguous to PostgREST and throws at
-  // query time. Confirm the exact constraint name against your schema
-  // (`wfh_requests_employee_id_fkey` is a guess based on the
-  // leave_requests naming convention) if this still errors.
   let wfhQuery = queryClient
     .from('wfh_requests')
     .select(
@@ -140,15 +132,46 @@ export default async function LeaveApprovalsHome() {
     .eq('status', 'pending')
     .order('start_date', { ascending: true });
 
+  let mpQuery = queryClient
+    .from('attendance_exceptions')
+    .select(
+      `id, employee_id, exception_date, exception_type, first_punch, last_punch, employee_note, updated_at,
+       employees!attendance_exceptions_employee_id_fkey!inner ( full_name, employee_code, department, reporting_lead_id )`
+    )
+    .eq('employee_choice', 'missed_punch')
+    .order('exception_date', { ascending: false });
+
   if (isLead) {
+    query = query.eq('employees.reporting_lead_id', employee.id);
     wfhQuery = wfhQuery.eq('employees.reporting_lead_id', employee.id);
+    mpQuery = mpQuery.eq('employees.reporting_lead_id', employee.id);
   } else if (isManager) {
-    wfhQuery = managedIds.length > 0
-      ? wfhQuery.in('employee_id', managedIds)
-      : wfhQuery.eq('employee_id', '00000000-0000-0000-0000-000000000000');
+    if (managedIds.length > 0) {
+      query = query.in('employee_id', managedIds);
+      wfhQuery = wfhQuery.in('employee_id', managedIds);
+      mpQuery = mpQuery.in('employee_id', managedIds);
+    } else {
+      const dummyId = '00000000-0000-0000-0000-000000000000';
+      query = query.eq('employee_id', dummyId);
+      wfhQuery = wfhQuery.eq('employee_id', dummyId);
+      mpQuery = mpQuery.eq('employee_id', dummyId);
+    }
   }
 
-  const { data: pendingWfh, error: wfhError } = await wfhQuery.returns<PendingWfhRow[]>();
+  // PERF: Execute all 4 approval queue data queries in parallel
+  const [
+    { data: pending, error },
+    { data: pendingWfh, error: wfhError },
+    { rows: regularisationRows },
+    { data: rawMissedPunches, error: mpError },
+  ] = await Promise.all([
+    query.returns<PendingRow[]>(),
+    wfhQuery.returns<PendingWfhRow[]>(),
+    listRegularisationsForEmployees(queryClient, regularisationEmployeeIds),
+    mpQuery.returns<RawMissedPunchRow[]>(),
+  ]);
+
+  const rows = (pending ?? []).filter((r) => r.employees && r.leave_types);
 
   const wfhRequests: PendingWfhRequest[] = (pendingWfh ?? [])
     .filter((r) => r.employees)
@@ -165,23 +188,6 @@ export default async function LeaveApprovalsHome() {
       appliedOn: r.applied_on,
     }));
 
-  // Part C, §C.2 — pending, EMPLOYEE-initiated regularisation requests
-  // join the same approvals queue, scoped identically. Manager-
-  // unilateral regularisations (createRegularisation, status='approved'
-  // from birth) never show up here — there's nothing pending about
-  // them.
-  let regularisationEmployeeIds: string[] = [];
-  if (isHr) {
-    const { data: allEmployees } = await queryClient.from('employees').select('id');
-    regularisationEmployeeIds = (allEmployees ?? []).map((e) => e.id);
-  } else if (isManager) {
-    regularisationEmployeeIds = managedIds;
-  } else if (isLead) {
-    const { data: reports } = await supabase.from('employees').select('id').eq('reporting_lead_id', employee.id);
-    regularisationEmployeeIds = (reports ?? []).map((r) => r.id);
-  }
-
-  const { rows: regularisationRows } = await listRegularisationsForEmployees(queryClient, regularisationEmployeeIds);
   const regularisationRequests: PendingRegularisationRequest[] = regularisationRows
     .filter((r) => r.status === 'pending')
     .map((r) => ({
@@ -228,39 +234,7 @@ export default async function LeaveApprovalsHome() {
     };
   });
 
-  // Missed Punch entries (self-resolved exceptions) — shown in HR/Manager queue
-  // as informational notices (no approve/reject action needed, no leave deducted).
-  let mpQuery = queryClient
-    .from('attendance_exceptions')
-    .select(
-      `id, employee_id, exception_date, exception_type, first_punch, last_punch, employee_note, updated_at,
-       employees!attendance_exceptions_employee_id_fkey!inner ( full_name, employee_code, department, reporting_lead_id )`
-    )
-    .eq('employee_choice', 'missed_punch')
-    .order('exception_date', { ascending: false });
-
-  if (isLead) {
-    mpQuery = mpQuery.eq('employees.reporting_lead_id', employee.id);
-  } else if (isManager) {
-    mpQuery = managedIds.length > 0
-      ? mpQuery.in('employee_id', managedIds)
-      : mpQuery.eq('employee_id', '00000000-0000-0000-0000-000000000000');
-  }
-
-  type RawMissedPunchRow = {
-    id: string;
-    employee_id: string;
-    exception_date: string;
-    exception_type: string;
-    first_punch: string | null;
-    last_punch: string | null;
-    employee_note: string | null;
-    updated_at: string;
-    employees: { full_name: string; employee_code: string; department: string; reporting_lead_id: string | null } | null;
-  };
-
-  const { data: rawMissedPunches, error: mpError } = await mpQuery.returns<RawMissedPunchRow[]>();
-
+  // Missed Punch entries (self-resolved exceptions) — mapped from parallel query result
   const missedPunchRequests: PendingMissedPunchRequest[] = (rawMissedPunches ?? [])
     .filter((r) => r.employees)
     .map((r) => ({
