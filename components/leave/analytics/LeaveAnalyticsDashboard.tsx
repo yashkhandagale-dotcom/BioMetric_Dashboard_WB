@@ -5,7 +5,7 @@ import dynamic from 'next/dynamic';
 import AnalyticsFilterBar from './AnalyticsFilterBar';
 import { AnalyticsFilterState } from './types';
 
-// Dynamic import with custom skeleton for Overview section
+// Dynamic imports with custom skeletons for all chart-heavy and complex sections
 const OverviewSection = dynamic(() => import('./OverviewSection'), {
   ssr: false,
   loading: () => (
@@ -24,7 +24,6 @@ const OverviewSection = dynamic(() => import('./OverviewSection'), {
   ),
 });
 
-// Dynamic import for Weekend & Holiday Bridge section
 const BridgeSection = dynamic(() => import('./BridgeSection'), {
   ssr: false,
   loading: () => (
@@ -42,7 +41,6 @@ const BridgeSection = dynamic(() => import('./BridgeSection'), {
   ),
 });
 
-// Dynamic import for Frequency & Bradford section
 const FrequencySection = dynamic(() => import('./FrequencySection'), {
   ssr: false,
   loading: () => (
@@ -52,6 +50,40 @@ const FrequencySection = dynamic(() => import('./FrequencySection'), {
           <div key={i} className="h-24 rounded-2xl bg-[var(--bg-elevated)] border border-[var(--border)]" />
         ))}
       </div>
+      <div className="h-80 rounded-2xl bg-[var(--bg-elevated)] border border-[var(--border)]" />
+    </div>
+  ),
+});
+
+const AttentionSection = dynamic(() => import('./AttentionSection'), {
+  ssr: false,
+  loading: () => (
+    <div className="space-y-4 animate-pulse">
+      <div className="h-8 w-60 rounded-xl bg-[var(--bg-elevated)]" />
+      <div className="h-72 rounded-2xl bg-[var(--bg-elevated)] border border-[var(--border)]" />
+    </div>
+  ),
+});
+
+const PlannerSection = dynamic(() => import('./PlannerSection'), {
+  ssr: false,
+  loading: () => (
+    <div className="space-y-4 animate-pulse">
+      <div className="h-8 w-60 rounded-xl bg-[var(--bg-elevated)]" />
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {[1, 2, 3].map((i) => (
+          <div key={i} className="h-52 rounded-2xl bg-[var(--bg-elevated)] border border-[var(--border)]" />
+        ))}
+      </div>
+    </div>
+  ),
+});
+
+const BalancesSection = dynamic(() => import('./BalancesSection'), {
+  ssr: false,
+  loading: () => (
+    <div className="space-y-4 animate-pulse">
+      <div className="h-8 w-60 rounded-xl bg-[var(--bg-elevated)]" />
       <div className="h-80 rounded-2xl bg-[var(--bg-elevated)] border border-[var(--border)]" />
     </div>
   ),
@@ -67,7 +99,7 @@ export default function LeaveAnalyticsDashboard({ initialFyStartYear }: { initia
   });
 
   return (
-    <div className="space-y-10">
+    <div className="space-y-12">
       {/* Sticky Filter Bar */}
       <AnalyticsFilterBar filters={filters} onChange={setFilters} />
 
@@ -86,7 +118,20 @@ export default function LeaveAnalyticsDashboard({ initialFyStartYear }: { initia
         <FrequencySection filters={filters} />
       </section>
 
-      {/* Sections 4-5 will be hooked in Phase 5 */}
+      {/* ── Section 4: HR Attention List ─────────────────────────────────── */}
+      <section aria-labelledby="section-attention" className="border-t border-[var(--border)] pt-8">
+        <AttentionSection filters={filters} />
+      </section>
+
+      {/* ── Section 5: Long Weekend & Bridge Day Planner ─────────────────── */}
+      <section aria-labelledby="section-planner" className="border-t border-[var(--border)] pt-8">
+        <PlannerSection filters={filters} />
+      </section>
+
+      {/* ── Section 6: Balances & Ledger Reconciliation ─────────────────── */}
+      <section aria-labelledby="section-balances" className="border-t border-[var(--border)] pt-8">
+        <BalancesSection filters={filters} />
+      </section>
     </div>
   );
 }
