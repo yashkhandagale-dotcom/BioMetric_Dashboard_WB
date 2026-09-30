@@ -40,7 +40,7 @@ export interface LeaveRecord {
 // Office Shutdown markers, live-read from the Leave Tracker's
 // workforce_events table the same way LeaveRecord is. Deliberately its
 // own type rather than folded into LeaveType — these are not leave (see
-// supabase-leave/schema.sql's design invariants) and mixing them into
+// supabase/schema.sql's design invariants) and mixing them into
 // the same field would make "is this person on leave" ambiguous
 // everywhere LeaveType is already checked.
 export type WorkforceEventType = 'wfh' | 'business_travel' | 'office_shutdown';

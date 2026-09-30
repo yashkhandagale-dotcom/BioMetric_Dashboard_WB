@@ -1,6 +1,6 @@
 import { LeaveType } from '@/lib/types';
 
-// The Leave Tracker's leave_types.code values (supabase-leave/schema.sql)
+// The Leave Tracker's leave_types.code values (supabase/schema.sql)
 // vs. the main dashboard's LeaveType union (lib/types.ts) — two systems,
 // two vocabularies. This is the single place that translates between
 // them; nothing else should hardcode this mapping (that's how the two

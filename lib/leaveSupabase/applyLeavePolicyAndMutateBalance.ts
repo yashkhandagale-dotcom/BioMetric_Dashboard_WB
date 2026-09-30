@@ -12,12 +12,12 @@ import { reconcileLeaveRequestAgainstAttendance } from './reconcileLeaveAttendan
 //
 // The ONLY function allowed to write to leave_balances,
 // balance_transactions, or leave_requests going forward (see the
-// "Design invariants" header of supabase-leave/schema.sql and this
+// "Design invariants" header of supabase/schema.sql and this
 // workstream's PROGRESS.md entry for why). Runs the shared policy engine
 // (lib/leavePolicy.ts), creates/updates the leave_requests row, and
 // writes the matching balance_transactions row for approve/cancel.
 //
-// Read supabase-leave/schema.sql and lib/leavePolicy.ts fully before
+// Read supabase/schema.sql and lib/leavePolicy.ts fully before
 // touching this file — in particular:
 //   - leave_requests.source only allows ('employee_apply', 'hr_manual')
 //     at the DB level (schema.sql:154-155). The four app-level `source`
@@ -121,7 +121,7 @@ function daysBetweenInclusive(start: string, end: string): number {
 }
 
 // Same 25-Mar FY-cutover rule as fn_prorate_new_joiner / fn_debit_leave_
-// on_approval in supabase-leave/schema.sql (month > 3, or month = 3 and
+// on_approval in supabase/schema.sql (month > 3, or month = 3 and
 // day >= 25) and lib/leaveSupabase/fyHelpers.ts's getFYStartYear —
 // re-implemented on the raw 'YYYY-MM-DD' string rather than a JS Date so
 // there's no local-timezone ambiguity around the exact midnight cutover

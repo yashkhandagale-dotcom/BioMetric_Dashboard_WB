@@ -5,7 +5,7 @@ import { getDepartmentsWithManagers } from '@/lib/leaveSupabase/organization';
 // Backs the "Departments Managed" checklist in AdjustBalanceButton's and
 // AddEmployeeForm's Details tab. Replaces the old /api/leave/teams route,
 // which queried a `teams` table that was never actually migrated (see
-// supabase-leave/schema.sql's 006_department_managers.sql comment).
+// supabase/schema.sql's 006_department_managers.sql comment).
 //
 // Departments aren't a separate catalog here — they're whatever values
 // exist in employees.department (set at CSV onboarding, per

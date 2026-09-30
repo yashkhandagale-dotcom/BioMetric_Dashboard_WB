@@ -73,7 +73,7 @@ export async function POST(req: NextRequest) {
     is_half_day?: boolean;
     half_day_session?: 'AM' | 'PM';
     reason?: string;
-    // Additive/optional — supabase-leave/schema.sql already has this
+    // Additive/optional — supabase/schema.sql already has this
     // column, RecordLeaveForm.tsx just never sent it. Accepting it here
     // is backward compatible: omitted (as today) behaves identically to
     // before (stored as null).

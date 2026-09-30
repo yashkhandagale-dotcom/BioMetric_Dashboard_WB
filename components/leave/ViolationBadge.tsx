@@ -1,7 +1,7 @@
 // D1-4: placeholder only. Real violation detection (notice-shortfall LWP
 // conversions, missing medical certificates, probation-period leave taken
 // early, negative/over-drawn balances) lands Day 4 behind
-// GET /api/leave/violations — see supabase-leave schema comments and the
+// GET /api/leave/violations — see supabase schema comments and the
 // Sprint Tracker's D4-1..D4-4 tasks.
 //
 // This component is wired into EmployeeCard now, with `count` left

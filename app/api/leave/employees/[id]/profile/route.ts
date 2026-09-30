@@ -90,7 +90,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
     // this modal never disagrees with the grid about who reports to whom.
     // employee/lead: effective manager is derived from department ->
     // department_managers.manager_id (never employees.reporting_manager_id
-    // — see supabase-leave/schema.sql's 006_department_managers.sql).
+    // — see supabase/schema.sql's 006_department_managers.sql).
     // This is a separate, informational "who effectively approves this
     // person" label — independent of the literal reporting_manager_id
     // graph edge below, which is what the Org Chart tree actually walks.
