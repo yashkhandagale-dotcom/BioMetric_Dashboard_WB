@@ -26,7 +26,7 @@ import {
 import { getThresholds, saveThresholds, DEFAULT_THRESHOLDS } from '@/lib/settings';
 import { getAllLeaveRecords, lookupLeavesForItems } from '@/lib/leaveTrackerRead';
 import { getAllKnownDepartments, loadEmployeeDirectory, useEmployeeDirectorySync } from '@/lib/employeeStore';
-import { buildLeaveMap, isAbsent } from '@/lib/useDashboardData';
+import { buildLeaveMap, isAbsent, targetShiftMinutes } from '@/lib/useDashboardData';
 import { parseCSVHeaders, parseCSVWithMapping, analyzeCSVDateRange, type CSVDateRangeAnalysis } from '@/lib/parseCSV';
 import { validateFile } from '@/lib/validateFile';
 import { useDashboardData } from '@/lib/useDashboardData';
@@ -1028,7 +1028,13 @@ export default function HRDashboard() {
                     </h2>
                     <span className="text-[var(--text-muted)] text-xs">{filteredSummaries.length} employees</span>
                   </div>
-                  <EmployeeTable summaries={filteredSummaries} onEmployeeClick={setSelectedEmp} />
+                  <EmployeeTable
+                    summaries={filteredSummaries}
+                    onEmployeeClick={setSelectedEmp}
+                    shiftTargetMins={targetShiftMinutes(thresholds.shiftStartMinutes, thresholds.shiftEndMinutes)}
+                    avgHoursPctGreen={thresholds.avgHoursPctGreen}
+                    avgHoursPctAmber={thresholds.avgHoursPctAmber}
+                  />
                 </div>
               </>
             )}
@@ -1143,7 +1149,13 @@ export default function HRDashboard() {
                     </h2>
                     <span className="text-[var(--text-muted)] text-xs">{filteredSummaries.length} employees</span>
                   </div>
-                  <EmployeeTable summaries={filteredSummaries} onEmployeeClick={setSelectedEmp} />
+                  <EmployeeTable
+                    summaries={filteredSummaries}
+                    onEmployeeClick={setSelectedEmp}
+                    shiftTargetMins={targetShiftMinutes(thresholds.shiftStartMinutes, thresholds.shiftEndMinutes)}
+                    avgHoursPctGreen={thresholds.avgHoursPctGreen}
+                    avgHoursPctAmber={thresholds.avgHoursPctAmber}
+                  />
                 </div>
               </>
             )}

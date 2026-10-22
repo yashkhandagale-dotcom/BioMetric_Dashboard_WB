@@ -12,7 +12,7 @@ import {
 import { getThresholds, DEFAULT_THRESHOLDS } from '@/lib/settings';
 import { getUploadedMonths } from '@/lib/storage';
 import { getAllLeaveRecords } from '@/lib/leaveTrackerRead';
-import { buildLeaveMap, useDashboardData } from '@/lib/useDashboardData';
+import { buildLeaveMap, useDashboardData, targetShiftMinutes } from '@/lib/useDashboardData';
 import DashboardShell from '@/components/dashboard/DashboardShell';
 import KPICards from '@/components/KPICards';
 import OnLeaveTodayCard from '@/components/OnLeaveTodayCard';
@@ -290,7 +290,13 @@ export default function ManagerView({
         </div>
         <div id="section-employees" className="bg-[var(--bg-elevated)]/30 rounded-xl border border-[var(--border)] p-4">
           <h2 className="text-[var(--text-primary)] font-semibold text-sm mb-4">Employee Summary</h2>
-          <EmployeeTable summaries={employeeSummaries} onEmployeeClick={setSelectedEmp} />
+          <EmployeeTable
+            summaries={employeeSummaries}
+            onEmployeeClick={setSelectedEmp}
+            shiftTargetMins={targetShiftMinutes(thresholds.shiftStartMinutes, thresholds.shiftEndMinutes)}
+            avgHoursPctGreen={thresholds.avgHoursPctGreen}
+            avgHoursPctAmber={thresholds.avgHoursPctAmber}
+          />
         </div>
       </div>
       <EmployeePanel
