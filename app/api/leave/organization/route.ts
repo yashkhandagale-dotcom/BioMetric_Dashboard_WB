@@ -159,13 +159,30 @@ export async function POST(req: NextRequest) {
     // write, just fanned out. lead / manager / hr rows in the
     // department are untouched (they don't have this field — see the
     // profile PATCH's role-gating comment).
-    const { error } = await service
+    const { data: updated, error } = await service
       .from('employees')
       .update({ reporting_lead_id: lead_id, updated_at: new Date().toISOString() })
       .eq('department', department)
-      .eq('role', 'employee');
+      .eq('role', 'employee')
+      .select('id');
     if (error) return NextResponse.json({ error: error.message }, { status: 400 });
-    return NextResponse.json({ ok: true });
+    // An UPDATE that matches zero rows is not a Postgres error, so this used
+    // to report success while changing nothing (e.g. a department with only
+    // lead/manager members). Say so instead of silently "saving".
+    if (!updated || updated.length === 0) {
+      return NextResponse.json(
+        { error: `Nobody was updated: "${department}" has no members with role = employee.` },
+        { status: 400 }
+      );
+    }
+    const count = updated.length;
+    return NextResponse.json({
+      ok: true,
+      updated: count,
+      message: lead_id
+        ? `Lead assigned to ${count} employee${count === 1 ? '' : 's'} in ${department}.`
+        : `Lead cleared for ${count} employee${count === 1 ? '' : 's'} in ${department}.`,
+    });
   }
 
   return NextResponse.json({ error: 'Unknown action.' }, { status: 400 });

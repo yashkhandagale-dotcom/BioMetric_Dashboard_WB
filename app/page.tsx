@@ -51,22 +51,32 @@ export default async function Page({
 
   let teamCodes: string[] | undefined;
   let managedDepartments: string[] | undefined;
+  // Surfaced to the client so a failed lookup shows an error instead of
+  // looking identical to "this person has no team" (both used to render as
+  // an empty dashboard with no explanation).
+  let teamError: string | null = null;
   if (employee.role === 'manager' || employee.role === 'lead') {
     const supabase = await createLeaveClient();
     if (employee.role === 'manager') {
-      const { employeeIds, departments } = await getManagedEmployeeIds(supabase, employee.id);
+      const { employeeIds, departments, error } = await getManagedEmployeeIds(supabase, employee.id);
       managedDepartments = departments;
+      if (error) teamError = `Could not look up your team: ${error}`;
       if (employeeIds.length > 0) {
-        const { data: reports } = await supabase.from('employees').select('employee_code').in('id', employeeIds);
+        const { data: reports, error: reportsError } = await supabase
+          .from('employees')
+          .select('employee_code')
+          .in('id', employeeIds);
+        if (reportsError) teamError = `Could not load your team members: ${reportsError.message}`;
         teamCodes = (reports ?? []).map((r) => r.employee_code);
       } else {
         teamCodes = [];
       }
     } else {
-      const { data: reports } = await supabase
+      const { data: reports, error: reportsError } = await supabase
         .from('employees')
         .select('employee_code, department')
         .eq('reporting_lead_id', employee.id);
+      if (reportsError) teamError = `Could not load your team members: ${reportsError.message}`;
       teamCodes = (reports ?? []).map((r) => r.employee_code);
       managedDepartments = Array.from(new Set((reports ?? []).map((r) => r.department).filter(Boolean)));
     }
@@ -74,5 +84,5 @@ export default async function Page({
 
   const role = employee.role === 'hr' || employee.role === 'hr_super_admin' ? 'hr' : employee.role;
 
-  return <DashboardClient role={role} teamCodes={teamCodes} managedDepartments={managedDepartments} />;
+  return <DashboardClient role={role} teamCodes={teamCodes} managedDepartments={managedDepartments} teamError={teamError} />;
 }

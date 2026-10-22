@@ -40,7 +40,8 @@ const SELECT_PAGE_SIZE = 1000; // Supabase/PostgREST's default max rows per requ
 const PAGE_BATCH_SIZE = 4; // 4 x 1000 = up to 4000 rows fetched concurrently per round
 
 async function selectAllRows<T>(
-  buildQuery: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: unknown }>
+  buildQuery: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: unknown }>,
+  options: { throwOnError?: boolean } = {}
 ): Promise<T[]> {
   const all: T[] = [];
   let from = 0;
@@ -56,6 +57,10 @@ async function selectAllRows<T>(
     for (const { data, error } of results) {
       if (error) {
         console.error('selectAllRows failed:', error);
+        if (options.throwOnError) {
+          const msg = (error as { message?: string })?.message ?? 'unknown error';
+          throw new Error(msg);
+        }
         sawError = true;
         continue; // still keep any good pages already fetched in this batch
       }
@@ -292,17 +297,35 @@ export async function getAllRecords(): Promise<AttendanceRecord[]> {
 }
 
 // Scoped team records fetched directly at the DB level via employee_code IN (...)
+// Codes are sent to PostgREST as a GET query-string (`employee_code=in.(a,b,c)`),
+// so a manager with a big hierarchy (hundreds of codes x 4 concurrent pages)
+// can exceed the URL length limit and the request fails outright. Chunk them.
+const TEAM_CODE_CHUNK_SIZE = 100;
+
+// Throws on failure (instead of returning []) so the caller can tell
+// "your team has no attendance data" apart from "the load failed".
 export async function getTeamRecords(employeeCodes: string[]): Promise<AttendanceRecord[]> {
   if (!employeeCodes || employeeCodes.length === 0) return [];
   const supabase = createClient();
-  const data = await selectAllRows<Record<string, unknown>>((from, to) =>
-    supabase
-      .from('attendance_records')
-      .select(ATTENDANCE_RECORD_SELECT_COLUMNS)
-      .in('employee_code', employeeCodes)
-      .range(from, to)
+  const uniqueCodes = Array.from(new Set(employeeCodes));
+  const chunks: string[][] = [];
+  for (let i = 0; i < uniqueCodes.length; i += TEAM_CODE_CHUNK_SIZE) {
+    chunks.push(uniqueCodes.slice(i, i + TEAM_CODE_CHUNK_SIZE));
+  }
+  const perChunk = await Promise.all(
+    chunks.map((codes) =>
+      selectAllRows<Record<string, unknown>>(
+        (from, to) =>
+          supabase
+            .from('attendance_records')
+            .select(ATTENDANCE_RECORD_SELECT_COLUMNS)
+            .in('employee_code', codes)
+            .range(from, to),
+        { throwOnError: true }
+      )
+    )
   );
-  return applyEmployeeDirectory(data.map(fromDbRow));
+  return applyEmployeeDirectory(perChunk.flat().map(fromDbRow));
 }
 
 // One employee's records from every uploaded month (same office), sorted

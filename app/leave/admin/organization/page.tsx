@@ -4,7 +4,14 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import LeavePageHeader from '@/components/leave/LeavePageHeader';
 import { useDebounce } from '@/lib/useDebounce';
 
-type DepartmentRow = { department: string; managerId: string | null; managerName: string | null };
+type DepartmentRow = {
+  department: string;
+  managerId: string | null;
+  managerName: string | null;
+  leadId: string | null;
+  leadName: string | null;
+  leadMixed: boolean;
+};
 type ManagerRow = {
   id: string;
   employeeCode: string;
@@ -284,9 +291,10 @@ export default function OrganizationManagementPage() {
   const [tab, setTab] = useState<OrgTab>('chart');
   const [orgSearch, setOrgSearch] = useState('');
   const [unplacedOpen, setUnplacedOpen] = useState(false);
-  // Session-only optimistic record of "what lead did I just assign to this
-  // department" — see the long comment above the Departments table for why
-  // this exists instead of reading it from the API response.
+  // Optimistic record of "what lead did I just assign to this department",
+  // so the dropdown responds instantly. The saved value now comes back from
+  // the API (department.leadId/leadName), so this is only an overlay that is
+  // cleared once the refetch lands, or reverted if the save fails.
   const [localLeadByDept, setLocalLeadByDept] = useState<Record<string, { id: string; name: string } | null>>({});
   const [treeVersion, setTreeVersion] = useState(0);
   const [treeForceOpen, setTreeForceOpen] = useState<boolean | undefined>(undefined);
@@ -343,6 +351,18 @@ export default function OrganizationManagementPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  function clearLeadOverlay(body: Record<string, unknown>) {
+    if (body.action !== 'bulk_assign_lead' || typeof body.department !== 'string') return;
+    const dept = body.department;
+    setLocalLeadByDept((prev) => {
+      const { [dept]: _removed, ...rest } = prev;
+      return rest;
+    });
+  }
+  // A failed save must not leave the dropdown showing a lead that was never
+  // stored — same effect as clearing: fall back to what the server reports.
+  const revertLeadOverlay = clearLeadOverlay;
+
   async function post(body: Record<string, unknown>, key: string) {
     setSavingKey(key);
     setToast(null);
@@ -356,12 +376,16 @@ export default function OrganizationManagementPage() {
       const data = text ? JSON.parse(text) : {};
       if (!res.ok) {
         setToast({ kind: 'error', text: data.error || 'Failed to save.' });
+        revertLeadOverlay(body);
         return;
       }
-      setToast({ kind: 'success', text: 'Saved.' });
+      setToast({ kind: 'success', text: data.message || 'Saved.' });
       await load(true);
+      // The refetch now carries the persisted lead, so drop the overlay.
+      clearLeadOverlay(body);
     } catch {
       setToast({ kind: 'error', text: 'Could not reach the server.' });
+      revertLeadOverlay(body);
     } finally {
       setSavingKey(null);
     }
@@ -645,8 +669,12 @@ export default function OrganizationManagementPage() {
                   </thead>
                   <tbody>
                     {filteredDepartments.map((d) => {
-                      const localLead = localLeadByDept[d.department];
-                      const leadKnown = d.department in localLeadByDept;
+                      // Optimistic overlay (just changed, refetch pending) wins;
+                      // otherwise show what is actually saved in the database.
+                      const hasLocal = d.department in localLeadByDept;
+                      const savedLead = d.leadId ? { id: d.leadId, name: d.leadName ?? 'Unknown' } : null;
+                      const shownLead = hasLocal ? localLeadByDept[d.department] : savedLead;
+                      const showMixed = !hasLocal && d.leadMixed;
                       return (
                         <tr key={d.department} className="border-b last:border-0" style={{ borderColor: 'var(--border)' }}>
                           <td className="px-3 py-2.5">
@@ -678,28 +706,20 @@ export default function OrganizationManagementPage() {
                               ))}
                             </Select>
                           </td>
-                          {/* The API has no per-department "current lead" field — bulk-assign
-                              fans reporting_lead_id out to every employee individually, so
-                              there's no single stored value to read back. This shows the last
-                              value YOU set, for this session, so the dropdown stops looking
-                              like it silently failed. It resets on a hard page refresh until
-                              the API is extended to compute and return it. */}
                           <td className="px-3 py-2.5" style={{ color: 'var(--text-muted)' }}>
-                            {leadKnown ? (
-                              localLead ? (
-                                <span style={{ color: 'var(--text-primary)' }}>{localLead.name}</span>
-                              ) : (
-                                <span className="italic">cleared</span>
-                              )
-                            ) : (
-                              <span className="italic" title="Not tracked by the API per-department — set below to see it here.">
-                                not tracked
+                            {showMixed ? (
+                              <span className="italic" title="Members of this department have different leads, or some have none.">
+                                mixed
                               </span>
+                            ) : shownLead ? (
+                              <span style={{ color: 'var(--text-primary)' }}>{shownLead.name}</span>
+                            ) : (
+                              <span className="italic">none</span>
                             )}
                           </td>
                           <td className="px-3 py-2.5">
                             <Select
-                              value={localLead?.id ?? ''}
+                              value={showMixed ? '' : shownLead?.id ?? ''}
                               disabled={savingKey === `dept-tl-${d.department}`}
                               saving={savingKey === `dept-tl-${d.department}`}
                               onChange={(e) => {
@@ -712,7 +732,7 @@ export default function OrganizationManagementPage() {
                                 post({ action: 'bulk_assign_lead', department: d.department, lead_id: leadId || null }, `dept-tl-${d.department}`);
                               }}
                             >
-                              <option value="">{leadKnown ? 'Clear lead' : 'Set lead for department…'}</option>
+                              <option value="">{shownLead ? 'Clear lead' : 'Set lead for department…'}</option>
                               {leadOptions.map((t) => (
                                 <option key={t.id} value={t.id}>
                                   {t.full_name}
@@ -736,8 +756,9 @@ export default function OrganizationManagementPage() {
               <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
                 "Assign lead (bulk)" sets every current employee-role member of that department's reporting lead in
                 one action — the same field an employee's Adjust panel edits per person, just applied to the whole
-                department at once. "Current lead" reflects your latest change for this browser session — ask me to
-                wire up the API if you want it to persist and reload correctly across visits.
+                department at once. Only members with role = employee are updated (leads and managers in the
+                department are left as they are). "Current lead" shows what is saved in the database; it reads
+                "mixed" when members of the department have different leads, or some have none.
               </p>
             </section>
           )}
