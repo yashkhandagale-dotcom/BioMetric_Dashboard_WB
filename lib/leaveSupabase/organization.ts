@@ -15,6 +15,14 @@ export type DepartmentWithManager = {
   department: string;
   managerId: string | null;
   managerName: string | null;
+  // The department's current lead, derived from its role='employee'
+  // members' reporting_lead_id (there is no per-department column — bulk
+  // assign fans the value out to each employee). leadId is set only when
+  // EVERY such member has the same lead; leadMixed is true when members
+  // disagree (different leads, or some unassigned) so the UI can say so.
+  leadId: string | null;
+  leadName: string | null;
+  leadMixed: boolean;
 };
 
 export async function getDepartmentsWithManagers(
@@ -22,9 +30,27 @@ export async function getDepartmentsWithManagers(
 ): Promise<{ departments: DepartmentWithManager[]; error: string | null }> {
   const { data: employeeRows, error: empError } = await supabase
     .from('employees')
-    .select('department')
+    .select('department, role, reporting_lead_id')
     .order('department');
   if (empError) return { departments: [], error: empError.message };
+
+  // Per-department lead, computed over the same rows bulk_assign_lead writes
+  // to (role = 'employee'), so what's shown matches what was saved.
+  const leadIdsByDept = new Map<string, (string | null)[]>();
+  for (const e of employeeRows ?? []) {
+    if (!e.department || e.role !== 'employee') continue;
+    const list = leadIdsByDept.get(e.department) ?? [];
+    list.push(e.reporting_lead_id ?? null);
+    leadIdsByDept.set(e.department, list);
+  }
+  const allLeadIds = Array.from(
+    new Set(Array.from(leadIdsByDept.values()).flat().filter((id): id is string => !!id))
+  );
+  let leadNames: Record<string, string> = {};
+  if (allLeadIds.length > 0) {
+    const { data: leadRows } = await supabase.from('employees').select('id, full_name').in('id', allLeadIds);
+    leadNames = Object.fromEntries((leadRows ?? []).map((l) => [l.id, l.full_name]));
+  }
 
   const departmentNames = Array.from(
     new Set((employeeRows ?? []).map((e) => e.department).filter((d): d is string => !!d))
@@ -53,7 +79,19 @@ export async function getDepartmentsWithManagers(
   return {
     departments: departmentNames.map((department) => {
       const managerId = managerIdByDept.get(department) ?? null;
-      return { department, managerId, managerName: managerId ? managerNames[managerId] ?? null : null };
+      const leadValues = leadIdsByDept.get(department) ?? [];
+      const distinct = new Set(leadValues);
+      const leadId = distinct.size === 1 ? [...distinct][0] : null;
+      // "Mixed" = members disagree. All-unassigned (a single null) is not mixed.
+      const leadMixed = distinct.size > 1;
+      return {
+        department,
+        managerId,
+        managerName: managerId ? managerNames[managerId] ?? null : null,
+        leadId,
+        leadName: leadId ? leadNames[leadId] ?? null : null,
+        leadMixed,
+      };
     }),
     error: null,
   };
