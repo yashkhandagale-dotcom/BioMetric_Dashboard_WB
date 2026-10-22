@@ -756,8 +756,9 @@ export default function OrganizationManagementPage() {
               <p className="text-xs" style={{ color: 'var(--text-muted)' }}>
                 "Assign lead (bulk)" sets every current employee-role member of that department's reporting lead in
                 one action — the same field an employee's Adjust panel edits per person, just applied to the whole
-                department at once. "Current lead" reflects your latest change for this browser session — ask me to
-                wire up the API if you want it to persist and reload correctly across visits.
+                department at once. Only members with role = employee are updated (leads and managers in the
+                department are left as they are). "Current lead" shows what is saved in the database; it reads
+                "mixed" when members of the department have different leads, or some have none.
               </p>
             </section>
           )}
