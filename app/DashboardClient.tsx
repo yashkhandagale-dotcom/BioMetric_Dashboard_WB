@@ -153,17 +153,31 @@ function ManagerView({
   teamMode,
   teamCodes,
   managedDepartments,
+  teamError,
 }: {
   records: AttendanceRecord[];
   teamMode?: boolean;
   teamCodes?: string[];
   managedDepartments?: string[];
+  teamError?: string | null;
 }) {
   const [selectedEmp, setSelectedEmp] = useState<EmployeeSummary | null>(null);
   const [thresholds, setThresholds] = useState<Thresholds>(DEFAULT_THRESHOLDS);
   const [uploadedMonths, setUploadedMonths] = useState<UploadedMonth[]>([]);
 
   const [leaveRecords, setLeaveRecords] = useState<LeaveRecord[]>([]);
+
+  // Managers/leads land here (team mode) with a real session, so they need a
+  // way to sign out — this view never passed onSignOut to DashboardShell, so
+  // it had no logout button at all. The unauthenticated share-link view
+  // (teamMode off) has no session, so it intentionally gets none.
+  async function handleTeamSignOut() {
+    try {
+      await fetch('/api/auth/signout', { method: 'POST' });
+    } finally {
+      window.location.assign('/login');
+    }
+  }
 
   // Filtering states
   const [selectedTeam, setSelectedTeam] = useState<string>('all');
@@ -251,6 +265,7 @@ function ManagerView({
       variant={teamMode ? 'team' : 'shared'}
       availableSections={['overview', 'employees', 'departments']}
       recordCount={filteredRecords.length}
+      onSignOut={teamMode ? handleTeamSignOut : undefined}
       exportSlot={teamMode ? <ExportPanel uploadedMonths={uploadedMonths} thresholds={thresholds} restrictToEmployeeCodes={teamCodes ?? []} /> : undefined}
     >
       <div className="space-y-6">
@@ -266,6 +281,25 @@ function ManagerView({
             </span>
           )}
         </div>
+
+        {teamMode && teamError && (
+          <div className="bg-red-500/10 border border-red-500/30 text-red-700 dark:text-red-300 text-sm font-medium rounded-xl px-4 py-3">
+            {teamError} Please refresh, and if it keeps happening contact HR.
+          </div>
+        )}
+        {teamMode && !teamError && (teamCodes?.length ?? 0) === 0 && (
+          <div className="bg-amber-500/10 border border-amber-500/30 text-amber-800 dark:text-amber-300 text-sm rounded-xl px-4 py-3">
+            No team members are assigned to you yet. HR needs to assign you as a department manager
+            (or set you as the reporting lead on your team members) in Organization.
+          </div>
+        )}
+        {teamMode && !teamError && (teamCodes?.length ?? 0) > 0 && records.length === 0 && (
+          <div className="bg-amber-500/10 border border-amber-500/30 text-amber-800 dark:text-amber-300 text-sm rounded-xl px-4 py-3">
+            You have {teamCodes!.length} team member{teamCodes!.length === 1 ? '' : 's'}, but no attendance
+            records were found for them. Either no biometric data has been uploaded yet, or their employee
+            codes don&apos;t match the codes in the uploaded file — ask HR to check.
+          </div>
+        )}
 
         {/* ── Team & Date Filter Bar ────────────────────────────────────────── */}
         <div className="bg-[var(--bg-elevated)]/60 border border-[var(--border)] rounded-2xl p-4 shadow-sm space-y-3.5">
@@ -1627,13 +1661,16 @@ export default function DashboardClient({
   role,
   teamCodes,
   managedDepartments,
+  teamError,
 }: {
   role: 'hr' | 'manager' | 'lead' | null;
   teamCodes?: string[];
   managedDepartments?: string[];
+  teamError?: string | null;
 }) {
   const [viewMode, setViewMode] = useState<ViewMode>('loading');
   const [managerRecords, setManagerRecords] = useState<AttendanceRecord[]>([]);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     const qp = new URLSearchParams(window.location.search);
@@ -1653,9 +1690,17 @@ export default function DashboardClient({
         if (codes.length === 0) {
           setManagerRecords([]);
         } else {
-          // PERF: Filter by team codes directly at the database level
-          const recs = await getTeamRecords(codes);
-          setManagerRecords(recs);
+          try {
+            // PERF: Filter by team codes directly at the database level
+            const recs = await getTeamRecords(codes);
+            setManagerRecords(recs);
+          } catch (err) {
+            // Previously a failed load was swallowed and rendered as an
+            // empty dashboard — indistinguishable from "no data".
+            console.error('getTeamRecords failed:', err);
+            setManagerRecords([]);
+            setLoadError(`Could not load attendance data: ${err instanceof Error ? err.message : 'unknown error'}.`);
+          }
         }
         setViewMode('team');
       })();
@@ -1677,7 +1722,7 @@ export default function DashboardClient({
     </div>
   );
   if (viewMode === 'manager') return <ManagerView records={managerRecords} />;
-  if (viewMode === 'team') return <ManagerView records={managerRecords} teamMode teamCodes={teamCodes} managedDepartments={managedDepartments} />;
+  if (viewMode === 'team') return <ManagerView records={managerRecords} teamMode teamCodes={teamCodes} managedDepartments={managedDepartments} teamError={teamError ?? loadError} />;
 
   return (
     <Suspense fallback={<div className="min-h-screen bg-[var(--bg-surface)] p-6 md:p-8"><DashboardSkeleton /></div>}>
