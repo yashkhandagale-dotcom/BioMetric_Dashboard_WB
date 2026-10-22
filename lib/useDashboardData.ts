@@ -6,7 +6,7 @@ import {
 import { durationToMinutes, minutesToHHMM } from './parseCSV';
 import { isHoliday, getHolidayName } from './holidays';
 import { DEFAULT_THRESHOLDS } from './settings';
-import { effectiveMinutes } from './hoursCalc';
+import { effectiveMinutes, lunchOverlapMinutes } from './hoursCalc';
 
 // Shift: 9:30 to 18:30, 1h lunch → 8h effective work expected
 export const SHIFT_MINUTES = 8 * 60;             // 480 effective minutes
@@ -190,7 +190,15 @@ export function computeProductivityLostMinutes(
   // hours, so: effective = worked - 60 (lunch), then compare against the
   // shift's target effective minutes. If worked ≤ 60 that means they barely
   // punched in - no lunch subtraction.
-  const lunchMinutes = worked > 60 ? 60 : 0;
+  const lunchMinutes = (() => {
+    const outMins = timeStringToMinutes(r.outTime);
+    if (outMins > 0) {
+      const inMins = timeStringToMinutes(r.inTime);
+      return lunchOverlapMinutes(inMins >= 0 ? inMins : outMins - worked, outMins);
+    }
+    // Fallback: flat rule
+    return worked > 60 ? 60 : 0;
+  })();
   const effective = worked - lunchMinutes;
   return Math.max(0, targetShiftMinutes(shiftStart, shiftEnd) - effective);
 }
@@ -323,10 +331,10 @@ export function computeEmployeeKPIs(
   const attendanceRate = scheduledDays > 0 ? (presentDays / scheduledDays) * 100 : 0;
   const absenteeismRate = scheduledDays > 0 ? (absentDays / scheduledDays) * 100 : 0;
 
-  // Effective hours: duration - 60min lunch (shared with Charts.tsx / exportData.ts — lib/hoursCalc.ts)
-  const presentWithDuration = [...presentRecords, ...halfDayRecords].filter((r) => effectiveMinutes(durationToMinutes(r.duration)) !== null);
+  // Effective hours: lunch deducted only for the portion overlapping 13:00–14:00
+  const presentWithDuration = [...presentRecords, ...halfDayRecords].filter((r) => effectiveMinutes(durationToMinutes(r.duration), r.outTime, r.inTime) !== null);
   const totalEffectiveMins = presentWithDuration.reduce(
-    (sum, r) => sum + (effectiveMinutes(durationToMinutes(r.duration)) ?? 0), 0
+    (sum, r) => sum + (effectiveMinutes(durationToMinutes(r.duration), r.outTime, r.inTime) ?? 0), 0
   );
   const avgHoursPerDay = presentWithDuration.length > 0 ? totalEffectiveMins / presentWithDuration.length / 60 : 0;
 
@@ -447,7 +455,7 @@ export function useDashboardData(
         presentRecordsCount++;
 
         const rawMins = durationToMinutes(r.duration);
-        const eff = effectiveMinutes(rawMins);
+        const eff = effectiveMinutes(rawMins, r.outTime, r.inTime);
         if (eff !== null) {
           totalEffectiveMins += eff;
           presentWithDurationCount++;
@@ -561,8 +569,8 @@ export function useDashboardData(
           emp.presentDays++;
           if (isMissedPunchOut(r.status)) emp.missedPunchOutCount = (emp.missedPunchOutCount ?? 0) + 1;
           const mins = durationToMinutes(r.duration);
-          // store effective minutes (subtract lunch) — shared with Charts.tsx / exportData.ts (lib/hoursCalc.ts)
-          emp.totalMinutes += effectiveMinutes(mins) ?? 0;
+          // store effective minutes (lunch deducted only for 13:00–14:00 overlap)
+          emp.totalMinutes += effectiveMinutes(mins, r.outTime, r.inTime) ?? 0;
           if (getLateMinutes(r, grace, shiftStart) > 0) emp.lateCount++;
           if (getEarlyMinutes(r, grace, shiftEnd) > 0) emp.earlyExitCount++;
         } else if (isAbsent(r.status)) {
@@ -593,21 +601,22 @@ export function useDashboardData(
       // Working Hours Distribution chart and the Employee Comparison panel
       // (both of which already only average present days with a valid,
       // >60-minute raw duration).
-      const presentRecsWithDuration = presentRecs.filter(r => effectiveMinutes(durationToMinutes(r.duration)) !== null);
+      const presentRecsWithDuration = presentRecs.filter(r => effectiveMinutes(durationToMinutes(r.duration), r.outTime, r.inTime) !== null);
       const totalEffectiveMinsForAvg = presentRecsWithDuration.reduce(
-        (sum, r) => sum + (effectiveMinutes(durationToMinutes(r.duration)) ?? 0), 0
+        (sum, r) => sum + (effectiveMinutes(durationToMinutes(r.duration), r.outTime, r.inTime) ?? 0), 0
       );
 
       const avgMins = presentRecsWithDuration.length > 0
         ? Math.round(totalEffectiveMinsForAvg / presentRecsWithDuration.length) : 0;
       emp.avgHoursWorked = minutesToHHMM(avgMins);
 
-      // Attendance rate: full scheduled days as the denominator — approved
-      // leave is NOT excluded (leave counts against attendance rate, per
-      // updated requirement). Only isNonWorkingDay (weekly-off/holiday) is
-      // excluded, which is already reflected in emp.scheduledDays.
-      const rate = emp.scheduledDays > 0 ? (emp.presentDays / emp.scheduledDays) * 100 : 0;
-      emp.worstStatus = colorStatus(rate, thresholds.attendanceRateGreen, thresholds.attendanceRateAmber);
+      // Status based on average working hours vs target shift duration.
+      // avgMins is already computed above as the average effective minutes
+      // worked per present day (excludes days with no valid duration).
+      // targetShiftMinutes() returns the full shift minus 1h lunch break.
+      const targetMins = targetShiftMinutes(shiftStart, shiftEnd);
+      const hoursPct = targetMins > 0 ? (avgMins / targetMins) * 100 : 0;
+      emp.worstStatus = colorStatus(hoursPct, thresholds.avgHoursPctGreen, thresholds.avgHoursPctAmber);
 
       const lateMinsArr = presentRecs.map(r => getLateMinutes(r, grace, shiftStart)).filter(m => m > 0);
       emp.avgLateMinutes = lateMinsArr.length > 0
@@ -749,7 +758,9 @@ export function useDashboardData(
       if (leave && leave.leaveType !== 'half_day') continue;
       const rawMins = durationToMinutes(r.duration);
       if (rawMins <= 60) continue;
-      const effectiveMins = rawMins - 60; // subtract lunch
+      // Lunch deducted only for the 13:00–14:00 overlap with the actual punch window
+      const { outTime, inTime } = r;
+      const effectiveMins = effectiveMinutes(rawMins, outTime, inTime) ?? 0;
       const dept = r.department || 'Unknown';
       if (!deptMap.has(dept)) deptMap.set(dept, { totalMins: 0, count: 0 });
       const d = deptMap.get(dept)!;

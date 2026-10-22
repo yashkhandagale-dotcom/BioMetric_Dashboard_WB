@@ -7,6 +7,12 @@ import { useDebounce } from '@/lib/useDebounce';
 interface EmployeeTableProps {
   summaries: EmployeeSummary[];
   onEmployeeClick?: (emp: EmployeeSummary) => void;
+  /** Total effective shift minutes (shift duration minus lunch break). Defaults to 480 = 8 h. */
+  shiftTargetMins?: number;
+  /** Percentage of shift minutes required for On Track status. Defaults to 85. */
+  avgHoursPctGreen?: number;
+  /** Percentage of shift minutes required for Needs Attention status. Defaults to 75. */
+  avgHoursPctAmber?: number;
 }
 
 type SortKey = keyof EmployeeSummary;
@@ -18,9 +24,50 @@ const STATUS_BADGE: Record<string, string> = {
   amber: 'bg-amber-500/10 dark:bg-amber-500/15 text-amber-800 dark:text-amber-300 border-amber-500/30',
   red:   'bg-red-500/10 dark:bg-red-500/15 text-red-700 dark:text-red-300 border-red-500/30',
 };
-const STATUS_LABEL: Record<string, string> = { green: 'Good', amber: 'At Risk', red: 'Poor' };
+const STATUS_LABEL: Record<string, string> = { green: 'On Track', amber: 'Needs Attention', red: 'Critical' };
 
-function EmployeeTable({ summaries, onEmployeeClick }: EmployeeTableProps) {
+/** Converts a minute count to a compact "Xh Ym" string (e.g. 408 → "6h 48m"). */
+function minsToHM(mins: number): string {
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return m === 0 ? `${h}h` : `${h}h ${m}m`;
+}
+
+/** Builds status tooltip copy with actual computed time thresholds. */
+function buildTooltip(
+  shiftTargetMins: number,
+  pctGreen: number,
+  pctAmber: number,
+): Record<string, { headline: string; detail: string; threshold: string }> {
+  const greenMins  = Math.round((pctGreen  / 100) * shiftTargetMins);
+  const amberMins  = Math.round((pctAmber  / 100) * shiftTargetMins);
+  return {
+    green: {
+      headline:  `On Track — Avg ≥ ${pctGreen}% of shift hours`,
+      detail:    'This employee works at or above the target hours on average.',
+      threshold: `≥ ${minsToHM(greenMins)} / day`,
+    },
+    amber: {
+      headline:  `Needs Attention — Avg ${pctAmber}–${pctGreen - 1}% of shift hours`,
+      detail:    'Working hours are slightly below target. A check-in is recommended.',
+      threshold: `${minsToHM(amberMins)} – ${minsToHM(greenMins - 1)} / day`,
+    },
+    red: {
+      headline:  `Critical — Avg < ${pctAmber}% of shift hours`,
+      detail:    'Significantly below expected working hours. HR or manager follow-up needed.',
+      threshold: `< ${minsToHM(amberMins)} / day`,
+    },
+  };
+}
+
+function EmployeeTable({
+  summaries,
+  onEmployeeClick,
+  shiftTargetMins = 480,
+  avgHoursPctGreen = 85,
+  avgHoursPctAmber = 75,
+}: EmployeeTableProps) {
+  const STATUS_TOOLTIP = buildTooltip(shiftTargetMins, avgHoursPctGreen, avgHoursPctAmber);
   const [search, setSearch] = useState('');
   const debouncedSearch = useDebounce(search, 200);
   const [sortKey, setSortKey] = useState<SortKey>('employeeName');
@@ -167,9 +214,60 @@ function EmployeeTable({ summaries, onEmployeeClick }: EmployeeTableProps) {
                 </td>
                 <td className="px-3.5 py-3 text-[var(--text-primary)] font-mono text-xs">{emp.avgHoursWorked}</td>
                 <td className="px-3.5 py-3">
-                  <span className={`border px-2.5 py-0.5 rounded-full text-xs font-semibold ${STATUS_BADGE[emp.worstStatus] || 'bg-[var(--bg-elevated)] text-[var(--text-muted)] border-[var(--border)]'}`}>
-                    {STATUS_LABEL[emp.worstStatus] || emp.worstStatus}
-                  </span>
+                  {/* Status badge with tooltip explaining the basis of the status */}
+                  <div className="relative inline-flex group/status">
+                    <span
+                      className={`border px-2.5 py-0.5 rounded-full text-xs font-semibold cursor-help ${
+                        STATUS_BADGE[emp.worstStatus] || 'bg-[var(--bg-elevated)] text-[var(--text-muted)] border-[var(--border)]'
+                      }`}
+                      aria-describedby={`status-tip-${emp.employeeCode}`}
+                    >
+                      {STATUS_LABEL[emp.worstStatus] || emp.worstStatus}
+                    </span>
+                    {/* Tooltip */}
+                    <div
+                      id={`status-tip-${emp.employeeCode}`}
+                      role="tooltip"
+                      className="pointer-events-none absolute z-50 bottom-full left-1/2 -translate-x-1/2 mb-2 w-64 rounded-xl border border-[var(--border)] bg-[var(--bg-elevated)] shadow-xl px-3.5 py-3 opacity-0 scale-95 group-hover/status:opacity-100 group-hover/status:scale-100 transition-all duration-150 origin-bottom"
+                    >
+                      {/* Arrow */}
+                      <div className="absolute left-1/2 -translate-x-1/2 top-full w-0 h-0 border-l-[6px] border-l-transparent border-r-[6px] border-r-transparent border-t-[6px] border-t-[var(--border)]" />
+                      {/* Headline */}
+                      <p className={`text-xs font-bold mb-1 ${
+                        emp.worstStatus === 'green' ? 'text-emerald-600 dark:text-emerald-400'
+                        : emp.worstStatus === 'amber' ? 'text-amber-700 dark:text-amber-400'
+                        : 'text-red-600 dark:text-red-400'
+                      }`}>
+                        {STATUS_TOOLTIP[emp.worstStatus]?.headline}
+                      </p>
+                      {/* Detail explanation */}
+                      <p className="text-[var(--text-muted)] text-[11px] leading-relaxed mb-1.5">
+                        {STATUS_TOOLTIP[emp.worstStatus]?.detail}
+                      </p>
+                      {/* Threshold time range */}
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-[var(--text-muted)] text-[10px] font-medium">Threshold</span>
+                        <span className={`text-[10px] font-semibold font-mono ${
+                          emp.worstStatus === 'green' ? 'text-emerald-600 dark:text-emerald-400'
+                          : emp.worstStatus === 'amber' ? 'text-amber-700 dark:text-amber-400'
+                          : 'text-red-600 dark:text-red-400'
+                        }`}>
+                          {STATUS_TOOLTIP[emp.worstStatus]?.threshold}
+                        </span>
+                      </div>
+                      {/* Live working hours for this employee */}
+                      <div className="border-t border-[var(--border)] pt-2 flex items-center justify-between">
+                        <span className="text-[var(--text-muted)] text-[10px] font-medium">Avg hours/day</span>
+                        <span className={`text-[11px] font-bold font-mono ${
+                          emp.worstStatus === 'green' ? 'text-emerald-600 dark:text-emerald-400'
+                          : emp.worstStatus === 'amber' ? 'text-amber-700 dark:text-amber-400'
+                          : 'text-red-600 dark:text-red-400'
+                        }`}>
+                          {emp.avgHoursWorked || '—'}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
                 </td>
               </tr>
             ))}
