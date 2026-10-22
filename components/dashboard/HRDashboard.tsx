@@ -39,7 +39,6 @@ import OfficeCodePrompt from '@/components/OfficeCodePrompt';
 import KPICards from '@/components/KPICards';
 import OnLeaveTodayCard from '@/components/OnLeaveTodayCard';
 import EmployeeTable from '@/components/EmployeeTable';
-import InsightsStrip from '@/components/InsightsStrip';
 import DashboardShell, { type DashboardSectionId } from '@/components/dashboard/DashboardShell';
 import DashboardSkeleton from '@/components/dashboard/DashboardSkeleton';
 
@@ -1135,7 +1134,6 @@ export default function HRDashboard() {
                     shiftEndMinutes={thresholds.shiftEndMinutes}
                   />
                 </div>
-                <InsightsStrip summaries={employeeSummaries} dailyTrend={dailyTrend} deptAttendance={deptAttendance} records={filteredRecords} selectedDepts={selectedDepts} />
                 <div id="section-employees" className="bg-[var(--bg-elevated)]/30 rounded-xl border border-[var(--border)] p-4">
                   <div className="flex items-center justify-between flex-wrap gap-2 mb-4">
                     <h2 className="text-[var(--text-primary)] font-semibold text-sm">
