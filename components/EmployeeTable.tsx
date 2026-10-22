@@ -1,6 +1,6 @@
-'use client';
+﻿'use client';
 import { useState, useMemo, memo } from 'react';
-import { ChevronUp, ChevronDown, ChevronsUpDown, Search, Zap, AlertTriangle, X, Users } from 'lucide-react';
+import { ChevronUp, ChevronDown, ChevronsUpDown, Search, Zap, AlertTriangle, X, Users, Info } from 'lucide-react';
 import { EmployeeSummary } from '@/lib/types';
 import { useDebounce } from '@/lib/useDebounce';
 
@@ -33,33 +33,6 @@ function minsToHM(mins: number): string {
   return m === 0 ? `${h}h` : `${h}h ${m}m`;
 }
 
-/** Builds status tooltip copy with actual computed time thresholds. */
-function buildTooltip(
-  shiftTargetMins: number,
-  pctGreen: number,
-  pctAmber: number,
-): Record<string, { headline: string; detail: string; threshold: string }> {
-  const greenMins  = Math.round((pctGreen  / 100) * shiftTargetMins);
-  const amberMins  = Math.round((pctAmber  / 100) * shiftTargetMins);
-  return {
-    green: {
-      headline:  `On Track — Avg ≥ ${pctGreen}% of shift hours`,
-      detail:    'This employee works at or above the target hours on average.',
-      threshold: `≥ ${minsToHM(greenMins)} / day`,
-    },
-    amber: {
-      headline:  `Needs Attention — Avg ${pctAmber}–${pctGreen - 1}% of shift hours`,
-      detail:    'Working hours are slightly below target. A check-in is recommended.',
-      threshold: `${minsToHM(amberMins)} – ${minsToHM(greenMins - 1)} / day`,
-    },
-    red: {
-      headline:  `Critical — Avg < ${pctAmber}% of shift hours`,
-      detail:    'Significantly below expected working hours. HR or manager follow-up needed.',
-      threshold: `< ${minsToHM(amberMins)} / day`,
-    },
-  };
-}
-
 function EmployeeTable({
   summaries,
   onEmployeeClick,
@@ -67,12 +40,14 @@ function EmployeeTable({
   avgHoursPctGreen = 85,
   avgHoursPctAmber = 75,
 }: EmployeeTableProps) {
-  const STATUS_TOOLTIP = buildTooltip(shiftTargetMins, avgHoursPctGreen, avgHoursPctAmber);
   const [search, setSearch] = useState('');
   const debouncedSearch = useDebounce(search, 200);
   const [sortKey, setSortKey] = useState<SortKey>('employeeName');
   const [sortDir, setSortDir] = useState<SortDir>('asc');
   const [page, setPage] = useState(1);
+
+  const greenMins = Math.round((avgHoursPctGreen / 100) * shiftTargetMins);
+  const amberMins = Math.round((avgHoursPctAmber / 100) * shiftTargetMins);
 
   const filtered = useMemo(() => {
     const q = debouncedSearch.toLowerCase().trim();
@@ -94,16 +69,23 @@ function EmployeeTable({
 
   const totalPages = Math.max(1, Math.ceil(sorted.length / PAGE_SIZE));
   const currentPage = Math.min(page, totalPages);
-  const pageData = sorted.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+  const pageData = useMemo(() => {
+    const start = (currentPage - 1) * PAGE_SIZE;
+    return sorted.slice(start, start + PAGE_SIZE);
+  }, [sorted, currentPage]);
 
   function handleSort(key: SortKey) {
-    if (sortKey === key) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
-    else { setSortKey(key); setSortDir('asc'); }
+    if (sortKey === key) {
+      setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortKey(key);
+      setSortDir('asc');
+    }
     setPage(1);
   }
 
   function SortIcon({ col }: { col: SortKey }) {
-    if (sortKey !== col) return <ChevronsUpDown className="w-3.5 h-3.5 text-[var(--text-muted)] opacity-50" />;
+    if (sortKey !== col) return <ChevronsUpDown className="w-3.5 h-3.5 opacity-40" />;
     return sortDir === 'asc'
       ? <ChevronUp className="w-3.5 h-3.5 text-[var(--accent)] font-bold" />
       : <ChevronDown className="w-3.5 h-3.5 text-[var(--accent)] font-bold" />;
@@ -159,7 +141,91 @@ function EmployeeTable({
               <TH col="earlyExitCount" label="Early Exit" />
               <th className="px-3.5 py-3 text-left text-xs font-semibold text-[var(--text-muted)] whitespace-nowrap">Flags</th>
               <TH col="avgHoursWorked" label="Avg Hours" />
-              <TH col="worstStatus" label="Status" />
+              <th className="px-3.5 py-3 text-left text-xs font-semibold text-[var(--text-muted)] select-none whitespace-nowrap relative group/statushdr">
+                <div className="flex items-center gap-1.5">
+                  <span
+                    onClick={() => handleSort('worstStatus')}
+                    className="flex items-center gap-1 hover:text-[var(--text-primary)] transition-colors cursor-pointer"
+                  >
+                    Status
+                    <SortIcon col="worstStatus" />
+                  </span>
+                  <span
+                    className="inline-flex items-center justify-center text-[var(--text-muted)] hover:text-[var(--text-primary)] cursor-help p-0.5 rounded-full hover:bg-[var(--bg-surface)] transition-colors"
+                    title="View status calculation criteria"
+                  >
+                    <Info className="w-3.5 h-3.5" />
+                  </span>
+                </div>
+
+                {/* Status criteria tooltip card */}
+                <div
+                  role="tooltip"
+                  className="pointer-events-none absolute z-50 top-full right-0 mt-2 w-80 rounded-xl border border-[var(--border)] bg-[var(--bg-elevated)] shadow-2xl p-4 opacity-0 scale-95 group-hover/statushdr:opacity-100 group-hover/statushdr:scale-100 transition-all duration-150 origin-top-right text-left font-normal normal-case"
+                >
+                  {/* Arrow pointing up */}
+                  <div className="absolute right-6 bottom-full w-0 h-0 border-l-[6px] border-l-transparent border-r-[6px] border-r-transparent border-b-[6px] border-b-[var(--border)]" />
+
+                  <div className="flex items-center justify-between pb-2 mb-2.5 border-b border-[var(--border)]">
+                    <span className="text-xs font-bold text-[var(--text-primary)]">Status Breakdown</span>
+                    <span className="text-[10px] font-mono text-[var(--text-muted)]">Target: {minsToHM(shiftTargetMins)}/day</span>
+                  </div>
+
+                  <p className="text-[11px] text-[var(--text-muted)] leading-relaxed mb-3">
+                    Evaluated from each employee&apos;s average effective working hours per present day against the expected shift duration:
+                  </p>
+
+                  <div className="space-y-2.5">
+                    {/* On Track */}
+                    <div className="flex items-start gap-2.5">
+                      <span className="inline-block mt-0.5 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/10 dark:bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30 shrink-0">
+                        On Track
+                      </span>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between gap-1">
+                          <span className="text-[11px] font-semibold text-[var(--text-primary)]">≥ {avgHoursPctGreen}% of shift</span>
+                          <span className="text-[10px] font-mono font-bold text-emerald-600 dark:text-emerald-400">≥ {minsToHM(greenMins)}/day</span>
+                        </div>
+                        <p className="text-[10px] text-[var(--text-muted)] leading-tight mt-0.5">
+                          Consistently meets or exceeds target working hours.
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Needs Attention */}
+                    <div className="flex items-start gap-2.5">
+                      <span className="inline-block mt-0.5 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-500/10 dark:bg-amber-500/15 text-amber-800 dark:text-amber-300 border border-amber-500/30 shrink-0">
+                        Needs Attention
+                      </span>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between gap-1">
+                          <span className="text-[11px] font-semibold text-[var(--text-primary)]">{avgHoursPctAmber}%–{avgHoursPctGreen - 1}% of shift</span>
+                          <span className="text-[10px] font-mono font-bold text-amber-600 dark:text-amber-400">{minsToHM(amberMins)}–{minsToHM(greenMins - 1)}</span>
+                        </div>
+                        <p className="text-[10px] text-[var(--text-muted)] leading-tight mt-0.5">
+                          Borderline below expected hours. A check-in is recommended.
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Critical */}
+                    <div className="flex items-start gap-2.5">
+                      <span className="inline-block mt-0.5 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-red-500/10 dark:bg-red-500/15 text-red-700 dark:text-red-300 border border-red-500/30 shrink-0">
+                        Critical
+                      </span>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between gap-1">
+                          <span className="text-[11px] font-semibold text-[var(--text-primary)]">&lt; {avgHoursPctAmber}% of shift</span>
+                          <span className="text-[10px] font-mono font-bold text-red-600 dark:text-red-400">&lt; {minsToHM(amberMins)}/day</span>
+                        </div>
+                        <p className="text-[10px] text-[var(--text-muted)] leading-tight mt-0.5">
+                          Significantly below expected hours. Follow-up needed from HR/manager.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </th>
             </tr>
           </thead>
           <tbody className="divide-y divide-[var(--border)]">
@@ -187,7 +253,7 @@ function EmployeeTable({
                   {emp.presentDays}
                 </td>
                 <td className="px-3.5 py-3 text-red-700 dark:text-red-300 font-semibold">
-                  <span title={`${emp.unmarkedAbsentDays ?? 0} unmarked · ${(emp.plannedLeaveCount ?? 0) + (emp.casualLeaveCount ?? 0) + (emp.sickLeaveCount ?? 0) + (emp.lwpCount ?? 0) + ((emp.halfDayCount ?? 0) * 0.5)} marked`}>
+                  <span title={`${emp.unmarkedAbsentDays ?? 0} unmarked A • ${(emp.plannedLeaveCount ?? 0) + (emp.casualLeaveCount ?? 0) + (emp.sickLeaveCount ?? 0) + (emp.lwpCount ?? 0) + ((emp.halfDayCount ?? 0) * 0.5)} marked`}>
                     {emp.absentDays}
                   </span>
                 </td>
@@ -214,60 +280,13 @@ function EmployeeTable({
                 </td>
                 <td className="px-3.5 py-3 text-[var(--text-primary)] font-mono text-xs">{emp.avgHoursWorked}</td>
                 <td className="px-3.5 py-3">
-                  {/* Status badge with tooltip explaining the basis of the status */}
-                  <div className="relative inline-flex group/status">
-                    <span
-                      className={`border px-2.5 py-0.5 rounded-full text-xs font-semibold cursor-help ${
-                        STATUS_BADGE[emp.worstStatus] || 'bg-[var(--bg-elevated)] text-[var(--text-muted)] border-[var(--border)]'
-                      }`}
-                      aria-describedby={`status-tip-${emp.employeeCode}`}
-                    >
-                      {STATUS_LABEL[emp.worstStatus] || emp.worstStatus}
-                    </span>
-                    {/* Tooltip */}
-                    <div
-                      id={`status-tip-${emp.employeeCode}`}
-                      role="tooltip"
-                      className="pointer-events-none absolute z-50 bottom-full left-1/2 -translate-x-1/2 mb-2 w-64 rounded-xl border border-[var(--border)] bg-[var(--bg-elevated)] shadow-xl px-3.5 py-3 opacity-0 scale-95 group-hover/status:opacity-100 group-hover/status:scale-100 transition-all duration-150 origin-bottom"
-                    >
-                      {/* Arrow */}
-                      <div className="absolute left-1/2 -translate-x-1/2 top-full w-0 h-0 border-l-[6px] border-l-transparent border-r-[6px] border-r-transparent border-t-[6px] border-t-[var(--border)]" />
-                      {/* Headline */}
-                      <p className={`text-xs font-bold mb-1 ${
-                        emp.worstStatus === 'green' ? 'text-emerald-600 dark:text-emerald-400'
-                        : emp.worstStatus === 'amber' ? 'text-amber-700 dark:text-amber-400'
-                        : 'text-red-600 dark:text-red-400'
-                      }`}>
-                        {STATUS_TOOLTIP[emp.worstStatus]?.headline}
-                      </p>
-                      {/* Detail explanation */}
-                      <p className="text-[var(--text-muted)] text-[11px] leading-relaxed mb-1.5">
-                        {STATUS_TOOLTIP[emp.worstStatus]?.detail}
-                      </p>
-                      {/* Threshold time range */}
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="text-[var(--text-muted)] text-[10px] font-medium">Threshold</span>
-                        <span className={`text-[10px] font-semibold font-mono ${
-                          emp.worstStatus === 'green' ? 'text-emerald-600 dark:text-emerald-400'
-                          : emp.worstStatus === 'amber' ? 'text-amber-700 dark:text-amber-400'
-                          : 'text-red-600 dark:text-red-400'
-                        }`}>
-                          {STATUS_TOOLTIP[emp.worstStatus]?.threshold}
-                        </span>
-                      </div>
-                      {/* Live working hours for this employee */}
-                      <div className="border-t border-[var(--border)] pt-2 flex items-center justify-between">
-                        <span className="text-[var(--text-muted)] text-[10px] font-medium">Avg hours/day</span>
-                        <span className={`text-[11px] font-bold font-mono ${
-                          emp.worstStatus === 'green' ? 'text-emerald-600 dark:text-emerald-400'
-                          : emp.worstStatus === 'amber' ? 'text-amber-700 dark:text-amber-400'
-                          : 'text-red-600 dark:text-red-400'
-                        }`}>
-                          {emp.avgHoursWorked || '—'}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
+                  <span
+                    className={`border px-2.5 py-0.5 rounded-full text-xs font-semibold ${
+                      STATUS_BADGE[emp.worstStatus] || 'bg-[var(--bg-elevated)] text-[var(--text-muted)] border-[var(--border)]'
+                    }`}
+                  >
+                    {STATUS_LABEL[emp.worstStatus] || emp.worstStatus}
+                  </span>
                 </td>
               </tr>
             ))}
