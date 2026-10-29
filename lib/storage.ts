@@ -1,5 +1,5 @@
 import { AttendanceRecord, ColumnMapping, UploadedMonth } from './types';
-import { applyEmployeeDirectory, ensureEmployeesFromAttendance } from './employeeStore';
+import { applyEmployeeDirectory, ensureEmployeesFromAttendance, isEmployeeDeleted } from './employeeStore';
 import { createClient } from './supabase/client';
 import { normalizeDate } from './parseCSV';
 
@@ -191,7 +191,15 @@ export async function saveRecords(
   monthKey: string,
   records: AttendanceRecord[]
 ): Promise<{ added: number; updated: number; employeesCreated: number; employeesSyncError?: string }> {
-  if (records.length === 0) return { added: 0, updated: 0, employeesCreated: 0 };
+  // Avoid deleted/exited employees or ghost punch cards (no name, numeric-only name, name = code)
+  const activeRecords = records.filter((r) => {
+    if (isEmployeeDeleted(r.employeeCode)) return false;
+    const name = (r.employeeName || '').trim();
+    const code = (r.employeeCode || '').trim();
+    if (!name || name.toLowerCase() === code.toLowerCase() || !/[a-zA-Z]/.test(name)) return false;
+    return true;
+  });
+  if (activeRecords.length === 0) return { added: 0, updated: 0, employeesCreated: 0 };
   const supabase = createClient();
 
   // Figure out added vs. updated BEFORE upserting, by checking which
@@ -207,13 +215,13 @@ export async function saveRecords(
   );
   let added = 0;
   let updated = 0;
-  for (const r of records) {
+  for (const r of activeRecords) {
     const k = `${r.employeeCode}__${r.date}__${r.officeCode}`;
     if (existingSet.has(k)) updated++;
     else added++;
   }
 
-  const rows = records.map((r) => toDbRow(monthKey, r));
+  const rows = activeRecords.map((r) => toDbRow(monthKey, r));
   for (let i = 0; i < rows.length; i += UPSERT_BATCH_SIZE) {
     const batch = rows.slice(i, i + UPSERT_BATCH_SIZE);
     const { error } = await supabase
@@ -229,7 +237,7 @@ export async function saveRecords(
   // here (see ensureEmployeesFromAttendance's doc comment) — this only fails
   // open (attendance data is still saved) if the employee sync errors, since
   // losing attendance data over a directory-sync problem would be worse.
-  const syncResult = await ensureEmployeesFromAttendance(records);
+  const syncResult = await ensureEmployeesFromAttendance(activeRecords);
 
   // This month's data just changed — drop it from the cache so the next
   // getRecords(monthKey) call re-fetches instead of serving stale rows.

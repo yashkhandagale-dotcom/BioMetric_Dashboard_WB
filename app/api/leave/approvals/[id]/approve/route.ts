@@ -25,7 +25,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
 
   const { data: request } = await sessionClient
     .from('leave_requests')
-    .select('id, employee_id, employees!leave_requests_employee_id_fkey!inner(department, reporting_lead_id)')
+    .select('id, employee_id, action_plan, employees!leave_requests_employee_id_fkey!inner(department, reporting_lead_id)')
     .eq('id', id)
     .maybeSingle();
   if (!request) {
@@ -49,6 +49,53 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     return NextResponse.json({ error: 'You can only approve requests from employees in your management hierarchy' }, { status: 403 });
   }
 
+  const body = await req.json().catch(() => ({}));
+  const {
+    overrideLeaveTypeCode,
+    overrideStartDate,
+    overrideEndDate,
+    overrideTotalDays,
+    overrideIsHalfDay,
+    overrideHalfDaySession,
+    managerNote,
+  } = body || {};
+
+  // Discretionary manager override: allow updating leave type, dates, or total days prior to debit
+  if (overrideLeaveTypeCode || overrideStartDate || overrideEndDate || overrideTotalDays !== undefined) {
+    const updatePayload: Record<string, any> = {
+      updated_at: new Date().toISOString(),
+    };
+
+    if (overrideLeaveTypeCode) {
+      const { data: lt } = await sessionClient
+        .from('leave_types')
+        .select('id')
+        .eq('code', overrideLeaveTypeCode)
+        .maybeSingle();
+      if (lt) {
+        updatePayload.leave_type_id = lt.id;
+      }
+    }
+    if (overrideStartDate) updatePayload.start_date = overrideStartDate;
+    if (overrideEndDate) updatePayload.end_date = overrideEndDate;
+    if (overrideTotalDays !== undefined && Number(overrideTotalDays) > 0) {
+      updatePayload.total_days = Number(overrideTotalDays);
+    }
+    if (typeof overrideIsHalfDay === 'boolean') {
+      updatePayload.is_half_day = overrideIsHalfDay;
+    }
+    if (overrideHalfDaySession) {
+      updatePayload.half_day_session = overrideHalfDaySession;
+    }
+    if (managerNote) {
+      updatePayload.action_plan = request.action_plan
+        ? `${request.action_plan}\n[Manager Override: ${managerNote}]`
+        : `[Manager Override: ${managerNote}]`;
+    }
+
+    await sessionClient.from('leave_requests').update(updatePayload).eq('id', id);
+  }
+
   const result = await applyLeavePolicyAndMutateBalance({
     employeeId: request.employee_id,
     leaveTypeCode: 'SL',
@@ -58,6 +105,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     source: 'manager_approval',
     existingRequestId: id,
     actingEmployeeId: actingEmployee.id,
+    approvalComment: managerNote,
     approverRole: isHr && !isEffectiveApprover ? 'hr' : via === 'lead' ? 'lead' : 'manager',
   });
 

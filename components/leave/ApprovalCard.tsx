@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Calendar, Clock, User } from 'lucide-react';
+import { Calendar, Clock, User, Edit3, SlidersHorizontal, CheckCircle2 } from 'lucide-react';
 import ViolationBadge from './ViolationBadge';
 import ConfirmDialog from '../ConfirmDialog';
 
@@ -54,12 +54,20 @@ export default function ApprovalCard({
   const router = useRouter();
 
   const [rejecting, setRejecting] = useState(false);
+  const [editing, setEditing] = useState(false);
   const [confirmingApprove, setConfirmingApprove] = useState(false);
   const [confirmingReject, setConfirmingReject] = useState(false);
   const [comment, setComment] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [reminderSent, setReminderSent] = useState(false);
+
+  // Manager discretion overrides
+  const [overrideLeaveType, setOverrideLeaveType] = useState(request.leaveTypeCode);
+  const [overrideStartDate, setOverrideStartDate] = useState(request.startDate);
+  const [overrideEndDate, setOverrideEndDate] = useState(request.endDate);
+  const [overrideDays, setOverrideDays] = useState(request.totalDays);
+  const [managerNote, setManagerNote] = useState('');
 
   async function handleRemind() {
     setLoading(true);
@@ -104,6 +112,44 @@ export default function ApprovalCard({
 
       if (!res.ok) {
         setError(body.error || 'Could not approve this request.');
+        return;
+      }
+
+      router.refresh();
+    } catch {
+      setError('Could not reach the server — check your connection and retry.');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleApproveWithOverrides() {
+    if (editing && !managerNote.trim()) {
+      setError('Please provide a reason / note for the manager override.');
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      const res = await fetch(`/api/leave/approvals/${request.id}/approve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          overrideLeaveTypeCode: overrideLeaveType !== request.leaveTypeCode ? overrideLeaveType : undefined,
+          overrideStartDate: overrideStartDate !== request.startDate ? overrideStartDate : undefined,
+          overrideEndDate: overrideEndDate !== request.endDate ? overrideEndDate : undefined,
+          overrideTotalDays: overrideDays !== request.totalDays ? Number(overrideDays) : undefined,
+          managerNote: managerNote.trim() || undefined,
+        }),
+      });
+
+      const text = await res.text();
+      const body = text ? JSON.parse(text) : {};
+
+      if (!res.ok) {
+        setError(body.error || 'Could not approve this request with overrides.');
         return;
       }
 
@@ -271,8 +317,96 @@ export default function ApprovalCard({
             </button>
           </div>
         </div>
+      ) : editing ? (
+        <div className="mt-auto pt-3.5 space-y-3 border-t border-indigo-500/30 bg-indigo-500/5 -mx-5 -mb-5 p-4 rounded-b-2xl">
+          <div className="flex items-center gap-1.5 text-xs font-bold text-indigo-700 dark:text-indigo-300">
+            <SlidersHorizontal size={14} />
+            <span>Manager Discretion Override</span>
+          </div>
+
+          <div className="grid grid-cols-2 gap-2 text-xs">
+            <div>
+              <label className={FIELD_LABEL_CLASS}>Leave Type</label>
+              <select
+                value={overrideLeaveType}
+                onChange={(e) => setOverrideLeaveType(e.target.value)}
+                className="w-full mt-1 bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg px-2.5 py-1.5 text-xs font-semibold text-[var(--text-primary)] focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              >
+                <option value="SL">Sick Leave (SL)</option>
+                <option value="CL">Casual Leave (CL)</option>
+                <option value="PL">Privilege Leave (PL)</option>
+                <option value="LWP">Leave Without Pay (LWP)</option>
+              </select>
+            </div>
+
+            <div>
+              <label className={FIELD_LABEL_CLASS}>Total Days</label>
+              <input
+                type="number"
+                step="0.5"
+                min="0.5"
+                value={overrideDays}
+                onChange={(e) => setOverrideDays(Number(e.target.value))}
+                className="w-full mt-1 bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg px-2.5 py-1.5 text-xs font-semibold text-[var(--text-primary)] focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              />
+            </div>
+
+            <div>
+              <label className={FIELD_LABEL_CLASS}>Start Date</label>
+              <input
+                type="date"
+                value={overrideStartDate}
+                onChange={(e) => setOverrideStartDate(e.target.value)}
+                className="w-full mt-1 bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg px-2 py-1.5 text-xs font-mono text-[var(--text-primary)] focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              />
+            </div>
+
+            <div>
+              <label className={FIELD_LABEL_CLASS}>End Date</label>
+              <input
+                type="date"
+                value={overrideEndDate}
+                onChange={(e) => setOverrideEndDate(e.target.value)}
+                className="w-full mt-1 bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg px-2 py-1.5 text-xs font-mono text-[var(--text-primary)] focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className={FIELD_LABEL_CLASS}>Discretion Rationale / Note (Required)</label>
+            <input
+              type="text"
+              value={managerNote}
+              onChange={(e) => setManagerNote(e.target.value)}
+              placeholder="e.g. Corrected to PL per notice policy / Biometric match"
+              className="w-full mt-1 bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg px-2.5 py-1.5 text-xs text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:ring-1 focus:ring-indigo-500"
+            />
+          </div>
+
+          <div className="flex items-center gap-2 pt-1">
+            <button
+              type="button"
+              onClick={handleApproveWithOverrides}
+              disabled={loading}
+              className="flex-1 inline-flex items-center justify-center gap-1.5 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold py-2 rounded-xl transition-all shadow-sm disabled:opacity-50"
+            >
+              <CheckCircle2 size={13} />
+              {loading ? 'Approving…' : 'Approve with Changes'}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setEditing(false);
+                setError(null);
+              }}
+              className="px-3 py-2 text-xs font-medium text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
       ) : (
-        <div className="mt-auto flex items-center gap-2 pt-3.5 border-t border-[var(--border-subtle)]">
+        <div className="mt-auto flex items-center gap-1.5 pt-3.5 border-t border-[var(--border-subtle)]">
           {canApprove && (
             <>
               <button
@@ -286,9 +420,20 @@ export default function ApprovalCard({
 
               <button
                 type="button"
+                onClick={() => setEditing(true)}
+                disabled={loading}
+                className="inline-flex items-center gap-1 border border-indigo-500/30 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-500/10 text-xs font-semibold px-2.5 py-2.5 rounded-xl transition-all"
+                title="Override leave type, dates, or days using manager discretion"
+              >
+                <Edit3 size={13} />
+                <span>Edit &amp; Approve</span>
+              </button>
+
+              <button
+                type="button"
                 onClick={() => setRejecting(true)}
                 disabled={loading}
-                className="border border-red-500/40 text-red-600 dark:text-red-400 hover:bg-red-500/10 text-xs font-semibold px-4 py-2.5 rounded-xl transition-all"
+                className="border border-red-500/40 text-red-600 dark:text-red-400 hover:bg-red-500/10 text-xs font-semibold px-3 py-2.5 rounded-xl transition-all"
               >
                 Reject
               </button>
@@ -301,7 +446,7 @@ export default function ApprovalCard({
               onClick={handleRemind}
               disabled={loading || reminderSent}
               title="Notifies both the employee and the approver that this request is still pending"
-              className="border border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-elevated)] disabled:opacity-50 text-xs font-semibold px-3.5 py-2.5 rounded-xl transition-all ml-auto"
+              className="border border-[var(--border)] text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-elevated)] disabled:opacity-50 text-xs font-semibold px-3 py-2.5 rounded-xl transition-all ml-auto"
             >
               {reminderSent ? '✓ Reminded' : 'Remind'}
             </button>

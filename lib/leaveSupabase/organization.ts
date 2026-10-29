@@ -265,7 +265,7 @@ export async function getReportingHierarchy(
     { data: allEmployees, error: allError },
     { data: reportingTargets, error: targetsError },
   ] = await Promise.all([
-    supabase.from('employees').select('id, employee_code, full_name, reporting_manager_id').eq('role', 'manager'),
+    supabase.from('employees').select('id, employee_code, full_name, reporting_manager_id').eq('role', 'manager').eq('is_deleted', false),
     // Leads now carry reporting_manager_id too — see the type comment
     // above and app/api/leave/employees/[id]/profile/route.ts's PATCH
     // handler, which used to unconditionally clear this on every save
@@ -274,14 +274,14 @@ export async function getReportingHierarchy(
     // read this field for any non-employee role, so leads were always
     // *able* to nest under a manager in the tree — nothing here was
     // ever writing (durably) or reading it back for display.
-    supabase.from('employees').select('id, employee_code, full_name, reporting_manager_id').eq('role', 'lead'),
+    supabase.from('employees').select('id, employee_code, full_name, reporting_manager_id').eq('role', 'lead').eq('is_deleted', false),
     supabase.from('department_managers').select('department, manager_id'),
-    supabase.from('employees').select('id, reporting_lead_id').eq('role', 'employee'),
+    supabase.from('employees').select('id, reporting_lead_id').eq('role', 'employee').eq('is_deleted', false),
     // reporting_manager_id can point at any employee now (not just
     // role=manager — see the profile route's note on why), so resolving
     // its display name needs to look across everyone, not just the
     // manager list above.
-    supabase.from('employees').select('id, full_name'),
+    supabase.from('employees').select('id, full_name').eq('is_deleted', false),
   ]);
 
   const firstError = managerError || leadError || deptError || allError || targetsError;

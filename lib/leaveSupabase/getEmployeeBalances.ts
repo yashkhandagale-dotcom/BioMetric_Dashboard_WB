@@ -1,4 +1,4 @@
-﻿import type { SupabaseClient } from '@supabase/supabase-js';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { getFYStartYear } from './fyHelpers';
 
 // Single source of truth for "pivot leave_balances into one row per
@@ -120,6 +120,9 @@ export async function getEmployeeBalancesByFY(
 
   for (const row of balances ?? []) {
     if (!row.employees || !row.leave_types) continue;
+    const name = (row.employees.full_name || '').trim();
+    const empCode = (row.employees.employee_code || '').trim();
+    if (!name || name.toLowerCase() === empCode.toLowerCase() || !/[a-zA-Z]/.test(name)) continue;
 
     const key = row.employee_id;
 

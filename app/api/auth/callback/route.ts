@@ -293,8 +293,9 @@ export async function GET(req: NextRequest) {
   // There is deliberately NO acknowledgement/onboarding step here.
   // -------------------------------------------------------------------------
 
+  const safeNext = next && next.startsWith('/') && !next.startsWith('//') ? next : null;
   const destination =
-    next ||
+    safeNext ||
     homeRouteForRole(employee.role as EmployeeRole);
 
   return NextResponse.redirect(

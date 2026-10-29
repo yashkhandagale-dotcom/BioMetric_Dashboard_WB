@@ -1,4 +1,4 @@
-﻿import type { SupabaseClient } from '@supabase/supabase-js';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { getEffectiveApproverId } from './organization';
 
 // =====================================================================
@@ -207,18 +207,31 @@ export async function notifyLeaveEvent(service: SupabaseClient, event: LeaveEven
   const type: LeaveNotificationType =
     event.type === 'approved' ? 'leave_approved' : event.type === 'corrected' ? 'leave_corrected' : 'leave_cancelled';
   const verb = event.type === 'approved' ? 'approved' : event.type === 'corrected' ? 'reversed by HR' : 'cancelled';
-  const lwpNote = event.convertedToLwp ? ' (recorded as Leave Without Pay due to insufficient balance)' : '';
+  const isLwp = event.convertedToLwp || event.leaveTypeCode === 'LWP';
+  const lwpNote = event.convertedToLwp
+    ? ' (recorded as Leave Without Pay due to insufficient balance)'
+    : event.leaveTypeCode === 'LWP'
+    ? ' (Leave Without Pay)'
+    : '';
   // corrected-only: HR's reason is required at the write boundary (see
   // hrCorrectExistingRequest), so it's always present here, but this
   // stays defensive rather than assuming.
   const reasonNote = event.type === 'corrected' && event.correctionReason ? ` Reason: ${event.correctionReason}` : '';
 
   for (const id of recipientIds) {
+    const isEmp = id === employee.id;
+    let body = `${employee.full_name}'s leave${range ? ` for ${range}` : ''} was ${verb}${lwpNote}.${reasonNote}`;
+    
+    // HR Feedback #3: Remind employee of payroll deduction on 25th-24th salary cycle
+    if (isEmp && isLwp && event.type === 'approved') {
+      body += ' Notice: As this leave is approved as LWP, it will deduct from your standard 30 paid days for this salary cycle (25th to 24th).';
+    }
+
     rows.push({
       recipient_employee_id: id,
       type,
-      title: id === employee.id ? `Your leave request was ${verb}` : `${employee.full_name}'s leave was ${verb}`,
-      body: `${employee.full_name}'s leave${range ? ` for ${range}` : ''} was ${verb}${lwpNote}.${reasonNote}`,
+      title: isEmp ? `Your leave request was ${verb}` : `${employee.full_name}'s leave was ${verb}`,
+      body,
       leave_request_id: event.requestId,
     });
   }

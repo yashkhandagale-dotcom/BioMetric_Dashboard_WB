@@ -1,4 +1,4 @@
-﻿import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse } from 'next/server';
 import { createLeaveClient, createLeaveServiceClient } from '@/lib/leaveSupabase/server';
 import { createServiceClient as createDashboardServiceClient } from '@/lib/supabase/server';
 import { getCurrentEmployee } from '@/lib/leaveSupabase/getCurrentEmployee';
@@ -25,7 +25,8 @@ export async function GET(req: NextRequest) {
     const withoutLogin = req.nextUrl.searchParams.get('without_login') === '1';
     let query = sessionClient
       .from('employees')
-      .select('id, full_name, employee_code, role, department, office, email, auth_user_id')
+      .select('id, full_name, employee_code, role, department, office, email, auth_user_id, is_deleted')
+      .eq('is_deleted', false)
       .order('full_name');
     if (role) query = query.eq('role', role);
     if (withoutLogin) query = query.is('auth_user_id', null);
@@ -34,7 +35,13 @@ export async function GET(req: NextRequest) {
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
-    return NextResponse.json({ employees: employees ?? [] });
+    const filtered = (employees ?? []).filter((e) => {
+      const name = (e.full_name || '').trim();
+      const code = (e.employee_code || '').trim();
+      if (!name || name.toLowerCase() === code.toLowerCase() || !/[a-zA-Z]/.test(name)) return false;
+      return true;
+    });
+    return NextResponse.json({ employees: filtered });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error';
     return NextResponse.json(

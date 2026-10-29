@@ -53,8 +53,9 @@ export default async function LeaveAdminHome() {
     supabase
       .from('employees')
       .select(
-        'id, employee_code, full_name, department, office, role, employment_status, notice_period_days, date_of_joining, reporting_lead_id, reporting_manager_id, auth_user_id, email, auth_provider, last_login_at'
+        'id, employee_code, full_name, department, office, role, employment_status, notice_period_days, date_of_joining, reporting_lead_id, reporting_manager_id, auth_user_id, email, auth_provider, last_login_at, is_deleted'
       )
+      .eq('is_deleted', false)
       .order('full_name'),
     getEmployeeBalancesByFY(supabase, fyStartYear),
     supabase.from('department_managers').select('department, manager_id'),
@@ -76,7 +77,15 @@ export default async function LeaveAdminHome() {
     departmentsByManagerId.set(d.manager_id, list);
   }
 
-  const merged: EmployeeWithBalances[] = (employees ?? []).map((e) => {
+  const merged: EmployeeWithBalances[] = (employees ?? [])
+    .filter((e) => {
+      if ((e as any).is_deleted) return false;
+      const name = (e.full_name || '').trim();
+      const code = (e.employee_code || '').trim();
+      if (!name || name.toLowerCase() === code.toLowerCase() || !/[a-zA-Z]/.test(name)) return false;
+      return true;
+    })
+    .map((e) => {
     const b = balancesById.get(e.id);
     const effectiveManagerId = managerIdByDept.get(e.department) ?? null;
     const effectiveManager = effectiveManagerId ? employeesById.get(effectiveManagerId) : undefined;

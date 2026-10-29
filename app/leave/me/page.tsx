@@ -1,4 +1,5 @@
 import { redirect } from 'next/navigation';
+import { Info } from 'lucide-react';
 import { getCurrentEmployee } from '@/lib/leaveSupabase/getCurrentEmployee';
 import { createLeaveClient } from '@/lib/leaveSupabase/server';
 import { getEmployeeBalanceBreakdown } from '@/lib/leaveSupabase/getEmployeeBalances';
@@ -124,6 +125,24 @@ export default async function LeaveMeHome() {
             <span className="inline-flex items-center px-3 py-1.5 rounded-full text-xs font-semibold border border-[var(--border)] bg-[var(--bg-surface)] text-[var(--text-muted)] capitalize">
               {employee.role?.replace(/_/g, ' ')}
             </span>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Policy Reminder: Paid Days & Cycle Rules (Handbook Reference) ──── */}
+      <div className="rounded-2xl border border-blue-500/25 bg-blue-500/5 p-4 text-xs space-y-2">
+        <div className="flex items-center gap-2 font-bold text-blue-700 dark:text-blue-300">
+          <Info size={16} className="shrink-0" />
+          <span>Handbook Policy Reminder: Paid Days &amp; Leave Cycle Basis</span>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-[var(--text-muted)] text-[11px] leading-relaxed">
+          <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-surface)]/70 p-3">
+            <strong className="text-[var(--text-primary)] block mb-1">Universal 30-Day Pay Basis:</strong>
+            Paid days are always calculated on a standard denominator of <strong>30 days for every calendar month</strong> (including 31-day months and February).
+          </div>
+          <div className="rounded-xl border border-[var(--border)] bg-[var(--bg-surface)]/70 p-3">
+            <strong className="text-[var(--text-primary)] block mb-1">25th to 24th Leave Cycle:</strong>
+            The leave cycle runs from the <strong>25th of the previous month to the 24th of the current month</strong>. Any LWP within this window directly reduces the 30 paid days for that salary run.
           </div>
         </div>
       </div>

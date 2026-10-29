@@ -84,6 +84,8 @@ export interface ApplyLeavePolicyAndMutateBalanceParams {
   // approvals-queue UI (see components/leave/ApprovalCard.tsx) and
   // surfaced verbatim to the employee via notifyLeaveEvent.
   rejectionComment?: string;
+  // manager_approval — optional note or discretion rationale when approving
+  approvalComment?: string;
   // hr_correction only — required. Why HR is reversing an already-
   // approved/auto_lwp request after the fact (typically after its dates
   // have already passed, which is exactly why this isn't routed through
@@ -651,7 +653,8 @@ async function approveExistingRequest(
   service: SupabaseClient,
   existingRequestId: string | undefined,
   actingEmployeeId: string | null | undefined,
-  approverRole: 'lead' | 'manager' | 'hr'
+  approverRole: 'lead' | 'manager' | 'hr',
+  approvalComment?: string
 ): Promise<ApplyLeavePolicyAndMutateBalanceResult> {
   if (!existingRequestId) {
     return {
@@ -735,6 +738,7 @@ async function approveExistingRequest(
       approver_role: approverRole,
       sequence_order: 1,
       status: 'approved',
+      comment: approvalComment ?? null,
       acted_on: new Date().toISOString(),
     });
   }
@@ -1376,7 +1380,7 @@ export async function applyLeavePolicyAndMutateBalance(
     return hrCorrectExistingRequest(service, params.existingRequestId, params.actingEmployeeId, params.correctionReason);
   }
   if (params.source === 'manager_approval') {
-    return approveExistingRequest(service, params.existingRequestId, params.actingEmployeeId, approverRole);
+    return approveExistingRequest(service, params.existingRequestId, params.actingEmployeeId, approverRole, params.approvalComment);
   }
   if (params.source === 'manager_reject') {
     return rejectExistingRequest(service, params.existingRequestId, params.actingEmployeeId, params.rejectionComment);

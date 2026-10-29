@@ -273,14 +273,26 @@ export async function ensureEmployeesFromAttendance(
     }
   }
 
-  const rows = Array.from(seen.entries()).map(([employeeCode, e]) => ({
-    employee_code: employeeCode,
-    full_name: e.employeeName,
-    department: e.department,
-    office: e.officeCode,
-    role: 'employee', // safe default — check constraint requires one of a fixed set; HR can promote later
-    // employment_status defaults to 'active' at the DB level; is_deleted defaults to false.
-  }));
+  const rows = Array.from(seen.entries())
+    .filter(([employeeCode, e]) => {
+      // 1. Skip if already deleted/ignored by HR
+      if (directory.get(employeeCode)?.isDeleted) return false;
+      // 2. Skip ghost rows: empty name, purely numeric name, or name identical to employee code
+      const name = (e.employeeName || '').trim();
+      const code = (employeeCode || '').trim();
+      if (!name || name.toLowerCase() === code.toLowerCase()) return false;
+      // A legitimate person's name must contain at least one alphabetical letter
+      if (!/[a-zA-Z]/.test(name)) return false;
+      return true;
+    })
+    .map(([employeeCode, e]) => ({
+      employee_code: employeeCode,
+      full_name: e.employeeName.trim(),
+      department: e.department,
+      office: e.officeCode,
+      role: 'employee', // safe default — check constraint requires one of a fixed set; HR can promote later
+      // employment_status defaults to 'active' at the DB level; is_deleted defaults to false.
+    }));
 
   const supabase = createClient();
   const { data, error } = await supabase
@@ -316,11 +328,17 @@ export function getAllKnownDepartments(records: AttendanceRecord[]): string[] {
 // override) — it always wins over whatever a CSV upload says, whenever the
 // employee_code is known to the directory at all.
 export function applyEmployeeDirectory(records: AttendanceRecord[]): AttendanceRecord[] {
-  if (directory.size === 0) return records;
   const next: AttendanceRecord[] = [];
   for (const r of records) {
     const entry = directory.get(r.employeeCode);
     if (entry?.isDeleted) continue; // dropped everywhere — KPIs, charts, tables, exports
+
+    // Drop ghost rows: no name, name identical to employee code, or purely numeric name
+    const name = (entry?.employeeName || r.employeeName || '').trim();
+    const code = (r.employeeCode || '').trim();
+    if (!name || name.toLowerCase() === code.toLowerCase()) continue;
+    if (!/[a-zA-Z]/.test(name)) continue;
+
     if (entry && entry.department !== r.department) {
       next.push({ ...r, department: entry.department });
     } else {

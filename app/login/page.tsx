@@ -63,8 +63,9 @@ function LoginForm() {
     setError(null);
     setGoogleLoading(true);
     const supabase = createClient();
-    const next = searchParams.get('next');
-    const redirectTo = `${window.location.origin}/api/auth/callback${next ? `?next=${encodeURIComponent(next)}` : ''}`;
+    const rawNext = searchParams.get('next');
+    const safeNext = rawNext && rawNext.startsWith('/') && !rawNext.startsWith('//') ? rawNext : null;
+    const redirectTo = `${window.location.origin}/api/auth/callback${safeNext ? `?next=${encodeURIComponent(safeNext)}` : ''}`;
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: { redirectTo },
@@ -90,7 +91,8 @@ function LoginForm() {
       return;
     }
 
-    let next = searchParams.get('next');
+    const rawNext = searchParams.get('next');
+    let next = rawNext && rawNext.startsWith('/') && !rawNext.startsWith('//') ? rawNext : null;
     if (!next) {
       const { data: employeeRow } = await supabase
         .from('employees')

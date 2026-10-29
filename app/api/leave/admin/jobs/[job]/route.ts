@@ -183,17 +183,25 @@ async function runAnnualReset(service: SupabaseClient, asOf: Date) {
 // today, so re-running this job the same day never double-sends.
 async function runPendingLeaveReminders(service: SupabaseClient, asOf: Date) {
   const today = asOf.toISOString().slice(0, 10);
+  const fortyEightHoursAgo = new Date(asOf.getTime() - 48 * 60 * 60 * 1000).toISOString();
 
+  // Overdue if leave start date has arrived (today >= start_date) OR
+  // if the application has been pending without action for > 48 hours (HR Feedback #2).
   const { data: pending, error } = await service
     .from('leave_requests')
-    .select('id, start_date')
-    .eq('status', 'pending')
-    .lte('start_date', today);
+    .select('id, start_date, applied_on')
+    .eq('status', 'pending');
   if (error) throw new Error(error.message);
+
+  const overdueRequests = (pending ?? []).filter((req) => {
+    const isPastStart = req.start_date <= today;
+    const isPendingOver48h = req.applied_on ? new Date(req.applied_on) <= new Date(fortyEightHoursAgo) : false;
+    return isPastStart || isPendingOver48h;
+  });
 
   const results: { requestId: string; sent: boolean; reason: string }[] = [];
 
-  for (const req of pending ?? []) {
+  for (const req of overdueRequests) {
     const startOfToday = `${today}T00:00:00.000Z`;
     const { data: alreadySentToday } = await service
       .from('notifications')

@@ -321,8 +321,9 @@ export async function getAttendanceExceptions(
     selectAllRows<EmployeeRow>((from, to) =>
       supabase
         .from('employees')
-        .select('id, employee_code, full_name, department, office, employment_status')
+        .select('id, employee_code, full_name, department, office, employment_status, is_deleted')
         .neq('employment_status', 'exited')
+        .eq('is_deleted', false)
         .range(from, to)
     ),
     supabase
@@ -370,6 +371,11 @@ export async function getAttendanceExceptions(
   const halfDayCandidates: HalfDayCandidate[] = [];
 
   for (const emp of (employees ?? []) as EmployeeRow[]) {
+    // Skip ghost cards: blank name, pure numbers, or name equals employee code
+    const name = (emp.full_name || '').trim();
+    const code = (emp.employee_code || '').trim();
+    if (!name || name.toLowerCase() === code.toLowerCase() || !/[a-zA-Z]/.test(name)) continue;
+
     if (alreadyResolved.has(emp.id)) continue;
     // Approved leave does not suppress biometric short-day detection.
     // Attendance evidence is reconciled against the leave request separately.
@@ -455,8 +461,9 @@ export async function getAttendanceExceptionsRange(
     selectAllRows<EmployeeRow>((from, to) =>
       supabase
         .from('employees')
-        .select('id, employee_code, full_name, department, office, employment_status')
+        .select('id, employee_code, full_name, department, office, employment_status, is_deleted')
         .neq('employment_status', 'exited')
+        .eq('is_deleted', false)
         .range(from, to)
     ),
     selectAllRows<Required<AttendanceRow>>((from, to) =>
@@ -556,6 +563,11 @@ export async function getAttendanceExceptionsRange(
     const resolvedToday = resolvedByDate.get(date);
 
     for (const emp of employeesList) {
+      // Skip ghost cards: blank name, pure numbers, or name equals employee code
+      const name = (emp.full_name || '').trim();
+      const code = (emp.employee_code || '').trim();
+      if (!name || name.toLowerCase() === code.toLowerCase() || !/[a-zA-Z]/.test(name)) continue;
+
       if (resolvedToday?.has(emp.id)) continue;
       if (exemptToday?.has(emp.id)) continue;
       if (holidayDatesByOffice.get(emp.office)?.has(date)) continue;
