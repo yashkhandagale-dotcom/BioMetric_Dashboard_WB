@@ -30,13 +30,24 @@ export async function GET() {
     ] = await Promise.all([
       getDepartmentsWithManagers(supabase),
       getReportingHierarchy(supabase),
-      supabase.from('employees').select('id, employee_code, full_name').eq('role', 'manager').order('full_name'),
+      supabase
+        .from('employees')
+        .select('id, employee_code, full_name')
+        .eq('role', 'manager')
+        .eq('is_deleted', false)
+        .neq('employment_status', 'exited')
+        .order('full_name'),
       // Deliberately not filtered by role — a manager's "reports to" can
       // be any existing employee (e.g. a CEO/CTO who isn't itself
       // role='manager' in this system). See the note in
       // app/api/leave/employees/[id]/profile/route.ts for why this was
       // relaxed from manager-only.
-      supabase.from('employees').select('id, employee_code, full_name, role').order('full_name'),
+      supabase
+        .from('employees')
+        .select('id, employee_code, full_name, role')
+        .eq('is_deleted', false)
+        .neq('employment_status', 'exited')
+        .order('full_name'),
       getOrgTree(supabase),
     ]);
 
@@ -47,12 +58,19 @@ export async function GET() {
       );
     }
 
+    const filterGhosts = (list: any[]) =>
+      (list ?? []).filter((e) => {
+        const name = (e.full_name || '').trim();
+        const code = (e.employee_code || '').trim();
+        return name && name.toLowerCase() !== code.toLowerCase() && /[a-zA-Z]/.test(name);
+      });
+
     return NextResponse.json({
       departments,
       managers: hierarchy?.managers ?? [],
       leads: hierarchy?.leads ?? [],
-      managerOptions: allManagers ?? [],
-      reportingTargetOptions: allEmployeesForReporting ?? [],
+      managerOptions: filterGhosts(allManagers),
+      reportingTargetOptions: filterGhosts(allEmployeesForReporting),
       orgTree,
       orgTreeUnassignedCount: unassignedCount,
     });

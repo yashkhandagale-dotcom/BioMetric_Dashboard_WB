@@ -30,7 +30,9 @@ export async function getDepartmentsWithManagers(
 ): Promise<{ departments: DepartmentWithManager[]; error: string | null }> {
   const { data: employeeRows, error: empError } = await supabase
     .from('employees')
-    .select('department, role, reporting_lead_id')
+    .select('department, role, reporting_lead_id, full_name, employee_code, is_deleted')
+    .eq('is_deleted', false)
+    .neq('employment_status', 'exited')
     .order('department');
   if (empError) return { departments: [], error: empError.message };
 
@@ -38,6 +40,10 @@ export async function getDepartmentsWithManagers(
   // to (role = 'employee'), so what's shown matches what was saved.
   const leadIdsByDept = new Map<string, (string | null)[]>();
   for (const e of employeeRows ?? []) {
+    if ((e as any).is_deleted) continue;
+    const name = (e.full_name || '').trim();
+    const code = (e.employee_code || '').trim();
+    if (!name || name.toLowerCase() === code.toLowerCase() || !/[a-zA-Z]/.test(name)) continue;
     if (!e.department || e.role !== 'employee') continue;
     const list = leadIdsByDept.get(e.department) ?? [];
     list.push(e.reporting_lead_id ?? null);
@@ -265,27 +271,33 @@ export async function getReportingHierarchy(
     { data: allEmployees, error: allError },
     { data: reportingTargets, error: targetsError },
   ] = await Promise.all([
-    supabase.from('employees').select('id, employee_code, full_name, reporting_manager_id').eq('role', 'manager').eq('is_deleted', false),
-    // Leads now carry reporting_manager_id too — see the type comment
-    // above and app/api/leave/employees/[id]/profile/route.ts's PATCH
-    // handler, which used to unconditionally clear this on every save
-    // for role='lead' regardless of what was sent, silently discarding
-    // whatever this page's Leads tab had just set. getOrgTree already
-    // read this field for any non-employee role, so leads were always
-    // *able* to nest under a manager in the tree — nothing here was
-    // ever writing (durably) or reading it back for display.
-    supabase.from('employees').select('id, employee_code, full_name, reporting_manager_id').eq('role', 'lead').eq('is_deleted', false),
+    supabase.from('employees').select('id, employee_code, full_name, reporting_manager_id').eq('role', 'manager').eq('is_deleted', false).neq('employment_status', 'exited'),
+    supabase.from('employees').select('id, employee_code, full_name, reporting_manager_id').eq('role', 'lead').eq('is_deleted', false).neq('employment_status', 'exited'),
     supabase.from('department_managers').select('department, manager_id'),
-    supabase.from('employees').select('id, reporting_lead_id').eq('role', 'employee').eq('is_deleted', false),
-    // reporting_manager_id can point at any employee now (not just
-    // role=manager — see the profile route's note on why), so resolving
-    // its display name needs to look across everyone, not just the
-    // manager list above.
-    supabase.from('employees').select('id, full_name').eq('is_deleted', false),
+    supabase.from('employees').select('id, reporting_lead_id, full_name, employee_code').eq('role', 'employee').eq('is_deleted', false).neq('employment_status', 'exited'),
+    supabase.from('employees').select('id, full_name, employee_code').eq('is_deleted', false).neq('employment_status', 'exited'),
   ]);
 
   const firstError = managerError || leadError || deptError || allError || targetsError;
   if (firstError) return { hierarchy: null, error: firstError.message };
+
+  const validManagerRows = (managerRows ?? []).filter((m) => {
+    const name = (m.full_name || '').trim();
+    const code = (m.employee_code || '').trim();
+    return name && name.toLowerCase() !== code.toLowerCase() && /[a-zA-Z]/.test(name);
+  });
+
+  const validLeadRows = (leadRows ?? []).filter((l) => {
+    const name = (l.full_name || '').trim();
+    const code = (l.employee_code || '').trim();
+    return name && name.toLowerCase() !== code.toLowerCase() && /[a-zA-Z]/.test(name);
+  });
+
+  const validAllEmployees = (allEmployees ?? []).filter((e) => {
+    const name = (e.full_name || '').trim();
+    const code = (e.employee_code || '').trim();
+    return name && name.toLowerCase() !== code.toLowerCase() && /[a-zA-Z]/.test(name);
+  });
 
   const departmentsByManagerId = new Map<string, string[]>();
   for (const d of deptManagers ?? []) {
@@ -297,7 +309,7 @@ export async function getReportingHierarchy(
 
   const namesById = new Map((reportingTargets ?? []).map((e) => [e.id, e.full_name]));
 
-  const managers: ManagerSummary[] = (managerRows ?? []).map((m) => ({
+  const managers: ManagerSummary[] = validManagerRows.map((m) => ({
     id: m.id,
     employeeCode: m.employee_code,
     fullName: m.full_name,
@@ -307,12 +319,12 @@ export async function getReportingHierarchy(
   }));
 
   const leadCounts = new Map<string, number>();
-  for (const e of allEmployees ?? []) {
+  for (const e of validAllEmployees) {
     if (!e.reporting_lead_id) continue;
     leadCounts.set(e.reporting_lead_id, (leadCounts.get(e.reporting_lead_id) ?? 0) + 1);
   }
 
-  const leads: LeadSummary[] = (leadRows ?? []).map((t) => ({
+  const leads: LeadSummary[] = validLeadRows.map((t) => ({
     id: t.id,
     employeeCode: t.employee_code,
     fullName: t.full_name,
@@ -357,10 +369,20 @@ export async function getOrgTree(
 ): Promise<{ roots: OrgTreeNode[]; unassignedCount: number; error: string | null }> {
   const { data: rows, error } = await supabase
     .from('employees')
-    .select('id, employee_code, full_name, role, department, reporting_manager_id, reporting_lead_id')
+    .select('id, employee_code, full_name, role, department, reporting_manager_id, reporting_lead_id, is_deleted')
+    .eq('is_deleted', false)
     .neq('employment_status', 'exited')
     .order('full_name');
   if (error) return { roots: [], unassignedCount: 0, error: error.message };
+
+  // Filter out ghost entries (blank name, pure numbers, or name equals code)
+  const validRows = (rows ?? []).filter((r) => {
+    if ((r as any).is_deleted) return false;
+    const name = (r.full_name || '').trim();
+    const code = (r.employee_code || '').trim();
+    if (!name || name.toLowerCase() === code.toLowerCase() || !/[a-zA-Z]/.test(name)) return false;
+    return true;
+  });
 
   // Pull department -> manager assignment so we can treat a department's
   // assigned manager as the effective parent for employees who don't
@@ -371,7 +393,7 @@ export async function getOrgTree(
   const deptManagerByDept = new Map((deptManagerRows ?? []).map((r) => [r.department, r.manager_id ? String(r.manager_id) : null] as const));
 
   const nodesById = new Map<string, OrgTreeNode>();
-  for (const r of rows ?? []) {
+  for (const r of validRows) {
     const idStr = String(r.id);
     nodesById.set(idStr, {
       id: idStr,
@@ -394,10 +416,10 @@ export async function getOrgTree(
   // 1) Build manager-only tree using reporting_manager_id (managers can nest under managers).
   // 2) Attach all non-manager rows (leads/employees/hr) to their department's assigned manager when present.
   const managerIds = new Set<string>();
-  for (const r of rows ?? []) if (r.role === 'manager') managerIds.add(String(r.id));
+  for (const r of validRows) if (r.role === 'manager') managerIds.add(String(r.id));
 
   // Attach managers under their reporting_manager_id if that target is also a manager.
-  for (const r of rows ?? []) {
+  for (const r of validRows) {
     if (r.role !== 'manager') continue;
     const idStr = String(r.id);
     const node = nodesById.get(idStr)!;
@@ -411,7 +433,7 @@ export async function getOrgTree(
   }
 
   // Now attach non-manager rows to their department's manager when possible.
-  for (const r of rows ?? []) {
+  for (const r of validRows) {
     if (r.role === 'manager') continue;
     const idStr = String(r.id);
     const node = nodesById.get(idStr)!;

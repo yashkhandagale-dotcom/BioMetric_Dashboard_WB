@@ -92,7 +92,9 @@ export async function getEmployeeBalancesByFY(
         full_name,
         employee_code,
         department,
-        office
+        office,
+        is_deleted,
+        employment_status
       )
     `
     )
@@ -120,6 +122,8 @@ export async function getEmployeeBalancesByFY(
 
   for (const row of balances ?? []) {
     if (!row.employees || !row.leave_types) continue;
+    if ((row.employees as any).is_deleted) continue;
+    if ((row.employees as any).employment_status === 'exited') continue;
     const name = (row.employees.full_name || '').trim();
     const empCode = (row.employees.employee_code || '').trim();
     if (!name || name.toLowerCase() === empCode.toLowerCase() || !/[a-zA-Z]/.test(name)) continue;

@@ -56,6 +56,7 @@ export default async function LeaveAdminHome() {
         'id, employee_code, full_name, department, office, role, employment_status, notice_period_days, date_of_joining, reporting_lead_id, reporting_manager_id, auth_user_id, email, auth_provider, last_login_at, is_deleted'
       )
       .eq('is_deleted', false)
+      .neq('employment_status', 'exited')
       .order('full_name'),
     getEmployeeBalancesByFY(supabase, fyStartYear),
     supabase.from('department_managers').select('department, manager_id'),
