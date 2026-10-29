@@ -211,8 +211,8 @@ export async function notifyLeaveEvent(service: SupabaseClient, event: LeaveEven
   const lwpNote = event.convertedToLwp
     ? ' (recorded as Leave Without Pay due to insufficient balance)'
     : event.leaveTypeCode === 'LWP'
-    ? ' (Leave Without Pay)'
-    : '';
+      ? ' (Leave Without Pay)'
+      : '';
   // corrected-only: HR's reason is required at the write boundary (see
   // hrCorrectExistingRequest), so it's always present here, but this
   // stays defensive rather than assuming.
@@ -221,7 +221,7 @@ export async function notifyLeaveEvent(service: SupabaseClient, event: LeaveEven
   for (const id of recipientIds) {
     const isEmp = id === employee.id;
     let body = `${employee.full_name}'s leave${range ? ` for ${range}` : ''} was ${verb}${lwpNote}.${reasonNote}`;
-    
+
     // HR Feedback #3: Remind employee of payroll deduction on 25th-24th salary cycle
     if (isEmp && isLwp && event.type === 'approved') {
       body += ' Notice: As this leave is approved as LWP, it will deduct from your standard 30 paid days for this salary cycle (25th to 24th).';

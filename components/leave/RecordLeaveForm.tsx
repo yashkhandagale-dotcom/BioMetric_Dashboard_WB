@@ -323,8 +323,8 @@ export default function RecordLeaveForm({
             </div>
           </div>
         ) : (
-          <div className="space-y-2">
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="space-y-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs text-[var(--text-muted)] mb-1">Start Date</label>
                 <input
@@ -339,29 +339,46 @@ export default function RecordLeaveForm({
               </div>
               <div>
                 <label className="block text-xs text-[var(--text-muted)] mb-1">No. of Working Days</label>
-                <input
-                  type="number"
-                  min={1}
-                  max={60}
-                  step={1}
-                  value={numDays}
-                  onChange={(e) => handleNumDaysChange(parseInt(e.target.value, 10) || 1)}
-                  className="w-full bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)]"
-                  required
-                />
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => handleNumDaysChange(Math.max(1, numDays - 1))}
+                    disabled={numDays <= 1}
+                    className="w-9 h-9 rounded-lg border border-[var(--border)] bg-[var(--bg-elevated)] hover:bg-[var(--bg-surface)] text-[var(--text-primary)] font-bold text-base flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed transition-colors shrink-0 cursor-pointer"
+                  >
+                    −
+                  </button>
+                  <input
+                    type="number"
+                    min={1}
+                    max={60}
+                    step={1}
+                    value={numDays}
+                    onChange={(e) => handleNumDaysChange(parseInt(e.target.value, 10) || 1)}
+                    className="w-full bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-center font-bold text-[var(--text-primary)] h-9"
+                    required
+                  />
+                  <button
+                    type="button"
+                    onClick={() => handleNumDaysChange(numDays + 1)}
+                    className="w-9 h-9 rounded-lg border border-[var(--border)] bg-[var(--bg-elevated)] hover:bg-[var(--bg-surface)] text-[var(--text-primary)] font-bold text-base flex items-center justify-center transition-colors shrink-0 cursor-pointer"
+                  >
+                    +
+                  </button>
+                </div>
               </div>
-              <div>
-                <label className="block text-xs text-[var(--text-muted)] mb-1">Calculated End Date</label>
-                <input
-                  type="date"
-                  value={endDate}
-                  min={startDate || DATE_INPUT_MIN}
-                  max={DATE_INPUT_MAX}
-                  onChange={(e) => handleEndDateChange(sanitizeDateString(e.target.value))}
-                  className="w-full bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)]"
-                  required
-                />
-              </div>
+            </div>
+            <div>
+              <label className="block text-xs text-[var(--text-muted)] mb-1">Calculated End Date</label>
+              <input
+                type="date"
+                value={endDate}
+                min={startDate || DATE_INPUT_MIN}
+                max={DATE_INPUT_MAX}
+                onChange={(e) => handleEndDateChange(sanitizeDateString(e.target.value))}
+                className="w-full bg-[var(--bg-surface)] border border-[var(--border)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)]"
+                required
+              />
             </div>
             {startDate && endDate && (
               <div className="flex items-center gap-2 bg-[var(--bg-elevated)]/50 border border-[var(--border)] rounded-lg px-3 py-1.5 text-xs text-[var(--text-muted)]">

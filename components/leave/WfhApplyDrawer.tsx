@@ -43,18 +43,25 @@ export default function WfhApplyDrawer({
   return (
     <div className="fixed inset-0 z-50 flex justify-end bg-black/60 backdrop-blur-sm" onClick={onClose}>
       <div
-        className={`h-full w-full max-w-md bg-[var(--bg-surface)] border-l border-[var(--border)] shadow-2xl flex flex-col transition-transform duration-300 ease-out ${
+        className={`h-full w-full sm:max-w-xl md:max-w-2xl bg-[var(--bg-surface)] border-l border-[var(--border)] shadow-2xl flex flex-col transition-transform duration-300 ease-out ${
           mounted ? 'translate-x-0' : 'translate-x-full'
         }`}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--border)] flex-shrink-0">
-          <h3 className="text-[var(--text-primary)] font-semibold text-sm">Apply for WFH</h3>
-          <button type="button" onClick={onClose} className="text-[var(--text-muted)] hover:text-[var(--text-primary)]">
+        <div className="flex items-center justify-between px-6 py-5 border-b border-[var(--border)] flex-shrink-0">
+          <div>
+            <h3 className="text-[var(--text-primary)] font-semibold text-base">Apply for WFH</h3>
+            <p className="text-[var(--text-muted)] text-xs mt-0.5">Submit a work from home request for manager approval</p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="w-8 h-8 rounded-lg flex items-center justify-center text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-elevated)] transition-colors cursor-pointer"
+          >
             <X size={18} />
           </button>
         </div>
-        <div className="scroll-thin flex-1 overflow-y-auto p-5">
+        <div className="scroll-thin flex-1 overflow-y-auto p-6 sm:p-7">
           {submitted ? (
             <div className="bg-emerald-900/30 border border-emerald-500/30 text-emerald-700 dark:text-emerald-300 text-xs rounded-lg px-3 py-2">
               Submitted — sent for manager approval.
