@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import crypto from 'crypto';
 import { createLeaveClient, createLeaveServiceClient } from '@/lib/leaveSupabase/server';
 import { getFYStartYear } from '@/lib/leaveSupabase/fyHelpers';
 import { sendLeaveReminder } from '@/lib/leaveSupabase/notifyLeaveEvent';
@@ -255,6 +256,17 @@ async function runJob(job: Job) {
   return runLeaveThresholdCheckJob(service, now);
 }
 
+function timingSafeCompare(provided: string | null, expected: string | undefined): boolean {
+  if (!provided || !expected) return false;
+  const bufA = Buffer.from(provided);
+  const bufB = Buffer.from(expected);
+  if (bufA.length !== bufB.length) {
+    crypto.timingSafeEqual(bufA, bufA);
+    return false;
+  }
+  return crypto.timingSafeEqual(bufA, bufB);
+}
+
 // D7-2: GET is the path Vercel Cron actually calls (crons can only issue
 // GET requests) — gated by CRON_SECRET instead of a browser session,
 // since there is no logged-in HR user behind a scheduled trigger. See
@@ -267,7 +279,7 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ job:
 
   const cronSecret = process.env.CRON_SECRET;
   const authHeader = req.headers.get('authorization');
-  if (!cronSecret || authHeader !== `Bearer ${cronSecret}`) {
+  if (!cronSecret || !timingSafeCompare(authHeader, `Bearer ${cronSecret}`)) {
     return NextResponse.json({ error: 'Not authorized — this endpoint is for the scheduler only' }, { status: 401 });
   }
 

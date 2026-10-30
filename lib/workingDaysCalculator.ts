@@ -5,8 +5,7 @@ import { getPredefinedHolidays } from './predefinedHolidays';
  */
 export function isWeekend(dateStr: string): boolean {
   const [y, m, d] = dateStr.split('-').map(Number);
-  const date = new Date(y, m - 1, d);
-  const day = date.getDay();
+  const day = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
   return day === 0 || day === 6; // 0 = Sunday, 6 = Saturday
 }
 

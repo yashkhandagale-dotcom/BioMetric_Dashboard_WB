@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "start:local": "next start -H 127.0.0.1",
-    "lint": "eslint"
+    "lint": "eslint",
+    "test": "node scripts/run-tests.mjs"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.0",

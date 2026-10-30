@@ -30,6 +30,11 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     .maybeSingle();
   if (!request) return NextResponse.json({ error: 'WFH request not found' }, { status: 404 });
 
+  // Prevent self-approval (hard rule: no employee or manager may approve their own WFH)
+  if (request.employee_id === actingEmployee.id) {
+    return NextResponse.json({ error: 'You cannot approve your own WFH request.' }, { status: 400 });
+  }
+
   const requestEmployee = Array.isArray(request.employees) ? request.employees[0] : request.employees;
   const { approverId } = await getEffectiveApproverId(sessionClient, {
     department: requestEmployee?.department ?? null,

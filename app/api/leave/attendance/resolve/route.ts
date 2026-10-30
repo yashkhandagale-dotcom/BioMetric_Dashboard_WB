@@ -72,13 +72,10 @@ export async function POST(req: NextRequest) {
     .eq('auth_user_id', user.id)
     .maybeSingle();
 
-  // Recording leave against someone else's day is an HR action (the
-  // underlying leave already went through POST /api/leave/employees/
-  // requests, which itself only lets plain `hr` — not hr_super_admin —
-  // record leave on someone's behalf). This is a defense-in-depth check
-  // for the follow-up "mark it resolved" step, not the primary gate.
-  if (action === 'leave_recorded' && (!actingEmployee || !['hr', 'hr_super_admin'].includes(actingEmployee.role))) {
-    return NextResponse.json({ error: 'Only HR can record a leave against this day.' }, { status: 403 });
+  // Resolving an attendance exception (whether by recording a leave or
+  // ignoring a false positive) is strictly an HR administrative action.
+  if (!actingEmployee || !['hr', 'hr_super_admin'].includes(actingEmployee.role)) {
+    return NextResponse.json({ error: 'Only HR administrators can resolve attendance exceptions.' }, { status: 403 });
   }
 
   const patch: Record<string, unknown> = {

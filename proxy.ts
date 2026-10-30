@@ -44,11 +44,11 @@ export async function proxy(req: NextRequest) {
   }
 
   const isSharedView = req.nextUrl.searchParams.get('view') === '1';
-  const isSharedLinkApi = pathname.startsWith('/api/shared-link');
+  const isSharedLinkRead = pathname.startsWith('/api/shared-link') && req.method === 'GET';
   const isLoginPage = pathname.startsWith('/login');
   const isAuthApi = pathname.startsWith('/api/auth');
 
-  if (isSharedView || isSharedLinkApi || isLoginPage || isAuthApi) {
+  if (isSharedView || isSharedLinkRead || isLoginPage || isAuthApi) {
     const { response } = await updateSession(req);
     return response;
   }

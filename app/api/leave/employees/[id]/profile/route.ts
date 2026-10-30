@@ -4,6 +4,7 @@ import { createLeaveClient, createLeaveServiceClient } from '@/lib/leaveSupabase
 import { getFYStartYear, formatFYLabel } from '@/lib/leaveSupabase/fyHelpers';
 import { getEmployeeBalancesByFY } from '@/lib/leaveSupabase/getEmployeeBalances';
 import { getCurrentEmployee } from '@/lib/leaveSupabase/getCurrentEmployee';
+import { getManagedEmployeeIds } from '@/lib/leaveSupabase/organization';
 
 // D2-2: powers the Employee Modal's Overview / Balances / Leave Timeline
 // tabs in one round trip. Balances reuse getEmployeeBalancesByFY — the
@@ -44,6 +45,27 @@ export async function GET(req: NextRequest, { params }: { params: Promise<{ id: 
   }
 
   try {
+    const { data: actingEmployee } = await supabase
+      .from('employees')
+      .select('id, role')
+      .eq('auth_user_id', user.id)
+      .maybeSingle();
+
+    if (!actingEmployee) {
+      return NextResponse.json({ error: 'No employee record linked to this account' }, { status: 403 });
+    }
+
+    const isHr = actingEmployee.role === 'hr' || actingEmployee.role === 'hr_super_admin';
+    const isSelf = actingEmployee.id === id;
+    let isManager = false;
+    if (!isHr && !isSelf && (actingEmployee.role === 'manager' || actingEmployee.role === 'lead')) {
+      const { employeeIds } = await getManagedEmployeeIds(supabase, actingEmployee.id);
+      isManager = employeeIds.includes(id);
+    }
+    if (!isHr && !isSelf && !isManager) {
+      return NextResponse.json({ error: 'You are not authorized to view this employee profile.' }, { status: 403 });
+    }
+
     const fyStartYear = getFYStartYear();
 
     const [{ data: employee, error: empError }, { rows: balanceRows, error: balError }, { data: requests, error: reqError }] =
